@@ -12,6 +12,9 @@ import Courses from "./pages/Courses";
 import Auth from "./pages/Auth";
 import Bookings from "./pages/Bookings";
 import Admin from "./pages/Admin";
+import ExperienceBuilder from "./pages/ExperienceBuilder";
+import ItineraryResults from "./pages/ItineraryResults";
+import SharedItinerary from "./pages/SharedItinerary";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -31,6 +34,9 @@ const App = () => (
             <Route path="/courses" element={<Courses />} />
             <Route path="/auth" element={<Auth />} />
             <Route path="/bookings" element={<Bookings />} />
+            <Route path="/experience" element={<ExperienceBuilder />} />
+            <Route path="/itinerary/:id" element={<ItineraryResults />} />
+            <Route path="/share/:slug" element={<SharedItinerary />} />
             <Route path="/admin" element={<Admin />} />
           </Route>
           <Route path="*" element={<NotFound />} />
