@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Music, MapPin, Calendar, ArrowRight, Star } from "lucide-react";
+import { Music, MapPin, Calendar, ArrowRight, Star, Wand2, Trophy, Crown } from "lucide-react";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 const db = supabase as any;
@@ -10,10 +10,10 @@ import type { Package } from "@/types/database";
 import heroImage from "@/assets/hero-image.jpg";
 
 const categories = [
+  { icon: Wand2, label: "AI Trip Planner", description: "Get a curated weekend in seconds", link: "/experience" },
   { icon: Music, label: "Concerts", description: "Live music from top artists", link: "/events" },
   { icon: "⛳", label: "Golf Courses", description: "Championship public courses", link: "/courses" },
-  { icon: Calendar, label: "Weekend Getaways", description: "2–3 day curated packages", link: "/packages?category=weekend" },
-  { icon: Star, label: "VIP Experiences", description: "Premium seats + top courses", link: "/packages?category=vip" },
+  { icon: Calendar, label: "Packages", description: "Pre-built concert + golf combos", link: "/packages" },
 ];
 
 export default function Index() {
@@ -50,10 +50,10 @@ export default function Index() {
           </p>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-4 opacity-0 animate-fade-in [animation-delay:400ms]">
             <Button asChild size="lg" className="rounded-full bg-accent px-8 text-accent-foreground hover:bg-accent/90">
-              <Link to="/packages">Browse Packages</Link>
+              <Link to="/experience">Start Your Experience</Link>
             </Button>
             <Button asChild variant="outline" size="lg" className="rounded-full border-white/30 bg-white/10 text-white hover:bg-white/20">
-              <Link to="/events">View Concerts</Link>
+              <Link to="/packages">Browse Packages</Link>
             </Button>
           </div>
         </div>
@@ -113,12 +113,12 @@ export default function Index() {
 
       {/* CTA */}
       <section className="container mx-auto px-4 py-16 text-center">
-        <h2 className="font-serif text-3xl font-bold">Ready for the Ultimate Getaway?</h2>
+        <h2 className="font-serif text-3xl font-bold">Plan Your Legendary Weekend</h2>
         <p className="mx-auto mt-2 max-w-lg text-muted-foreground">
-          Sign up to get early access to new packages and exclusive deals.
+          Tell our AI what you're looking for and get 3 curated package tiers — with book-direct links.
         </p>
         <Button asChild size="lg" className="mt-6 rounded-full px-8">
-          <Link to="/auth">Get Started</Link>
+          <Link to="/experience">Start Your Experience</Link>
         </Button>
       </section>
     </>

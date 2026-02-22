@@ -19,13 +19,15 @@ export default function Navbar() {
     <header className="sticky top-0 z-50 border-b border-border/50 bg-background/80 backdrop-blur-md">
       <nav className="container mx-auto flex h-16 items-center justify-between px-4">
         <Link to="/" className="flex items-center gap-2">
-          <span className="font-serif text-xl font-bold text-primary">Fairway</span>
-          <span className="font-serif text-xl text-accent">&</span>
-          <span className="font-serif text-xl font-bold text-primary">Encore</span>
+          <span className="font-serif text-xl font-bold text-primary">Experience</span>
+          <span className="font-serif text-xl text-accent"> Caddie</span>
         </Link>
 
         {/* Desktop */}
         <div className="hidden items-center gap-6 md:flex">
+          <Link to="/experience" className="text-sm font-medium text-accent transition-colors hover:text-accent/80">
+            Plan a Trip
+          </Link>
           <Link to="/packages" className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground">
             Packages
           </Link>
@@ -76,6 +78,7 @@ export default function Navbar() {
       {mobileOpen && (
         <div className="border-t border-border bg-background p-4 md:hidden">
           <div className="flex flex-col gap-3">
+            <Link to="/experience" onClick={() => setMobileOpen(false)} className="text-sm font-medium text-accent">Plan a Trip</Link>
             <Link to="/packages" onClick={() => setMobileOpen(false)} className="text-sm font-medium">Packages</Link>
             <Link to="/events" onClick={() => setMobileOpen(false)} className="text-sm font-medium">Concerts</Link>
             <Link to="/courses" onClick={() => setMobileOpen(false)} className="text-sm font-medium">Golf Courses</Link>

@@ -103,6 +103,50 @@ export type Database = {
           },
         ]
       }
+      click_events: {
+        Row: {
+          created_at: string
+          id: string
+          ip_hash: string | null
+          itinerary_id: string
+          label: string | null
+          package_tier: string
+          target_url: string
+          user_agent: string | null
+          vendor: Database["public"]["Enums"]["vendor_type"]
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          ip_hash?: string | null
+          itinerary_id: string
+          label?: string | null
+          package_tier: string
+          target_url: string
+          user_agent?: string | null
+          vendor: Database["public"]["Enums"]["vendor_type"]
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          ip_hash?: string | null
+          itinerary_id?: string
+          label?: string | null
+          package_tier?: string
+          target_url?: string
+          user_agent?: string | null
+          vendor?: Database["public"]["Enums"]["vendor_type"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "click_events_itinerary_id_fkey"
+            columns: ["itinerary_id"]
+            isOneToOne: false
+            referencedRelation: "itineraries"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       destinations: {
         Row: {
           city: string | null
@@ -305,6 +349,66 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      itineraries: {
+        Row: {
+          budget_tier: Database["public"]["Enums"]["budget_tier"]
+          city: string
+          created_at: string
+          email: string | null
+          end_date: string
+          event_details: string | null
+          group_size: number
+          id: string
+          path: Database["public"]["Enums"]["experience_path"]
+          preferences: Json | null
+          prompt_version: string | null
+          result_json: Json | null
+          share_slug: string | null
+          start_date: string
+          status: Database["public"]["Enums"]["itinerary_status"]
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          budget_tier?: Database["public"]["Enums"]["budget_tier"]
+          city: string
+          created_at?: string
+          email?: string | null
+          end_date: string
+          event_details?: string | null
+          group_size?: number
+          id?: string
+          path: Database["public"]["Enums"]["experience_path"]
+          preferences?: Json | null
+          prompt_version?: string | null
+          result_json?: Json | null
+          share_slug?: string | null
+          start_date: string
+          status?: Database["public"]["Enums"]["itinerary_status"]
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          budget_tier?: Database["public"]["Enums"]["budget_tier"]
+          city?: string
+          created_at?: string
+          email?: string | null
+          end_date?: string
+          event_details?: string | null
+          group_size?: number
+          id?: string
+          path?: Database["public"]["Enums"]["experience_path"]
+          preferences?: Json | null
+          prompt_version?: string | null
+          result_json?: Json | null
+          share_slug?: string | null
+          start_date?: string
+          status?: Database["public"]["Enums"]["itinerary_status"]
+          updated_at?: string
+          user_id?: string | null
+        }
+        Relationships: []
       }
       packages: {
         Row: {
@@ -510,6 +614,16 @@ export type Database = {
     }
     Enums: {
       app_role: "admin" | "user"
+      budget_tier: "low" | "mid" | "high"
+      experience_path: "golf_music" | "sports" | "luxury" | "custom"
+      itinerary_status: "draft" | "generating" | "generated" | "error"
+      vendor_type:
+        | "ticket"
+        | "hotel"
+        | "flight"
+        | "golf"
+        | "experience"
+        | "restaurant"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -638,6 +752,17 @@ export const Constants = {
   public: {
     Enums: {
       app_role: ["admin", "user"],
+      budget_tier: ["low", "mid", "high"],
+      experience_path: ["golf_music", "sports", "luxury", "custom"],
+      itinerary_status: ["draft", "generating", "generated", "error"],
+      vendor_type: [
+        "ticket",
+        "hotel",
+        "flight",
+        "golf",
+        "experience",
+        "restaurant",
+      ],
     },
   },
 } as const
