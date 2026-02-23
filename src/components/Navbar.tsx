@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
 import { Menu, X, User, LogOut, Shield } from "lucide-react";
 import { useState } from "react";
+import ecLogo from "@/assets/ec-logo.png";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -19,6 +20,7 @@ export default function Navbar() {
     <header className="sticky top-0 z-50 border-b border-border/50 bg-background/80 backdrop-blur-md">
       <nav className="container mx-auto flex h-16 items-center justify-between px-4">
         <Link to="/" className="flex items-center gap-2">
+          <img src={ecLogo} alt="Experience Caddie logo" className="h-10 w-auto" />
           <span className="font-serif text-xl font-bold text-primary">Experience</span>
           <span className="font-serif text-xl text-accent"> Caddie</span>
         </Link>
