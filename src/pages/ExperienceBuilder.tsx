@@ -7,19 +7,40 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
-import { Music, Trophy, ArrowRight, ArrowLeft, Loader2, Wand2 } from "lucide-react";
+import { Music, Trophy, Search, Sparkles, ArrowRight, ArrowLeft, Loader2, Wand2, MapPin, Calendar } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 
 const db = supabase as any;
 
-type ExperiencePath = "golf_music" | "sports" | "luxury" | "custom";
+type EntryOption = "artist" | "find_concert" | "sporting_event" | "surprise";
 type BudgetTier = "low" | "mid" | "high";
 
-const PATHS = [
-  { id: "golf_music" as ExperiencePath, icon: Music, label: "Golf + Concert", description: "Championship courses and concert nights" },
-  { id: "sports" as ExperiencePath, icon: Trophy, label: "Golf + Sports Event", description: "Big games, tailgates, and World Cup" },
+const ENTRY_OPTIONS = [
+  {
+    id: "artist" as EntryOption,
+    icon: Music,
+    label: "I have an artist in mind",
+    description: "Build a golf weekend around a concert",
+  },
+  {
+    id: "find_concert" as EntryOption,
+    icon: Search,
+    label: "Help me find a concert",
+    description: "We'll suggest the best upcoming shows",
+  },
+  {
+    id: "sporting_event" as EntryOption,
+    icon: Trophy,
+    label: "I'm going to a sporting event",
+    description: "Pair golf with game day",
+  },
+  {
+    id: "surprise" as EntryOption,
+    icon: Sparkles,
+    label: "Surprise me",
+    description: "Plan something epic — I'm flexible",
+  },
 ];
 
 const PREFERENCES = [
@@ -31,16 +52,21 @@ const PREFERENCES = [
 ];
 
 export default function ExperienceBuilder() {
-  const [step, setStep] = useState<"path" | "details">("path");
-  const [selectedPath, setSelectedPath] = useState<ExperiencePath | null>(null);
+  const [step, setStep] = useState<"start" | "details">("start");
+  const [selectedEntry, setSelectedEntry] = useState<EntryOption | null>(null);
+  const [eventInput, setEventInput] = useState("");
+
+  // Details
+  const [flexibleLocation, setFlexibleLocation] = useState(true);
   const [city, setCity] = useState("");
+  const [flexibleDates, setFlexibleDates] = useState(true);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [budget, setBudget] = useState<BudgetTier>("mid");
   const [groupSize, setGroupSize] = useState(2);
   const [preferences, setPreferences] = useState<Record<string, boolean>>({});
-  const [eventDetails, setEventDetails] = useState("");
   const [generating, setGenerating] = useState(false);
+
   const { user } = useAuth();
   const navigate = useNavigate();
 
@@ -48,25 +74,57 @@ export default function ExperienceBuilder() {
     setPreferences((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
+  const getPath = () => {
+    return selectedEntry === "sporting_event" ? "sports" : "golf_music";
+  };
+
+  const getEventDetails = () => {
+    if (selectedEntry === "artist") return eventInput;
+    if (selectedEntry === "find_concert") return "discover for me";
+    if (selectedEntry === "sporting_event") return eventInput;
+    return "surprise me — plan something epic";
+  };
+
+  const handleContinue = () => {
+    if (!selectedEntry) {
+      toast.error("Pick an option to get started");
+      return;
+    }
+    if ((selectedEntry === "artist" || selectedEntry === "sporting_event") && !eventInput.trim()) {
+      toast.error(selectedEntry === "artist" ? "Enter an artist or band name" : "Enter an event name");
+      return;
+    }
+    setStep("details");
+  };
+
   const handleGenerate = async () => {
-    if (!selectedPath || !city || !startDate || !endDate) {
-      toast.error("Please fill in all required fields");
+    if (!flexibleLocation && !city) {
+      toast.error("Enter a city or switch to flexible location");
+      return;
+    }
+    if (!flexibleDates && (!startDate || !endDate)) {
+      toast.error("Enter dates or switch to flexible dates");
       return;
     }
 
+    const finalCity = flexibleLocation ? "flexible" : city;
+    const finalStart = flexibleDates ? new Date().toISOString().split("T")[0] : startDate;
+    const finalEnd = flexibleDates
+      ? new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]
+      : endDate;
+
     setGenerating(true);
     try {
-      // Create itinerary record
       const { data: itinerary, error: insertErr } = await db.from("itineraries").insert({
         user_id: user?.id || null,
-        path: selectedPath,
-        city,
-        start_date: startDate,
-        end_date: endDate,
+        path: getPath(),
+        city: finalCity,
+        start_date: finalStart,
+        end_date: finalEnd,
         budget_tier: budget,
         group_size: groupSize,
-        preferences,
-        event_details: eventDetails || null,
+        preferences: { ...preferences, flexible_location: flexibleLocation, flexible_dates: flexibleDates },
+        event_details: getEventDetails(),
         email: user?.email || null,
       }).select().single();
 
@@ -74,13 +132,11 @@ export default function ExperienceBuilder() {
         throw new Error(insertErr?.message || "Failed to create itinerary");
       }
 
-      // Call AI generation
       const { data: genData, error: genErr } = await supabase.functions.invoke("generate-itinerary", {
         body: { itinerary_id: itinerary.id },
       });
 
       if (genErr) throw genErr;
-
       if (genData?.error) {
         toast.error(genData.error);
         setGenerating(false);
@@ -106,66 +162,157 @@ export default function ExperienceBuilder() {
   }
 
   return (
-    <div className="container mx-auto max-w-3xl px-4 py-12">
-      <div className="mb-8 text-center">
-        <h1 className="font-serif text-4xl font-bold">Start Your Experience</h1>
-        <p className="mt-2 text-muted-foreground">
-          Tell us what you're looking for and we'll build your perfect weekend
-        </p>
-      </div>
-
-      {step === "path" && (
-        <div className="space-y-6">
-          <h2 className="text-center font-serif text-xl font-semibold">Choose Your Path</h2>
-          <div className="grid gap-4 sm:grid-cols-2">
-            {PATHS.map((p) => (
-              <Card
-                key={p.id}
-                className={`cursor-pointer border-2 transition-all hover:shadow-lg ${
-                  selectedPath === p.id
-                    ? "border-primary bg-primary/5 shadow-md"
-                    : "border-border/50 hover:border-primary/30"
-                }`}
-                onClick={() => setSelectedPath(p.id)}
-              >
-                <CardContent className="flex flex-col items-center p-6 text-center">
-                  <div className={`mb-3 flex h-14 w-14 items-center justify-center rounded-full transition-colors ${
-                    selectedPath === p.id ? "bg-primary text-primary-foreground" : "bg-primary/10 text-primary"
-                  }`}>
-                    <p.icon className="h-7 w-7" />
-                  </div>
-                  <h3 className="font-serif text-lg font-semibold">{p.label}</h3>
-                  <p className="mt-1 text-sm text-muted-foreground">{p.description}</p>
-                </CardContent>
-              </Card>
-            ))}
+    <div className="container mx-auto max-w-2xl px-4 py-12">
+      {step === "start" && (
+        <div className="space-y-8">
+          <div className="text-center">
+            <h1 className="font-serif text-4xl font-bold">Start Your Experience</h1>
+            <p className="mt-3 text-muted-foreground">
+              Don't worry about dates or location yet — just tell us what sounds good.
+            </p>
           </div>
-          <div className="flex justify-center">
+
+          <div className="space-y-3">
+            {ENTRY_OPTIONS.map((opt) => {
+              const isSelected = selectedEntry === opt.id;
+              return (
+                <Card
+                  key={opt.id}
+                  className={`cursor-pointer border transition-all ${
+                    isSelected
+                      ? "border-primary bg-primary/5 shadow-sm"
+                      : "border-border/50 hover:border-primary/20"
+                  }`}
+                  onClick={() => {
+                    setSelectedEntry(opt.id);
+                    setEventInput("");
+                  }}
+                >
+                  <CardContent className="flex items-center gap-4 p-4">
+                    <div
+                      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-colors ${
+                        isSelected ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
+                      }`}
+                    >
+                      <opt.icon className="h-5 w-5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <h3 className="font-medium">{opt.label}</h3>
+                      <p className="text-sm text-muted-foreground">{opt.description}</p>
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+
+          {/* Inline input for artist or sporting event */}
+          {selectedEntry === "artist" && (
+            <div className="space-y-2 animate-fade-in">
+              <Label htmlFor="artist-input">Who do you want to see?</Label>
+              <Input
+                id="artist-input"
+                placeholder="e.g. Tyler Childers, Morgan Wallen, Zach Bryan"
+                value={eventInput}
+                onChange={(e) => setEventInput(e.target.value)}
+                autoFocus
+              />
+            </div>
+          )}
+
+          {selectedEntry === "sporting_event" && (
+            <div className="space-y-2 animate-fade-in">
+              <Label htmlFor="sport-input">What event are you going to?</Label>
+              <Input
+                id="sport-input"
+                placeholder="e.g. NFL playoff game, World Cup, March Madness"
+                value={eventInput}
+                onChange={(e) => setEventInput(e.target.value)}
+                autoFocus
+              />
+            </div>
+          )}
+
+          <div className="flex justify-center pt-2">
             <Button
-              onClick={() => setStep("details")}
-              disabled={!selectedPath}
+              onClick={handleContinue}
+              disabled={!selectedEntry}
               size="lg"
               className="rounded-full px-8"
             >
-              Next <ArrowRight className="ml-2 h-4 w-4" />
+              Continue <ArrowRight className="ml-2 h-4 w-4" />
             </Button>
           </div>
         </div>
       )}
 
       {step === "details" && (
-        <div className="space-y-6">
-          <Button variant="ghost" onClick={() => setStep("path")} className="mb-2">
-            <ArrowLeft className="mr-2 h-4 w-4" /> Back to paths
-          </Button>
+        <div className="space-y-8">
+          <div>
+            <Button variant="ghost" onClick={() => setStep("start")} className="mb-4">
+              <ArrowLeft className="mr-2 h-4 w-4" /> Back
+            </Button>
+            <h2 className="font-serif text-2xl font-bold">Fine-tune your trip</h2>
+            <p className="mt-1 text-muted-foreground">
+              Everything here is optional — we'll work with whatever you give us.
+            </p>
+          </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="city">City *</Label>
-              <Input id="city" placeholder="e.g. Austin, TX" value={city} onChange={(e) => setCity(e.target.value)} />
+          {/* Location */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <MapPin className="h-4 w-4 text-muted-foreground" />
+                <Label className="text-base font-medium">Location</Label>
+              </div>
+              <button
+                onClick={() => setFlexibleLocation(!flexibleLocation)}
+                className={`text-sm font-medium transition-colors ${
+                  flexibleLocation ? "text-primary" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {flexibleLocation ? "I'm flexible ✓" : "Set a location"}
+              </button>
             </div>
+            {!flexibleLocation && (
+              <Input
+                placeholder="e.g. Austin, TX"
+                value={city}
+                onChange={(e) => setCity(e.target.value)}
+                className="animate-fade-in"
+                autoFocus
+              />
+            )}
+          </div>
+
+          {/* Dates */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Calendar className="h-4 w-4 text-muted-foreground" />
+                <Label className="text-base font-medium">Dates</Label>
+              </div>
+              <button
+                onClick={() => setFlexibleDates(!flexibleDates)}
+                className={`text-sm font-medium transition-colors ${
+                  flexibleDates ? "text-primary" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {flexibleDates ? "I'm flexible ✓" : "Set dates"}
+              </button>
+            </div>
+            {!flexibleDates && (
+              <div className="grid gap-3 sm:grid-cols-2 animate-fade-in">
+                <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+                <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+              </div>
+            )}
+          </div>
+
+          {/* Budget & Group */}
+          <div className="grid gap-6 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="budget">Budget</Label>
+              <Label>Budget</Label>
               <Select value={budget} onValueChange={(v) => setBudget(v as BudgetTier)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -175,74 +322,44 @@ export default function ExperienceBuilder() {
                 </SelectContent>
               </Select>
             </div>
-          </div>
-
-          <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="start">Start Date *</Label>
-              <Input id="start" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="end">End Date *</Label>
-              <Input id="end" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+              <Label>Group Size</Label>
+              <Input
+                type="number"
+                min={1}
+                max={20}
+                value={groupSize}
+                onChange={(e) => setGroupSize(parseInt(e.target.value) || 2)}
+              />
             </div>
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="group">Group Size</Label>
-            <Input
-              id="group"
-              type="number"
-              min={1}
-              max={20}
-              value={groupSize}
-              onChange={(e) => setGroupSize(parseInt(e.target.value) || 2)}
-              className="w-32"
-            />
-          </div>
-
+          {/* Preferences */}
           <div className="space-y-3">
             <Label>Preferences</Label>
-            <div className="flex flex-wrap gap-4">
+            <div className="flex flex-wrap gap-3">
               {PREFERENCES.map((pref) => (
-                <div key={pref.id} className="flex items-center gap-2">
+                <label
+                  key={pref.id}
+                  className={`flex cursor-pointer items-center gap-2 rounded-full border px-4 py-2 text-sm transition-all ${
+                    preferences[pref.id]
+                      ? "border-primary bg-primary/5 text-foreground"
+                      : "border-border text-muted-foreground hover:border-primary/30"
+                  }`}
+                >
                   <Checkbox
                     id={pref.id}
                     checked={!!preferences[pref.id]}
                     onCheckedChange={() => togglePref(pref.id)}
+                    className="sr-only"
                   />
-                  <Label htmlFor={pref.id} className="cursor-pointer text-sm font-normal">
-                    {pref.label}
-                  </Label>
-                </div>
+                  {pref.label}
+                </label>
               ))}
             </div>
           </div>
 
-          {selectedPath === "golf_music" && (
-            <div className="space-y-2">
-              <Label htmlFor="event">Artist / Concert (optional)</Label>
-              <Textarea
-                id="event"
-                placeholder='e.g. "Tyler Childers" or "discover for me"'
-                value={eventDetails}
-                onChange={(e) => setEventDetails(e.target.value)}
-              />
-            </div>
-          )}
-
-          {selectedPath === "sports" && (
-            <div className="space-y-2">
-              <Label htmlFor="event">Sport / Team / Event (optional)</Label>
-              <Textarea
-                id="event"
-                placeholder='e.g. "NFL game" or "March Madness"'
-                value={eventDetails}
-                onChange={(e) => setEventDetails(e.target.value)}
-              />
-            </div>
-          )}
-
+          {/* Generate */}
           <div className="flex justify-center pt-4">
             <Button onClick={handleGenerate} size="lg" className="rounded-full px-10">
               <Wand2 className="mr-2 h-4 w-4" /> Generate My Weekend
