@@ -88,11 +88,34 @@ export default function ExperienceBuilder() {
       return;
     }
 
-    const finalCity = flexibleLocation ? "flexible" : city;
+    // Client-side input validation
+    const trimmedCity = flexibleLocation ? "flexible" : city.trim().slice(0, 100);
+    if (!flexibleLocation && !/^[a-zA-Z\s\-'.,()\u00C0-\u024F]+$/.test(trimmedCity)) {
+      toast.error("City name contains invalid characters");
+      return;
+    }
+    if (groupSize < 1 || groupSize > 20) {
+      toast.error("Group size must be between 1 and 20");
+      return;
+    }
+    const validBudgets = ["low", "mid", "high"];
+    if (!validBudgets.includes(budget)) {
+      toast.error("Invalid budget selection");
+      return;
+    }
+
+    const finalCity = trimmedCity;
     const finalStart = flexibleDates ? new Date().toISOString().split("T")[0] : startDate;
     const finalEnd = flexibleDates
       ? new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]
       : endDate;
+
+    // Validate date format
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+    if (!dateRegex.test(finalStart) || !dateRegex.test(finalEnd)) {
+      toast.error("Invalid date format");
+      return;
+    }
 
     setGenerating(true);
     
@@ -104,6 +127,7 @@ export default function ExperienceBuilder() {
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
       console.log("Starting itinerary insert...");
+      const eventDetails = getEventDetails();
       const insertPayload = {
         user_id: user?.id || null,
         path: "golf_music",
@@ -111,9 +135,9 @@ export default function ExperienceBuilder() {
         start_date: finalStart,
         end_date: finalEnd,
         budget_tier: budget,
-        group_size: groupSize,
+        group_size: Math.min(Math.max(groupSize, 1), 20),
         preferences: { flexible_location: flexibleLocation, flexible_dates: flexibleDates },
-        event_details: getEventDetails(),
+        event_details: typeof eventDetails === "string" ? eventDetails.slice(0, 1000) : null,
         email: user?.email || null,
       };
       console.log("Insert payload:", JSON.stringify(insertPayload));
