@@ -20,17 +20,24 @@ export default function Packages() {
 
   useEffect(() => {
     const fetchPackages = async () => {
-      let query = db
-        .from("packages")
-        .select("*, events(*, artists(*), venues(*)), golf_courses(*), destinations(*)")
-        .eq("active", true);
-
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+      const headers: Record<string, string> = {
+        "apikey": supabaseKey,
+        "Authorization": `Bearer ${supabaseKey}`,
+      };
+      const select = "*, events(*, artists(*), venues(*)), golf_courses(*), destinations(*)";
+      let url = `${supabaseUrl}/rest/v1/packages?select=${encodeURIComponent(select)}&active=eq.true`;
       if (categoryFilter !== "all") {
-        query = query.eq("category", categoryFilter);
+        url += `&category=eq.${encodeURIComponent(categoryFilter)}`;
       }
-
-      const { data } = await query;
-      if (data) setPackages(data as unknown as Package[]);
+      try {
+        const res = await fetch(url, { headers });
+        const data = await res.json();
+        if (Array.isArray(data)) setPackages(data as unknown as Package[]);
+      } catch (e) {
+        console.error("Failed to fetch packages:", e);
+      }
       setLoading(false);
     };
     fetchPackages();
