@@ -142,16 +142,27 @@ export default function ExperienceBuilder() {
       };
       console.log("Insert payload:", JSON.stringify(insertPayload));
 
-      const { data: itinerary, error: insertError } = await supabase
-        .from("itineraries")
-        .insert([insertPayload])
-        .select()
-        .single();
+      // Use fetch directly — the Supabase JS client hangs on insert
+      const insertRes = await fetch(`${supabaseUrl}/rest/v1/itineraries?select=*`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "apikey": supabaseKey,
+          "Authorization": `Bearer ${supabaseKey}`,
+          "Prefer": "return=representation",
+        },
+        body: JSON.stringify(insertPayload),
+        signal: AbortSignal.timeout(30000),
+      });
 
-      if (insertError) {
-        console.error("Insert error:", insertError);
-        throw new Error(`Insert failed: ${insertError.message}`);
+      if (!insertRes.ok) {
+        const errBody = await insertRes.text();
+        console.error("Insert HTTP error:", insertRes.status, errBody);
+        throw new Error(`Insert failed (${insertRes.status}): ${errBody}`);
       }
+
+      const insertedRows = await insertRes.json();
+      const itinerary = insertedRows[0];
       if (!itinerary?.id) {
         throw new Error("No itinerary returned from insert");
       }
