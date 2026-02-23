@@ -19,7 +19,7 @@ type BudgetTier = "low" | "mid" | "high";
 
 const PATHS = [
   { id: "golf_music" as ExperiencePath, icon: Music, label: "Golf + Concert", description: "Championship courses and concert nights" },
-  { id: "sports" as ExperiencePath, icon: Trophy, label: "Sports + Golf", description: "Big games, tailgates, and tee times" },
+  { id: "sports" as ExperiencePath, icon: Trophy, label: "Sports + Golf", description: "Big games, tailgates, and golf" },
 ];
 
 const PREFERENCES = [
