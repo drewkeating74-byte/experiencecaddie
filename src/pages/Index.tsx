@@ -44,7 +44,7 @@ export default function Index() {
             Tee Off. Rock Out.
           </h1>
           <p className="mx-auto mt-4 max-w-2xl text-lg text-white/80 opacity-0 animate-fade-in [animation-delay:200ms] md:text-xl">
-            Championship golf and live music — bundled into one legendary weekend.
+            Plan Less. Experience More.
           </p>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-4 opacity-0 animate-fade-in [animation-delay:400ms]">
             <Button asChild size="lg" className="rounded-full bg-accent px-8 text-accent-foreground hover:bg-accent/90">
