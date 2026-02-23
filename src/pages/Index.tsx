@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Music, MapPin, Calendar, ArrowRight, Star, Trophy } from "lucide-react";
+import { Music, MapPin, Calendar, ArrowRight, Star } from "lucide-react";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 const db = supabase as any;
@@ -11,7 +11,6 @@ import heroImage from "@/assets/hero-image.jpg";
 
 const categories = [
   { icon: Music, label: "Golf + Concert", description: "Championship courses and live music nights", link: "/experience" },
-  { icon: Trophy, label: "Golf + Sports Event", description: "Big games, tailgates, and World Cup", link: "/experience" },
   { icon: Calendar, label: "Browse Packages", description: "Pre-built weekend combos", link: "/packages" },
 ];
 
@@ -45,7 +44,7 @@ export default function Index() {
             Tee Off. Game On. Rock Out.
           </h1>
           <p className="mx-auto mt-4 max-w-2xl text-lg text-white/80 opacity-0 animate-fade-in [animation-delay:200ms] md:text-xl">
-            Golf, sports, and live music — bundled into one legendary weekend.
+            Championship golf and live music — bundled into one legendary weekend.
           </p>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-4 opacity-0 animate-fade-in [animation-delay:400ms]">
             <Button asChild size="lg" className="rounded-full bg-accent px-8 text-accent-foreground hover:bg-accent/90">
