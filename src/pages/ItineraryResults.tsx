@@ -24,14 +24,28 @@ export default function ItineraryResults() {
 
   useEffect(() => {
     if (!id) return;
+    // Try reading by share_slug first (works for anonymous users via RLS),
+    // then fall back to reading by ID (works for authenticated owners).
     db.from("itineraries")
       .select("*")
-      .eq("id", id)
-      .single()
+      .eq("share_slug", id)
+      .maybeSingle()
       .then(({ data, error }: any) => {
-        if (data) setItinerary(data);
-        if (error) toast.error("Itinerary not found");
-        setLoading(false);
+        if (data) {
+          setItinerary(data);
+          setLoading(false);
+        } else {
+          // Fall back to ID lookup (for authenticated owner access)
+          db.from("itineraries")
+            .select("*")
+            .eq("id", id)
+            .single()
+            .then(({ data: d2, error: e2 }: any) => {
+              if (d2) setItinerary(d2);
+              if (e2) toast.error("Itinerary not found");
+              setLoading(false);
+            });
+        }
       });
   }, [id]);
 

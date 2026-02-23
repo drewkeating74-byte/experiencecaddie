@@ -21,8 +21,16 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const { itinerary_id } = await req.json();
-    if (!itinerary_id) throw new Error("Missing itinerary_id");
+    const body = await req.json();
+    const itinerary_id = typeof body?.itinerary_id === "string" ? body.itinerary_id.trim() : "";
+    // Validate UUID format
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!itinerary_id || !uuidRegex.test(itinerary_id)) {
+      return new Response(JSON.stringify({ error: "Invalid or missing itinerary_id" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
@@ -45,8 +53,11 @@ serve(async (req) => {
       });
     }
 
-    // Mark as generating
-    await supabase.from("itineraries").update({ status: "generating" }).eq("id", itinerary_id);
+    // Generate share slug early so the "Public read shared itineraries" RLS policy allows reads during generation
+    const shareSlug = `${itinerary.city.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}-${Date.now().toString(36)}`;
+
+    // Mark as generating and set share_slug
+    await supabase.from("itineraries").update({ status: "generating", share_slug: shareSlug }).eq("id", itinerary_id);
 
     const pathLabel = PATH_LABELS[itinerary.path] || itinerary.path;
     const budgetLabel = BUDGET_LABELS[itinerary.budget_tier] || itinerary.budget_tier;
@@ -187,16 +198,12 @@ Return this exact JSON structure:
       });
     }
 
-    // Generate share slug
-    const shareSlug = `${itinerary.city.toLowerCase().replace(/\s+/g, "-")}-${Date.now().toString(36)}`;
-
-    // Save result
+    // Save result (share_slug already set during "generating" phase)
     const { error: updateErr } = await supabase
       .from("itineraries")
       .update({
         result_json: parsedResult,
         status: "generated",
-        share_slug: shareSlug,
       })
       .eq("id", itinerary_id);
 
@@ -215,7 +222,7 @@ Return this exact JSON structure:
   } catch (e) {
     console.error("generate-itinerary error:", e);
     return new Response(
-      JSON.stringify({ error: e instanceof Error ? e.message : "Unknown error" }),
+      JSON.stringify({ error: "Internal server error" }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
