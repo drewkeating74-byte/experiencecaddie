@@ -95,6 +95,11 @@ export default function ExperienceBuilder() {
       : endDate;
 
     setGenerating(true);
+    
+    // Wrap the ENTIRE flow in a timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 120000);
+
     try {
       console.log("Starting itinerary insert...");
       const insertPayload = {
@@ -111,11 +116,18 @@ export default function ExperienceBuilder() {
       };
       console.log("Insert payload:", JSON.stringify(insertPayload));
 
-      const { data: itinerary, error: insertErr } = await supabase
+      // Use Promise.race to enforce timeout on the insert too
+      const insertPromise = supabase
         .from("itineraries")
         .insert(insertPayload)
         .select()
         .single();
+
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Request timed out. Please try again.")), 30000)
+      );
+
+      const { data: itinerary, error: insertErr } = await Promise.race([insertPromise, timeoutPromise]);
 
       if (insertErr || !itinerary) {
         console.error("Insert error:", insertErr);
@@ -124,7 +136,7 @@ export default function ExperienceBuilder() {
 
       console.log("Itinerary created:", itinerary.id);
 
-      const timeoutPromise = new Promise<never>((_, reject) =>
+      const genTimeoutPromise = new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error("Generation timed out. Please try again.")), 120000)
       );
 
@@ -132,16 +144,14 @@ export default function ExperienceBuilder() {
         body: { itinerary_id: itinerary.id },
       });
 
-      const { data: genData, error: genErr } = await Promise.race([genPromise, timeoutPromise]);
+      const { data: genData, error: genErr } = await Promise.race([genPromise, genTimeoutPromise]);
 
       if (genErr) {
         console.error("Generation error:", genErr);
         throw genErr;
       }
       if (genData?.error) {
-        toast.error(genData.error);
-        setGenerating(false);
-        return;
+        throw new Error(genData.error);
       }
 
       navigate(`/itinerary/${itinerary.id}`);
@@ -149,15 +159,27 @@ export default function ExperienceBuilder() {
       console.error("Generation error:", err);
       toast.error(err.message || "Failed to generate itinerary");
       setGenerating(false);
+    } finally {
+      clearTimeout(timeoutId);
     }
   };
 
   if (generating) {
     return (
-      <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4">
+      <div className="flex min-h-[60vh] flex-col items-center justify-center gap-6">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
-        <h2 className="font-serif text-2xl font-bold">Crafting Your Legendary Weekend...</h2>
-        <p className="text-muted-foreground">Our AI is finding the best options for you</p>
+        <div className="text-center">
+          <h2 className="font-serif text-2xl font-bold">Crafting Your Legendary Weekend...</h2>
+          <p className="mt-2 text-muted-foreground">Our AI is finding the best options for you</p>
+          <p className="mt-1 text-xs text-muted-foreground">This usually takes 30–60 seconds</p>
+        </div>
+        <Button
+          variant="ghost"
+          onClick={() => setGenerating(false)}
+          className="mt-4 text-muted-foreground"
+        >
+          Cancel & try again
+        </Button>
       </div>
     );
   }
