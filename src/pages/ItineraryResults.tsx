@@ -22,12 +22,15 @@ export default function ItineraryResults() {
   const [itinerary, setItinerary] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
+  // Only select non-sensitive columns to avoid exposing email/user_id in shared views
+  const safeColumns = "id, path, city, start_date, end_date, budget_tier, group_size, preferences, event_details, result_json, share_slug, status, created_at, updated_at";
+
   useEffect(() => {
     if (!id) return;
     // Try reading by share_slug first (works for anonymous users via RLS),
     // then fall back to reading by ID (works for authenticated owners).
     db.from("itineraries")
-      .select("*")
+      .select(safeColumns)
       .eq("share_slug", id)
       .maybeSingle()
       .then(({ data, error }: any) => {
@@ -37,7 +40,7 @@ export default function ItineraryResults() {
         } else {
           // Fall back to ID lookup (for authenticated owner access)
           db.from("itineraries")
-            .select("*")
+            .select(safeColumns)
             .eq("id", id)
             .single()
             .then(({ data: d2, error: e2 }: any) => {
