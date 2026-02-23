@@ -63,7 +63,7 @@ export default function Index() {
         <p className="mx-auto mt-2 max-w-xl text-center text-muted-foreground">
           Championship golf paired with the events you love
         </p>
-        <div className="mt-10 grid gap-4 sm:grid-cols-3">
+        <div className="mt-10 grid gap-4 sm:grid-cols-2 max-w-2xl mx-auto">
           {categories.map((cat) => (
             <Link key={cat.label} to={cat.link}>
               <Card className="group cursor-pointer border-border/50 bg-card transition-all hover:border-primary/30 hover:shadow-lg">
