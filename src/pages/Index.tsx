@@ -42,10 +42,10 @@ export default function Index() {
         <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/40 to-black/70" />
         <div className="relative z-10 container mx-auto px-4 text-center">
           <h1 className="animate-fade-in font-serif text-4xl font-bold text-white md:text-6xl lg:text-7xl">
-            Tee Off. Rock On.
+            Tee Off. Game On. Rock Out.
           </h1>
           <p className="mx-auto mt-4 max-w-2xl text-lg text-white/80 opacity-0 animate-fade-in [animation-delay:200ms] md:text-xl">
-            Curated golf + concert packages in the best destinations. One trip, two passions.
+            Golf, sports, and live music — bundled into one legendary weekend.
           </p>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-4 opacity-0 animate-fade-in [animation-delay:400ms]">
             <Button asChild size="lg" className="rounded-full bg-accent px-8 text-accent-foreground hover:bg-accent/90">
@@ -60,9 +60,9 @@ export default function Index() {
 
       {/* Categories */}
       <section className="container mx-auto px-4 py-16">
-        <h2 className="text-center font-serif text-3xl font-bold text-foreground">Your Perfect Trip Awaits</h2>
+        <h2 className="text-center font-serif text-3xl font-bold text-foreground">Pick Your Play</h2>
         <p className="mx-auto mt-2 max-w-xl text-center text-muted-foreground">
-          Combine world-class golf with unforgettable live music
+          Championship golf paired with the events you love
         </p>
         <div className="mt-10 grid gap-4 sm:grid-cols-3">
           {categories.map((cat) => (
@@ -87,7 +87,7 @@ export default function Index() {
           <div className="flex items-end justify-between">
             <div>
               <h2 className="font-serif text-3xl font-bold">Featured Packages</h2>
-              <p className="mt-1 text-muted-foreground">Hand-picked concert + golf combos</p>
+              <p className="mt-1 text-muted-foreground">Hand-picked golf + event combos</p>
             </div>
             <Button asChild variant="ghost" className="hidden sm:flex">
               <Link to="/packages">View All <ArrowRight className="ml-1 h-4 w-4" /></Link>
@@ -114,7 +114,7 @@ export default function Index() {
       <section className="container mx-auto px-4 py-16 text-center">
         <h2 className="font-serif text-3xl font-bold">Plan Your Legendary Weekend</h2>
         <p className="mx-auto mt-2 max-w-lg text-muted-foreground">
-          Tell our AI what you're looking for and get 3 curated package tiers — with book-direct links.
+          Tell us what you're into — concerts, games, or both — and we'll build the perfect golf trip around it.
         </p>
         <Button asChild size="lg" className="mt-6 rounded-full px-8">
           <Link to="/experience">Start Your Experience</Link>
