@@ -101,6 +101,10 @@ export default function ExperienceBuilder() {
     const timeoutId = setTimeout(() => controller.abort(), 120000);
 
     try {
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+      const { data: { session } } = await supabase.auth.getSession();
+      const authToken = session?.access_token || supabaseKey;
       console.log("Starting itinerary insert...");
       const insertPayload = {
         user_id: user?.id || null,
@@ -117,15 +121,12 @@ export default function ExperienceBuilder() {
       console.log("Insert payload:", JSON.stringify(insertPayload));
 
       // Use fetch directly — the Supabase client insert hangs silently
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-      
       const insertRes = await fetch(`${supabaseUrl}/rest/v1/itineraries`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "apikey": supabaseKey,
-          "Authorization": `Bearer ${supabaseKey}`,
+          "Authorization": `Bearer ${authToken}`,
           "Prefer": "return=representation",
         },
         body: JSON.stringify(insertPayload),
@@ -145,22 +146,24 @@ export default function ExperienceBuilder() {
       }
       console.log("Itinerary created:", itinerary.id);
 
-      const genTimeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("Generation timed out. Please try again.")), 120000)
-      );
-
-      const genPromise = supabase.functions.invoke("generate-itinerary", {
-        body: { itinerary_id: itinerary.id },
+      // Use fetch directly for edge function too
+      console.log("Calling generate-itinerary edge function...");
+      const genRes = await fetch(`${supabaseUrl}/functions/v1/generate-itinerary`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "apikey": supabaseKey,
+          "Authorization": `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({ itinerary_id: itinerary.id }),
+        signal: AbortSignal.timeout(120000),
       });
 
-      const { data: genData, error: genErr } = await Promise.race([genPromise, genTimeoutPromise]);
+      const genData = await genRes.json();
+      console.log("Generation response:", genRes.status, JSON.stringify(genData));
 
-      if (genErr) {
-        console.error("Generation error:", genErr);
-        throw genErr;
-      }
-      if (genData?.error) {
-        throw new Error(genData.error);
+      if (!genRes.ok || genData?.error) {
+        throw new Error(genData?.error || `Generation failed (${genRes.status})`);
       }
 
       navigate(`/itinerary/${itinerary.id}`);
