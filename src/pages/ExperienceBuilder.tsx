@@ -103,8 +103,6 @@ export default function ExperienceBuilder() {
     try {
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-      const { data: { session } } = await supabase.auth.getSession();
-      const authToken = session?.access_token || supabaseKey;
       console.log("Starting itinerary insert...");
       const insertPayload = {
         user_id: user?.id || null,
@@ -126,7 +124,7 @@ export default function ExperienceBuilder() {
         headers: {
           "Content-Type": "application/json",
           "apikey": supabaseKey,
-          "Authorization": `Bearer ${authToken}`,
+          "Authorization": `Bearer ${supabaseKey}`,
           "Prefer": "return=representation",
         },
         body: JSON.stringify(insertPayload),
@@ -153,7 +151,7 @@ export default function ExperienceBuilder() {
         headers: {
           "Content-Type": "application/json",
           "apikey": supabaseKey,
-          "Authorization": `Bearer ${authToken}`,
+          "Authorization": `Bearer ${supabaseKey}`,
         },
         body: JSON.stringify({ itinerary_id: itinerary.id }),
         signal: AbortSignal.timeout(120000),
