@@ -41,7 +41,7 @@ export default function Index() {
         <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/40 to-black/70" />
         <div className="relative z-10 container mx-auto px-4 text-center">
           <h1 className="animate-fade-in font-serif text-4xl font-bold text-white md:text-6xl lg:text-7xl">
-            Tee Off. Game On. Rock Out.
+            Tee Off. Rock Out.
           </h1>
           <p className="mx-auto mt-4 max-w-2xl text-lg text-white/80 opacity-0 animate-fade-in [animation-delay:200ms] md:text-xl">
             Championship golf and live music — bundled into one legendary weekend.
