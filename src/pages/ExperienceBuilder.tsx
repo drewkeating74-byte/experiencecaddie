@@ -6,13 +6,13 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Music, Trophy, Search, Sparkles, ArrowRight, ArrowLeft, Loader2, Wand2, MapPin, Calendar } from "lucide-react";
+import { Music, Search, Sparkles, ArrowRight, ArrowLeft, Loader2, Wand2, MapPin, Calendar } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 
 const db = supabase as any;
 
-type EntryOption = "artist" | "find_concert" | "sporting_event" | "surprise";
+type EntryOption = "artist" | "find_concert" | "surprise";
 type BudgetTier = "low" | "mid" | "high";
 
 const ENTRY_OPTIONS = [
@@ -29,12 +29,6 @@ const ENTRY_OPTIONS = [
     description: "We'll suggest the best upcoming shows",
   },
   {
-    id: "sporting_event" as EntryOption,
-    icon: Trophy,
-    label: "I'm going to a sporting event",
-    description: "Pair golf with game day",
-  },
-  {
     id: "surprise" as EntryOption,
     icon: Sparkles,
     label: "Surprise me",
@@ -46,17 +40,11 @@ const GENRES = [
   "Country", "Rock", "Hip-Hop / Rap", "Pop", "R&B / Soul", "EDM", "Latin", "Jazz / Blues",
 ];
 
-const SPORTS = [
-  "Football", "Soccer", "Basketball", "Hockey", "Baseball", "Golf Tournament", "Tennis", "NASCAR",
-];
-
 export default function ExperienceBuilder() {
   const [step, setStep] = useState<"start" | "details">("start");
   const [selectedEntry, setSelectedEntry] = useState<EntryOption | null>(null);
   const [eventInput, setEventInput] = useState("");
   const [selectedGenres, setSelectedGenres] = useState<string[]>([]);
-  const [selectedSports, setSelectedSports] = useState<string[]>([]);
-  const [surpriseType, setSurpriseType] = useState<"concert" | "sporting" | null>(null);
 
   // Details
   const [flexibleLocation, setFlexibleLocation] = useState(true);
@@ -71,21 +59,11 @@ export default function ExperienceBuilder() {
   const { user } = useAuth();
   const navigate = useNavigate();
 
-  const getPath = () => {
-    if (selectedEntry === "surprise" && surpriseType === "sporting") return "sports";
-    return selectedEntry === "sporting_event" ? "sports" : "golf_music";
-  };
-
   const getEventDetails = () => {
     if (selectedEntry === "artist") return eventInput;
     if (selectedEntry === "find_concert") return `discover for me — genres: ${selectedGenres.length ? selectedGenres.join(", ") : "any"}`;
-    if (selectedEntry === "sporting_event") {
-      const sportStr = selectedSports.length ? ` — sports: ${selectedSports.join(", ")}` : "";
-      return `${eventInput}${sportStr}`;
-    }
     const genreStr = selectedGenres.length ? ` — genres: ${selectedGenres.join(", ")}` : "";
-    const sportStr = selectedSports.length ? ` — sports: ${selectedSports.join(", ")}` : "";
-    return `surprise me — ${surpriseType === "sporting" ? "sporting event" + sportStr : "concert" + genreStr}`;
+    return `surprise me — concert${genreStr}`;
   };
 
   const handleContinue = () => {
@@ -93,12 +71,8 @@ export default function ExperienceBuilder() {
       toast.error("Pick an option to get started");
       return;
     }
-    if ((selectedEntry === "artist" || selectedEntry === "sporting_event") && !eventInput.trim()) {
-      toast.error(selectedEntry === "artist" ? "Enter an artist or band name" : "Enter an event name");
-      return;
-    }
-    if (selectedEntry === "surprise" && !surpriseType) {
-      toast.error("Pick concert or sporting event");
+    if (selectedEntry === "artist" && !eventInput.trim()) {
+      toast.error("Enter an artist or band name");
       return;
     }
     setStep("details");
@@ -124,7 +98,7 @@ export default function ExperienceBuilder() {
     try {
       const { data: itinerary, error: insertErr } = await db.from("itineraries").insert({
         user_id: user?.id || null,
-        path: getPath(),
+        path: "golf_music",
         city: finalCity,
         start_date: finalStart,
         end_date: finalEnd,
@@ -213,7 +187,7 @@ export default function ExperienceBuilder() {
             })}
           </div>
 
-          {/* Inline input for artist or sporting event */}
+          {/* Inline input for artist */}
           {selectedEntry === "artist" && (
             <div className="space-y-2 animate-fade-in">
               <Label htmlFor="artist-input">Who do you want to see?</Label>
@@ -227,7 +201,7 @@ export default function ExperienceBuilder() {
             </div>
           )}
 
-          {selectedEntry === "find_concert" && (
+          {(selectedEntry === "find_concert" || selectedEntry === "surprise") && (
             <div className="space-y-3 animate-fade-in">
               <Label>What kind of music are you into?</Label>
               <div className="flex flex-wrap gap-2">
@@ -257,129 +231,6 @@ export default function ExperienceBuilder() {
             </div>
           )}
 
-           {selectedEntry === "sporting_event" && (
-            <div className="space-y-3 animate-fade-in">
-              <Label>What sport?</Label>
-              <div className="flex flex-wrap gap-2">
-                {SPORTS.map((sport) => {
-                  const active = selectedSports.includes(sport);
-                  return (
-                    <button
-                      key={sport}
-                      type="button"
-                      onClick={() =>
-                        setSelectedSports((prev) =>
-                          active ? prev.filter((s) => s !== sport) : [...prev, sport]
-                        )
-                      }
-                      className={`rounded-full border px-4 py-1.5 text-sm transition-all ${
-                        active
-                          ? "border-primary bg-primary/10 text-foreground"
-                          : "border-border text-muted-foreground hover:border-primary/30"
-                      }`}
-                    >
-                      {sport}
-                    </button>
-                  );
-                })}
-              </div>
-              <div className="space-y-2 pt-2">
-                <Label htmlFor="sport-input">Specific event (optional)</Label>
-                <Input
-                  id="sport-input"
-                  placeholder="e.g. NFL playoff game, World Cup, March Madness"
-                  value={eventInput}
-                  onChange={(e) => setEventInput(e.target.value)}
-                />
-              </div>
-            </div>
-          )}
-
-          {selectedEntry === "surprise" && (
-            <div className="space-y-3 animate-fade-in">
-              <Label>What kind of event?</Label>
-              <div className="flex gap-3">
-                {([
-                  { id: "concert" as const, icon: Music, label: "Concert" },
-                  { id: "sporting" as const, icon: Trophy, label: "Sporting Event" },
-                ] as const).map((opt) => (
-                  <button
-                    key={opt.id}
-                    type="button"
-                    onClick={() => setSurpriseType(opt.id)}
-                    className={`flex flex-1 items-center justify-center gap-2 rounded-lg border py-3 text-sm font-medium transition-all ${
-                      surpriseType === opt.id
-                        ? "border-primary bg-primary/10 text-foreground"
-                        : "border-border text-muted-foreground hover:border-primary/30"
-                    }`}
-                  >
-                    <opt.icon className="h-4 w-4" />
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {selectedEntry === "surprise" && surpriseType === "concert" && (
-            <div className="space-y-3 animate-fade-in">
-              <Label>What kind of music are you into?</Label>
-              <div className="flex flex-wrap gap-2">
-                {GENRES.map((genre) => {
-                  const active = selectedGenres.includes(genre);
-                  return (
-                    <button
-                      key={genre}
-                      type="button"
-                      onClick={() =>
-                        setSelectedGenres((prev) =>
-                          active ? prev.filter((g) => g !== genre) : [...prev, genre]
-                        )
-                      }
-                      className={`rounded-full border px-4 py-1.5 text-sm transition-all ${
-                        active
-                          ? "border-primary bg-primary/10 text-foreground"
-                          : "border-border text-muted-foreground hover:border-primary/30"
-                      }`}
-                    >
-                      {genre}
-                    </button>
-                  );
-                })}
-              </div>
-              <p className="text-xs text-muted-foreground">Pick as many as you like, or skip to see everything.</p>
-            </div>
-          )}
-
-          {selectedEntry === "surprise" && surpriseType === "sporting" && (
-            <div className="space-y-3 animate-fade-in">
-              <Label>What sport?</Label>
-              <div className="flex flex-wrap gap-2">
-                {SPORTS.map((sport) => {
-                  const active = selectedSports.includes(sport);
-                  return (
-                    <button
-                      key={sport}
-                      type="button"
-                      onClick={() =>
-                        setSelectedSports((prev) =>
-                          active ? prev.filter((s) => s !== sport) : [...prev, sport]
-                        )
-                      }
-                      className={`rounded-full border px-4 py-1.5 text-sm transition-all ${
-                        active
-                          ? "border-primary bg-primary/10 text-foreground"
-                          : "border-border text-muted-foreground hover:border-primary/30"
-                      }`}
-                    >
-                      {sport}
-                    </button>
-                  );
-                })}
-              </div>
-              <p className="text-xs text-muted-foreground">Pick as many as you like, or skip to see everything.</p>
-            </div>
-          )}
           <div className="flex justify-center pt-2">
             <Button
               onClick={handleContinue}
@@ -449,45 +300,71 @@ export default function ExperienceBuilder() {
               </button>
             </div>
             {!flexibleDates && (
-              <div className="grid gap-3 sm:grid-cols-2 animate-fade-in">
-                <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-                <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+              <div className="flex gap-3 animate-fade-in">
+                <div className="flex-1 space-y-1">
+                  <Label htmlFor="start-date" className="text-xs text-muted-foreground">From</Label>
+                  <Input
+                    id="start-date"
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                  />
+                </div>
+                <div className="flex-1 space-y-1">
+                  <Label htmlFor="end-date" className="text-xs text-muted-foreground">To</Label>
+                  <Input
+                    id="end-date"
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                  />
+                </div>
               </div>
             )}
           </div>
 
-          {/* Budget & Group */}
-          <div className="grid gap-6 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label>Budget</Label>
-              <Select value={budget} onValueChange={(v) => setBudget(v as BudgetTier)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="low">$ Budget-friendly</SelectItem>
-                  <SelectItem value="mid">$$ Mid-range</SelectItem>
-                  <SelectItem value="high">$$$ Premium</SelectItem>
-                </SelectContent>
-              </Select>
+          {/* Budget */}
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <Wand2 className="h-4 w-4 text-muted-foreground" />
+              <Label className="text-base font-medium">Budget</Label>
             </div>
-            <div className="space-y-2">
-              <Label>Group Size</Label>
-              <Input
-                type="number"
-                min={1}
-                max={20}
-                value={groupSize}
-                onChange={(e) => setGroupSize(parseInt(e.target.value) || 2)}
-              />
+            <Select value={budget} onValueChange={(v) => setBudget(v as BudgetTier)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="low">Budget-friendly</SelectItem>
+                <SelectItem value="mid">Mid-range</SelectItem>
+                <SelectItem value="high">Premium</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Group size */}
+          <div className="space-y-3">
+            <Label className="text-base font-medium">Group size</Label>
+            <div className="flex gap-2">
+              {[1, 2, 3, 4, 6, 8].map((n) => (
+                <button
+                  key={n}
+                  type="button"
+                  onClick={() => setGroupSize(n)}
+                  className={`flex h-10 w-10 items-center justify-center rounded-full border text-sm font-medium transition-all ${
+                    groupSize === n
+                      ? "border-primary bg-primary/10 text-foreground"
+                      : "border-border text-muted-foreground hover:border-primary/30"
+                  }`}
+                >
+                  {n}
+                </button>
+              ))}
             </div>
           </div>
 
-
-          {/* Generate */}
-          <div className="flex justify-center pt-4">
-            <Button onClick={handleGenerate} size="lg" className="rounded-full px-10">
-              <Wand2 className="mr-2 h-4 w-4" /> Generate My Weekend
-            </Button>
-          </div>
+          <Button onClick={handleGenerate} size="lg" className="w-full rounded-full">
+            Generate My Itinerary <Sparkles className="ml-2 h-4 w-4" />
+          </Button>
         </div>
       )}
     </div>
