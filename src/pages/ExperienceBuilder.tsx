@@ -10,7 +10,7 @@ import { Music, Search, Sparkles, ArrowRight, ArrowLeft, Loader2, Wand2, MapPin,
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 
-const db = supabase as any;
+
 
 type EntryOption = "artist" | "find_concert" | "surprise";
 type BudgetTier = "low" | "mid" | "high";
@@ -96,7 +96,7 @@ export default function ExperienceBuilder() {
 
     setGenerating(true);
     try {
-      const { data: itinerary, error: insertErr } = await db.from("itineraries").insert({
+      const { data: itinerary, error: insertErr } = await supabase.from("itineraries" as any).insert({
         user_id: user?.id || null,
         path: "golf_music",
         city: finalCity,
@@ -107,24 +107,36 @@ export default function ExperienceBuilder() {
         preferences: { flexible_location: flexibleLocation, flexible_dates: flexibleDates },
         event_details: getEventDetails(),
         email: user?.email || null,
-      }).select().single();
+      } as any).select().single();
 
       if (insertErr || !itinerary) {
+        console.error("Insert error:", insertErr);
         throw new Error(insertErr?.message || "Failed to create itinerary");
       }
 
-      const { data: genData, error: genErr } = await supabase.functions.invoke("generate-itinerary", {
-        body: { itinerary_id: itinerary.id },
+      console.log("Itinerary created:", (itinerary as any).id);
+
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("Generation timed out. Please try again.")), 120000)
+      );
+
+      const genPromise = supabase.functions.invoke("generate-itinerary", {
+        body: { itinerary_id: (itinerary as any).id },
       });
 
-      if (genErr) throw genErr;
+      const { data: genData, error: genErr } = await Promise.race([genPromise, timeoutPromise]) as any;
+
+      if (genErr) {
+        console.error("Generation error:", genErr);
+        throw genErr;
+      }
       if (genData?.error) {
         toast.error(genData.error);
         setGenerating(false);
         return;
       }
 
-      navigate(`/itinerary/${itinerary.id}`);
+      navigate(`/itinerary/${(itinerary as any).id}`);
     } catch (err: any) {
       console.error("Generation error:", err);
       toast.error(err.message || "Failed to generate itinerary");
