@@ -8,10 +8,7 @@ const corsHeaders = {
 };
 
 const PATH_LABELS: Record<string, string> = {
-  golf_music: "Golf + Live Music",
-  sports: "Sports Weekend",
-  luxury: "Bucket List Luxury",
-  custom: "Custom Build",
+  golf_music: "Golf + Concert",
 };
 
 const BUDGET_LABELS: Record<string, string> = {
@@ -59,11 +56,11 @@ serve(async (req) => {
       .map(([k]) => k.replace(/_/g, " "))
       .join(", ");
 
-    const systemPrompt = `You are Experience Caddie, an AI travel planner specializing in legendary weekend getaways. 
+    const systemPrompt = `You are Experience Caddie, an AI travel planner specializing in legendary golf + concert weekend getaways. 
 You create curated trip packages with real vendor search links for booking.
 You MUST respond with ONLY valid JSON matching the exact schema specified. No markdown, no explanation, just JSON.`;
 
-    const userPrompt = `Create 3 curated weekend packages (Bronze, Silver, Gold tiers) for this trip:
+    const userPrompt = `Create 3 curated weekend packages (Bronze, Silver, Gold tiers) for this golf + concert trip:
 
 - Path: ${pathLabel}
 - City: ${itinerary.city}
@@ -74,15 +71,18 @@ ${prefs ? `- Preferences: ${prefsList || "none specified"}` : ""}
 ${itinerary.event_details ? `- Event details: ${itinerary.event_details}` : ""}
 
 For each tier, include:
-- 2 hotel options with booking search links (use Booking.com search URLs)
-- 1-2 event/ticket options with links (use Ticketmaster search URLs)  
+- 2-3 lodging options across these types: hotels, vacation rentals (Airbnb/VRBO), and golf resorts. Mix the types based on the tier — Bronze should lean budget hotels & rentals, Silver mid-range hotels & resorts, Gold premium resorts & luxury rentals.
+  Use these search URL formats:
+  - Hotels: https://www.booking.com/searchresults.html?ss={city}&checkin={start_date}&checkout={end_date}
+  - Vacation rentals: https://www.vrbo.com/search?destination={city}&startDate={start_date}&endDate={end_date}
+  - Golf resorts: https://www.booking.com/searchresults.html?ss={resort+name}+{city}
+- 1-2 concert/event options with links (use Ticketmaster search URLs)  
 - 2-3 golf course suggestions with tee time links (use GolfNow search URLs)
 - 2-4 extras (restaurants, bars, experiences) with links (use Google Maps/OpenTable/Viator search URLs)
 - A day-by-day itinerary (covering each day of the trip)
 - Estimated total cost range in USD
 
 Use real search URLs built from the city and date parameters. Format:
-- Hotels: https://www.booking.com/searchresults.html?ss={city}&checkin={start_date}&checkout={end_date}
 - Tickets: https://www.ticketmaster.com/search?q={keywords}&daterange={start_date}
 - Golf: https://www.golfnow.com/tee-times/search#sortby=Date&view=List&search={city}
 - Restaurants: https://www.google.com/maps/search/{restaurant+type}+{city}
@@ -100,8 +100,8 @@ Return this exact JSON structure:
     {
       "tier": "BRONZE" | "SILVER" | "GOLD",
       "estimated_total_usd": [min, max],
-      "hotels": [
-        { "name": "string", "area": "string", "price_per_night": "string", "url": "string", "why": "string" }
+      "lodging": [
+        { "name": "string", "type": "hotel" | "vacation_rental" | "golf_resort", "area": "string", "price_per_night": "string", "url": "string", "why": "string" }
       ],
       "events": [
         { "name": "string", "venue": "string", "date_time": "string", "url": "string", "price_range": "string" }
