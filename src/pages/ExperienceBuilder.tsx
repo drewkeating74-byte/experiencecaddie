@@ -76,7 +76,8 @@ export default function ExperienceBuilder() {
     if (selectedEntry === "artist") return eventInput;
     if (selectedEntry === "find_concert") return `discover for me — genres: ${selectedGenres.length ? selectedGenres.join(", ") : "any"}`;
     if (selectedEntry === "sporting_event") return eventInput;
-    return `surprise me — ${surpriseType === "sporting" ? "sporting event" : "concert"}`;
+    const genreStr = selectedGenres.length ? ` — genres: ${selectedGenres.join(", ")}` : "";
+    return `surprise me — ${surpriseType === "sporting" ? "sporting event" : "concert"}${surpriseType === "concert" ? genreStr : ""}`;
   };
 
   const handleContinue = () => {
@@ -284,6 +285,36 @@ export default function ExperienceBuilder() {
                   </button>
                 ))}
               </div>
+            </div>
+          )}
+
+          {selectedEntry === "surprise" && surpriseType === "concert" && (
+            <div className="space-y-3 animate-fade-in">
+              <Label>What kind of music are you into?</Label>
+              <div className="flex flex-wrap gap-2">
+                {GENRES.map((genre) => {
+                  const active = selectedGenres.includes(genre);
+                  return (
+                    <button
+                      key={genre}
+                      type="button"
+                      onClick={() =>
+                        setSelectedGenres((prev) =>
+                          active ? prev.filter((g) => g !== genre) : [...prev, genre]
+                        )
+                      }
+                      className={`rounded-full border px-4 py-1.5 text-sm transition-all ${
+                        active
+                          ? "border-primary bg-primary/10 text-foreground"
+                          : "border-border text-muted-foreground hover:border-primary/30"
+                      }`}
+                    >
+                      {genre}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-xs text-muted-foreground">Pick as many as you like, or skip to see everything.</p>
             </div>
           )}
 
