@@ -52,6 +52,7 @@ export default function ExperienceBuilder() {
   const [selectedEntry, setSelectedEntry] = useState<EntryOption | null>(null);
   const [eventInput, setEventInput] = useState("");
   const [selectedGenres, setSelectedGenres] = useState<string[]>([]);
+  const [surpriseType, setSurpriseType] = useState<"concert" | "sporting" | null>(null);
 
   // Details
   const [flexibleLocation, setFlexibleLocation] = useState(true);
@@ -67,6 +68,7 @@ export default function ExperienceBuilder() {
   const navigate = useNavigate();
 
   const getPath = () => {
+    if (selectedEntry === "surprise" && surpriseType === "sporting") return "sports";
     return selectedEntry === "sporting_event" ? "sports" : "golf_music";
   };
 
@@ -74,7 +76,7 @@ export default function ExperienceBuilder() {
     if (selectedEntry === "artist") return eventInput;
     if (selectedEntry === "find_concert") return `discover for me — genres: ${selectedGenres.length ? selectedGenres.join(", ") : "any"}`;
     if (selectedEntry === "sporting_event") return eventInput;
-    return "surprise me — plan something epic";
+    return `surprise me — ${surpriseType === "sporting" ? "sporting event" : "concert"}`;
   };
 
   const handleContinue = () => {
@@ -84,6 +86,10 @@ export default function ExperienceBuilder() {
     }
     if ((selectedEntry === "artist" || selectedEntry === "sporting_event") && !eventInput.trim()) {
       toast.error(selectedEntry === "artist" ? "Enter an artist or band name" : "Enter an event name");
+      return;
+    }
+    if (selectedEntry === "surprise" && !surpriseType) {
+      toast.error("Pick concert or sporting event");
       return;
     }
     setStep("details");
@@ -254,6 +260,33 @@ export default function ExperienceBuilder() {
               />
             </div>
           )}
+
+          {selectedEntry === "surprise" && (
+            <div className="space-y-3 animate-fade-in">
+              <Label>What kind of event?</Label>
+              <div className="flex gap-3">
+                {([
+                  { id: "concert" as const, icon: Music, label: "Concert" },
+                  { id: "sporting" as const, icon: Trophy, label: "Sporting Event" },
+                ] as const).map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => setSurpriseType(opt.id)}
+                    className={`flex flex-1 items-center justify-center gap-2 rounded-lg border py-3 text-sm font-medium transition-all ${
+                      surpriseType === opt.id
+                        ? "border-primary bg-primary/10 text-foreground"
+                        : "border-border text-muted-foreground hover:border-primary/30"
+                    }`}
+                  >
+                    <opt.icon className="h-4 w-4" />
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
 
           <div className="flex justify-center pt-2">
             <Button
