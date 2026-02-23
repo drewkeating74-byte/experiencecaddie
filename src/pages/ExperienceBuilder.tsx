@@ -43,6 +43,10 @@ const ENTRY_OPTIONS = [
   },
 ];
 
+const GENRES = [
+  "Country", "Rock", "Hip-Hop / Rap", "Pop", "R&B / Soul", "EDM", "Latin", "Jazz / Blues",
+];
+
 const PREFERENCES = [
   { id: "walkable_area", label: "Walkable area" },
   { id: "upscale_dining", label: "Upscale dining" },
@@ -55,6 +59,7 @@ export default function ExperienceBuilder() {
   const [step, setStep] = useState<"start" | "details">("start");
   const [selectedEntry, setSelectedEntry] = useState<EntryOption | null>(null);
   const [eventInput, setEventInput] = useState("");
+  const [selectedGenres, setSelectedGenres] = useState<string[]>([]);
 
   // Details
   const [flexibleLocation, setFlexibleLocation] = useState(true);
@@ -80,7 +85,7 @@ export default function ExperienceBuilder() {
 
   const getEventDetails = () => {
     if (selectedEntry === "artist") return eventInput;
-    if (selectedEntry === "find_concert") return "discover for me";
+    if (selectedEntry === "find_concert") return `discover for me — genres: ${selectedGenres.length ? selectedGenres.join(", ") : "any"}`;
     if (selectedEntry === "sporting_event") return eventInput;
     return "surprise me — plan something epic";
   };
@@ -217,6 +222,36 @@ export default function ExperienceBuilder() {
                 onChange={(e) => setEventInput(e.target.value)}
                 autoFocus
               />
+            </div>
+          )}
+
+          {selectedEntry === "find_concert" && (
+            <div className="space-y-3 animate-fade-in">
+              <Label>What kind of music are you into?</Label>
+              <div className="flex flex-wrap gap-2">
+                {GENRES.map((genre) => {
+                  const active = selectedGenres.includes(genre);
+                  return (
+                    <button
+                      key={genre}
+                      type="button"
+                      onClick={() =>
+                        setSelectedGenres((prev) =>
+                          active ? prev.filter((g) => g !== genre) : [...prev, genre]
+                        )
+                      }
+                      className={`rounded-full border px-4 py-1.5 text-sm transition-all ${
+                        active
+                          ? "border-primary bg-primary/10 text-foreground"
+                          : "border-border text-muted-foreground hover:border-primary/30"
+                      }`}
+                    >
+                      {genre}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-xs text-muted-foreground">Pick as many as you like, or skip to see everything.</p>
             </div>
           )}
 
