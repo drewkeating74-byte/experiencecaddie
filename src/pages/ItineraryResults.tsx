@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Hotel, Music, MapPin, Utensils, ExternalLink, Copy, Share2, ArrowLeft, Loader2 } from "lucide-react";
+import { Hotel, Home, Music, MapPin, Utensils, ExternalLink, Copy, Share2, ArrowLeft, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 const db = supabase as any;
@@ -130,19 +130,26 @@ export default function ItineraryResults() {
                   )}
                 </div>
 
-                {/* Hotels */}
-                {pkg.hotels?.length > 0 && (
+                {/* Lodging */}
+                {(pkg.lodging?.length > 0 || pkg.hotels?.length > 0) && (
                   <Card>
                     <CardHeader className="pb-3">
                       <CardTitle className="flex items-center gap-2 font-serif text-lg">
-                        <Hotel className="h-5 w-5 text-primary" /> Hotels
+                        <Hotel className="h-5 w-5 text-primary" /> Lodging
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-3">
-                      {pkg.hotels.map((h: any, i: number) => (
+                      {(pkg.lodging || pkg.hotels || []).map((h: any, i: number) => (
                         <div key={i} className="flex items-start justify-between gap-4">
                           <div>
-                            <p className="font-medium">{h.name}</p>
+                            <div className="flex items-center gap-2">
+                              <p className="font-medium">{h.name}</p>
+                              {h.type && (
+                                <Badge variant="secondary" className="text-xs">
+                                  {h.type === "vacation_rental" ? "Rental" : h.type === "golf_resort" ? "Golf Resort" : "Hotel"}
+                                </Badge>
+                              )}
+                            </div>
                             {h.area && <p className="text-sm text-muted-foreground">{h.area}</p>}
                             {h.why && <p className="text-sm text-muted-foreground italic">{h.why}</p>}
                             {h.price_per_night && <p className="text-sm font-medium">{h.price_per_night}/night</p>}
