@@ -11,7 +11,7 @@ import heroImage from "@/assets/hero-image.jpg";
 
 const categories = [
   { icon: Music, label: "Golf + Concert", description: "Championship courses and live music nights", link: "/experience" },
-  { icon: Trophy, label: "Sports + Golf", description: "Big games, tailgates, and tee times", link: "/experience" },
+  { icon: Trophy, label: "Golf + Sports Event", description: "Big games, tailgates, and World Cup", link: "/experience" },
   { icon: Calendar, label: "Browse Packages", description: "Pre-built weekend combos", link: "/packages" },
 ];
 
