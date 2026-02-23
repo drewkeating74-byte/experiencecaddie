@@ -164,7 +164,7 @@ export default function ExperienceBuilder() {
         throw new Error(genData?.error || `Generation failed (${genRes.status})`);
       }
 
-      navigate(`/itinerary/${itinerary.id}`);
+      navigate(`/share/${genData.share_slug}`);
     } catch (err: any) {
       console.error("Generation error:", err);
       toast.error(err.message || "Failed to generate itinerary");
