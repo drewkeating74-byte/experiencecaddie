@@ -27,29 +27,33 @@ export default function ItineraryResults() {
 
   useEffect(() => {
     if (!id) return;
-    // Try reading by share_slug first (works for anonymous users via RLS),
-    // then fall back to reading by ID (works for authenticated owners).
-    db.from("itineraries")
-      .select(safeColumns)
-      .eq("share_slug", id)
-      .maybeSingle()
-      .then(({ data, error }: any) => {
-        if (data) {
-          setItinerary(data);
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+    const headers: Record<string, string> = {
+      "apikey": supabaseKey,
+      "Authorization": `Bearer ${supabaseKey}`,
+    };
+
+    // Use fetch directly — Supabase JS client hangs silently on this project
+    fetch(`${supabaseUrl}/rest/v1/itineraries?select=${encodeURIComponent(safeColumns)}&share_slug=eq.${encodeURIComponent(id)}&limit=1`, { headers })
+      .then(r => r.json())
+      .then((rows: any[]) => {
+        if (rows?.length > 0) {
+          setItinerary(rows[0]);
           setLoading(false);
         } else {
-          // Fall back to ID lookup (for authenticated owner access)
-          db.from("itineraries")
-            .select(safeColumns)
-            .eq("id", id)
-            .single()
-            .then(({ data: d2, error: e2 }: any) => {
-              if (d2) setItinerary(d2);
-              if (e2) toast.error("Itinerary not found");
+          // Fall back to ID lookup
+          fetch(`${supabaseUrl}/rest/v1/itineraries?select=${encodeURIComponent(safeColumns)}&id=eq.${encodeURIComponent(id)}&limit=1`, { headers })
+            .then(r => r.json())
+            .then((rows2: any[]) => {
+              if (rows2?.length > 0) setItinerary(rows2[0]);
+              else toast.error("Itinerary not found");
               setLoading(false);
-            });
+            })
+            .catch(() => { toast.error("Failed to load itinerary"); setLoading(false); });
         }
-      });
+      })
+      .catch(() => { toast.error("Failed to load itinerary"); setLoading(false); });
   }, [id]);
 
   const trackClick = async (tier: string, vendor: string, label: string, url: string) => {
