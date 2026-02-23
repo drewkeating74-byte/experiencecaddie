@@ -46,12 +46,16 @@ const GENRES = [
   "Country", "Rock", "Hip-Hop / Rap", "Pop", "R&B / Soul", "EDM", "Latin", "Jazz / Blues",
 ];
 
+const SPORTS = [
+  "Football", "Soccer", "Basketball", "Hockey", "Baseball", "Golf Tournament", "Tennis", "NASCAR",
+];
 
 export default function ExperienceBuilder() {
   const [step, setStep] = useState<"start" | "details">("start");
   const [selectedEntry, setSelectedEntry] = useState<EntryOption | null>(null);
   const [eventInput, setEventInput] = useState("");
   const [selectedGenres, setSelectedGenres] = useState<string[]>([]);
+  const [selectedSports, setSelectedSports] = useState<string[]>([]);
   const [surpriseType, setSurpriseType] = useState<"concert" | "sporting" | null>(null);
 
   // Details
@@ -75,9 +79,13 @@ export default function ExperienceBuilder() {
   const getEventDetails = () => {
     if (selectedEntry === "artist") return eventInput;
     if (selectedEntry === "find_concert") return `discover for me — genres: ${selectedGenres.length ? selectedGenres.join(", ") : "any"}`;
-    if (selectedEntry === "sporting_event") return eventInput;
+    if (selectedEntry === "sporting_event") {
+      const sportStr = selectedSports.length ? ` — sports: ${selectedSports.join(", ")}` : "";
+      return `${eventInput}${sportStr}`;
+    }
     const genreStr = selectedGenres.length ? ` — genres: ${selectedGenres.join(", ")}` : "";
-    return `surprise me — ${surpriseType === "sporting" ? "sporting event" : "concert"}${surpriseType === "concert" ? genreStr : ""}`;
+    const sportStr = selectedSports.length ? ` — sports: ${selectedSports.join(", ")}` : "";
+    return `surprise me — ${surpriseType === "sporting" ? "sporting event" + sportStr : "concert" + genreStr}`;
   };
 
   const handleContinue = () => {
@@ -249,16 +257,41 @@ export default function ExperienceBuilder() {
             </div>
           )}
 
-          {selectedEntry === "sporting_event" && (
-            <div className="space-y-2 animate-fade-in">
-              <Label htmlFor="sport-input">What event are you going to?</Label>
-              <Input
-                id="sport-input"
-                placeholder="e.g. NFL playoff game, World Cup, March Madness"
-                value={eventInput}
-                onChange={(e) => setEventInput(e.target.value)}
-                autoFocus
-              />
+           {selectedEntry === "sporting_event" && (
+            <div className="space-y-3 animate-fade-in">
+              <Label>What sport?</Label>
+              <div className="flex flex-wrap gap-2">
+                {SPORTS.map((sport) => {
+                  const active = selectedSports.includes(sport);
+                  return (
+                    <button
+                      key={sport}
+                      type="button"
+                      onClick={() =>
+                        setSelectedSports((prev) =>
+                          active ? prev.filter((s) => s !== sport) : [...prev, sport]
+                        )
+                      }
+                      className={`rounded-full border px-4 py-1.5 text-sm transition-all ${
+                        active
+                          ? "border-primary bg-primary/10 text-foreground"
+                          : "border-border text-muted-foreground hover:border-primary/30"
+                      }`}
+                    >
+                      {sport}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="space-y-2 pt-2">
+                <Label htmlFor="sport-input">Specific event (optional)</Label>
+                <Input
+                  id="sport-input"
+                  placeholder="e.g. NFL playoff game, World Cup, March Madness"
+                  value={eventInput}
+                  onChange={(e) => setEventInput(e.target.value)}
+                />
+              </div>
             </div>
           )}
 
@@ -318,7 +351,35 @@ export default function ExperienceBuilder() {
             </div>
           )}
 
-
+          {selectedEntry === "surprise" && surpriseType === "sporting" && (
+            <div className="space-y-3 animate-fade-in">
+              <Label>What sport?</Label>
+              <div className="flex flex-wrap gap-2">
+                {SPORTS.map((sport) => {
+                  const active = selectedSports.includes(sport);
+                  return (
+                    <button
+                      key={sport}
+                      type="button"
+                      onClick={() =>
+                        setSelectedSports((prev) =>
+                          active ? prev.filter((s) => s !== sport) : [...prev, sport]
+                        )
+                      }
+                      className={`rounded-full border px-4 py-1.5 text-sm transition-all ${
+                        active
+                          ? "border-primary bg-primary/10 text-foreground"
+                          : "border-border text-muted-foreground hover:border-primary/30"
+                      }`}
+                    >
+                      {sport}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-xs text-muted-foreground">Pick as many as you like, or skip to see everything.</p>
+            </div>
+          )}
           <div className="flex justify-center pt-2">
             <Button
               onClick={handleContinue}
