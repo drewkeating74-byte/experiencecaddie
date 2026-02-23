@@ -96,35 +96,43 @@ export default function ExperienceBuilder() {
 
     setGenerating(true);
     try {
-      const { data: itinerary, error: insertErr } = await supabase.from("itineraries" as any).insert({
+      console.log("Starting itinerary insert...");
+      const insertPayload = {
         user_id: user?.id || null,
-        path: "golf_music",
+        path: "golf_music" as const,
         city: finalCity,
         start_date: finalStart,
         end_date: finalEnd,
-        budget_tier: budget,
+        budget_tier: budget as "low" | "mid" | "high",
         group_size: groupSize,
         preferences: { flexible_location: flexibleLocation, flexible_dates: flexibleDates },
         event_details: getEventDetails(),
         email: user?.email || null,
-      } as any).select().single();
+      };
+      console.log("Insert payload:", JSON.stringify(insertPayload));
+
+      const { data: itinerary, error: insertErr } = await supabase
+        .from("itineraries")
+        .insert(insertPayload)
+        .select()
+        .single();
 
       if (insertErr || !itinerary) {
         console.error("Insert error:", insertErr);
         throw new Error(insertErr?.message || "Failed to create itinerary");
       }
 
-      console.log("Itinerary created:", (itinerary as any).id);
+      console.log("Itinerary created:", itinerary.id);
 
-      const timeoutPromise = new Promise((_, reject) =>
+      const timeoutPromise = new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error("Generation timed out. Please try again.")), 120000)
       );
 
       const genPromise = supabase.functions.invoke("generate-itinerary", {
-        body: { itinerary_id: (itinerary as any).id },
+        body: { itinerary_id: itinerary.id },
       });
 
-      const { data: genData, error: genErr } = await Promise.race([genPromise, timeoutPromise]) as any;
+      const { data: genData, error: genErr } = await Promise.race([genPromise, timeoutPromise]);
 
       if (genErr) {
         console.error("Generation error:", genErr);
@@ -136,7 +144,7 @@ export default function ExperienceBuilder() {
         return;
       }
 
-      navigate(`/itinerary/${(itinerary as any).id}`);
+      navigate(`/itinerary/${itinerary.id}`);
     } catch (err: any) {
       console.error("Generation error:", err);
       toast.error(err.message || "Failed to generate itinerary");
