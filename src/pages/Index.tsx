@@ -46,6 +46,9 @@ export default function Index() {
           <p className="mx-auto mt-4 max-w-2xl text-lg text-white/80 opacity-0 animate-fade-in [animation-delay:200ms] md:text-xl">
             Plan Less. Experience More.
           </p>
+          <p className="mx-auto mt-2 max-w-2xl text-base text-white/60 opacity-0 animate-fade-in [animation-delay:300ms] md:text-lg">
+            Custom golf + concert weekends built for you.
+          </p>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-4 opacity-0 animate-fade-in [animation-delay:400ms]">
             <Button asChild size="lg" className="rounded-full bg-accent px-8 text-accent-foreground hover:bg-accent/90">
               <Link to="/experience">Start Your Experience</Link>
