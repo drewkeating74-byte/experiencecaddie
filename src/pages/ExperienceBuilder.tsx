@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Music, Trophy, Crown, Wand2, ArrowRight, ArrowLeft, Loader2 } from "lucide-react";
+import { Music, Trophy, ArrowRight, ArrowLeft, Loader2, Wand2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 
@@ -18,10 +18,8 @@ type ExperiencePath = "golf_music" | "sports" | "luxury" | "custom";
 type BudgetTier = "low" | "mid" | "high";
 
 const PATHS = [
-  { id: "golf_music" as ExperiencePath, icon: Music, label: "Golf + Live Music", description: "Championship courses and concert nights" },
-  { id: "sports" as ExperiencePath, icon: Trophy, label: "Sports Weekend", description: "Big games, tailgates, and tee times" },
-  { id: "luxury" as ExperiencePath, icon: Crown, label: "Bucket List Luxury", description: "Premium everything, no compromises" },
-  { id: "custom" as ExperiencePath, icon: Wand2, label: "Custom Build", description: "Tell us what you want" },
+  { id: "golf_music" as ExperiencePath, icon: Music, label: "Golf + Concert", description: "Championship courses and concert nights" },
+  { id: "sports" as ExperiencePath, icon: Trophy, label: "Sports + Golf", description: "Big games, tailgates, and tee times" },
 ];
 
 const PREFERENCES = [
@@ -221,20 +219,24 @@ export default function ExperienceBuilder() {
             </div>
           </div>
 
-          {(selectedPath === "golf_music" || selectedPath === "custom") && (
+          {selectedPath === "golf_music" && (
             <div className="space-y-2">
-              <Label htmlFor="event">
-                {selectedPath === "golf_music"
-                  ? "Artist / Concert (optional)"
-                  : "What are you trying to do?"}
-              </Label>
+              <Label htmlFor="event">Artist / Concert (optional)</Label>
               <Textarea
                 id="event"
-                placeholder={
-                  selectedPath === "golf_music"
-                    ? 'e.g. "Tyler Childers" or "discover for me"'
-                    : "Describe your ideal weekend..."
-                }
+                placeholder='e.g. "Tyler Childers" or "discover for me"'
+                value={eventDetails}
+                onChange={(e) => setEventDetails(e.target.value)}
+              />
+            </div>
+          )}
+
+          {selectedPath === "sports" && (
+            <div className="space-y-2">
+              <Label htmlFor="event">Sport / Team / Event (optional)</Label>
+              <Textarea
+                id="event"
+                placeholder='e.g. "NFL game" or "March Madness"'
                 value={eventDetails}
                 onChange={(e) => setEventDetails(e.target.value)}
               />
