@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Music, MapPin, Calendar, ArrowRight, Star, Wand2, Trophy, Crown } from "lucide-react";
+import { Music, MapPin, Calendar, ArrowRight, Star, Trophy } from "lucide-react";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 const db = supabase as any;
@@ -10,10 +10,9 @@ import type { Package } from "@/types/database";
 import heroImage from "@/assets/hero-image.jpg";
 
 const categories = [
-  { icon: Wand2, label: "AI Trip Planner", description: "Get a curated weekend in seconds", link: "/experience" },
-  { icon: Music, label: "Concerts", description: "Live music from top artists", link: "/events" },
-  { icon: "⛳", label: "Golf Courses", description: "Championship public courses", link: "/courses" },
-  { icon: Calendar, label: "Packages", description: "Pre-built concert + golf combos", link: "/packages" },
+  { icon: Music, label: "Golf + Concert", description: "Championship courses and live music nights", link: "/experience" },
+  { icon: Trophy, label: "Sports + Golf", description: "Big games, tailgates, and tee times", link: "/experience" },
+  { icon: Calendar, label: "Browse Packages", description: "Pre-built weekend combos", link: "/packages" },
 ];
 
 export default function Index() {
@@ -65,7 +64,7 @@ export default function Index() {
         <p className="mx-auto mt-2 max-w-xl text-center text-muted-foreground">
           Combine world-class golf with unforgettable live music
         </p>
-        <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mt-10 grid gap-4 sm:grid-cols-3">
           {categories.map((cat) => (
             <Link key={cat.label} to={cat.link}>
               <Card className="group cursor-pointer border-border/50 bg-card transition-all hover:border-primary/30 hover:shadow-lg">

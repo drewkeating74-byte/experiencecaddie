@@ -31,12 +31,6 @@ export default function Navbar() {
           <Link to="/packages" className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground">
             Packages
           </Link>
-          <Link to="/events" className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground">
-            Concerts
-          </Link>
-          <Link to="/courses" className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground">
-            Golf Courses
-          </Link>
 
           {user ? (
             <DropdownMenu>
@@ -80,8 +74,6 @@ export default function Navbar() {
           <div className="flex flex-col gap-3">
             <Link to="/experience" onClick={() => setMobileOpen(false)} className="text-sm font-medium text-accent">Plan a Trip</Link>
             <Link to="/packages" onClick={() => setMobileOpen(false)} className="text-sm font-medium">Packages</Link>
-            <Link to="/events" onClick={() => setMobileOpen(false)} className="text-sm font-medium">Concerts</Link>
-            <Link to="/courses" onClick={() => setMobileOpen(false)} className="text-sm font-medium">Golf Courses</Link>
             {user ? (
               <>
                 <Link to="/bookings" onClick={() => setMobileOpen(false)} className="text-sm font-medium">My Bookings</Link>
