@@ -126,11 +126,11 @@ export default function ExperienceBuilder() {
     try {
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-      console.log("Starting itinerary insert...");
+      console.log("Starting itinerary generation...");
       const eventDetails = getEventDetails();
-      const insertPayload = {
+      const payload = {
         user_id: user?.id || null,
-        path: "golf_music" as const,
+        path: "golf_music",
         city: finalCity,
         start_date: finalStart,
         end_date: finalEnd,
@@ -140,36 +140,9 @@ export default function ExperienceBuilder() {
         event_details: typeof eventDetails === "string" ? eventDetails.slice(0, 1000) : null,
         email: user?.email || null,
       };
-      console.log("Insert payload:", JSON.stringify(insertPayload));
+      console.log("Payload:", JSON.stringify(payload));
 
-      // Use fetch directly — the Supabase JS client hangs on insert
-      const insertRes = await fetch(`${supabaseUrl}/rest/v1/itineraries?select=*`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "apikey": supabaseKey,
-          "Authorization": `Bearer ${supabaseKey}`,
-          "Prefer": "return=representation",
-        },
-        body: JSON.stringify(insertPayload),
-        signal: AbortSignal.timeout(30000),
-      });
-
-      if (!insertRes.ok) {
-        const errBody = await insertRes.text();
-        console.error("Insert HTTP error:", insertRes.status, errBody);
-        throw new Error(`Insert failed (${insertRes.status}): ${errBody}`);
-      }
-
-      const insertedRows = await insertRes.json();
-      const itinerary = insertedRows[0];
-      if (!itinerary?.id) {
-        throw new Error("No itinerary returned from insert");
-      }
-      console.log("Itinerary created:", itinerary.id);
-
-      // Use fetch directly for edge function too
-      console.log("Calling generate-itinerary edge function...");
+      // Send everything to the edge function — it handles insert + generation
       const genRes = await fetch(`${supabaseUrl}/functions/v1/generate-itinerary`, {
         method: "POST",
         headers: {
@@ -177,7 +150,7 @@ export default function ExperienceBuilder() {
           "apikey": supabaseKey,
           "Authorization": `Bearer ${supabaseKey}`,
         },
-        body: JSON.stringify({ itinerary_id: itinerary.id }),
+        body: JSON.stringify({ payload }),
         signal: AbortSignal.timeout(120000),
       });
 

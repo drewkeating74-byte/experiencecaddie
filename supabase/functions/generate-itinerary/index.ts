@@ -48,15 +48,6 @@ serve(async (req) => {
     }
 
     const body = await req.json();
-    const itinerary_id = typeof body?.itinerary_id === "string" ? body.itinerary_id.trim() : "";
-    // Validate UUID format
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    if (!itinerary_id || !uuidRegex.test(itinerary_id)) {
-      return new Response(JSON.stringify({ error: "Invalid or missing itinerary_id" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
@@ -65,18 +56,69 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Fetch the itinerary record
-    const { data: itinerary, error: fetchErr } = await supabase
-      .from("itineraries")
-      .select("*")
-      .eq("id", itinerary_id)
-      .single();
+    let itinerary: any;
+    let itinerary_id: string;
 
-    if (fetchErr || !itinerary) {
-      return new Response(JSON.stringify({ error: "Itinerary not found" }), {
-        status: 404,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    if (body?.payload) {
+      // Create the itinerary from the edge function (service role bypasses RLS)
+      const p = body.payload;
+      const validPaths = ["golf_music", "sports", "luxury", "custom"];
+      const validBudgets = ["low", "mid", "high"];
+      if (!p.city || typeof p.city !== "string" || !p.start_date || !p.end_date) {
+        return new Response(JSON.stringify({ error: "Missing required fields" }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      if (!validPaths.includes(p.path)) p.path = "golf_music";
+      if (!validBudgets.includes(p.budget_tier)) p.budget_tier = "mid";
+
+      const { data: inserted, error: insertErr } = await supabase
+        .from("itineraries")
+        .insert({
+          user_id: p.user_id || null,
+          path: p.path || "golf_music",
+          city: p.city.slice(0, 100),
+          start_date: p.start_date,
+          end_date: p.end_date,
+          budget_tier: p.budget_tier || "mid",
+          group_size: Math.min(Math.max(Number(p.group_size) || 2, 1), 20),
+          preferences: p.preferences || {},
+          event_details: typeof p.event_details === "string" ? p.event_details.slice(0, 1000) : null,
+          email: p.email || null,
+        })
+        .select()
+        .single();
+
+      if (insertErr || !inserted) {
+        console.error("Insert error:", insertErr);
+        return new Response(JSON.stringify({ error: "Failed to create itinerary" }), {
+          status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      itinerary = inserted;
+      itinerary_id = inserted.id;
+    } else {
+      // Legacy mode: fetch existing itinerary by ID
+      itinerary_id = typeof body?.itinerary_id === "string" ? body.itinerary_id.trim() : "";
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!itinerary_id || !uuidRegex.test(itinerary_id)) {
+        return new Response(JSON.stringify({ error: "Invalid or missing itinerary_id" }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const { data: fetched, error: fetchErr } = await supabase
+        .from("itineraries")
+        .select("*")
+        .eq("id", itinerary_id)
+        .single();
+
+      if (fetchErr || !fetched) {
+        return new Response(JSON.stringify({ error: "Itinerary not found" }), {
+          status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      itinerary = fetched;
     }
 
     // Generate share slug early so the "Public read shared itineraries" RLS policy allows reads during generation
