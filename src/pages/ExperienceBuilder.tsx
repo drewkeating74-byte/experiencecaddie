@@ -104,11 +104,11 @@ export default function ExperienceBuilder() {
       console.log("Starting itinerary insert...");
       const insertPayload = {
         user_id: user?.id || null,
-        path: "golf_music" as const,
+        path: "golf_music",
         city: finalCity,
         start_date: finalStart,
         end_date: finalEnd,
-        budget_tier: budget as "low" | "mid" | "high",
+        budget_tier: budget,
         group_size: groupSize,
         preferences: { flexible_location: flexibleLocation, flexible_dates: flexibleDates },
         event_details: getEventDetails(),
@@ -116,24 +116,33 @@ export default function ExperienceBuilder() {
       };
       console.log("Insert payload:", JSON.stringify(insertPayload));
 
-      // Use Promise.race to enforce timeout on the insert too
-      const insertPromise = supabase
-        .from("itineraries")
-        .insert(insertPayload)
-        .select()
-        .single();
+      // Use fetch directly — the Supabase client insert hangs silently
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+      
+      const insertRes = await fetch(`${supabaseUrl}/rest/v1/itineraries`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "apikey": supabaseKey,
+          "Authorization": `Bearer ${supabaseKey}`,
+          "Prefer": "return=representation",
+        },
+        body: JSON.stringify(insertPayload),
+        signal: AbortSignal.timeout(30000),
+      });
 
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("Request timed out. Please try again.")), 30000)
-      );
-
-      const { data: itinerary, error: insertErr } = await Promise.race([insertPromise, timeoutPromise]);
-
-      if (insertErr || !itinerary) {
-        console.error("Insert error:", insertErr);
-        throw new Error(insertErr?.message || "Failed to create itinerary");
+      if (!insertRes.ok) {
+        const errBody = await insertRes.text();
+        console.error("Insert HTTP error:", insertRes.status, errBody);
+        throw new Error(`Insert failed (${insertRes.status}): ${errBody}`);
       }
 
+      const insertedRows = await insertRes.json();
+      const itinerary = insertedRows[0];
+      if (!itinerary?.id) {
+        throw new Error("No itinerary returned from insert");
+      }
       console.log("Itinerary created:", itinerary.id);
 
       const genTimeoutPromise = new Promise<never>((_, reject) =>
