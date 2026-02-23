@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Music, Trophy, Search, Sparkles, ArrowRight, ArrowLeft, Loader2, Wand2, MapPin, Calendar } from "lucide-react";
 import { toast } from "sonner";
@@ -47,13 +46,6 @@ const GENRES = [
   "Country", "Rock", "Hip-Hop / Rap", "Pop", "R&B / Soul", "EDM", "Latin", "Jazz / Blues",
 ];
 
-const PREFERENCES = [
-  { id: "walkable_area", label: "Walkable area" },
-  { id: "upscale_dining", label: "Upscale dining" },
-  { id: "early_tee_times", label: "Early tee times" },
-  { id: "late_night", label: "Late-night options" },
-  { id: "family_friendly", label: "Family-friendly" },
-];
 
 export default function ExperienceBuilder() {
   const [step, setStep] = useState<"start" | "details">("start");
@@ -69,15 +61,10 @@ export default function ExperienceBuilder() {
   const [endDate, setEndDate] = useState("");
   const [budget, setBudget] = useState<BudgetTier>("mid");
   const [groupSize, setGroupSize] = useState(2);
-  const [preferences, setPreferences] = useState<Record<string, boolean>>({});
   const [generating, setGenerating] = useState(false);
 
   const { user } = useAuth();
   const navigate = useNavigate();
-
-  const togglePref = (id: string) => {
-    setPreferences((prev) => ({ ...prev, [id]: !prev[id] }));
-  };
 
   const getPath = () => {
     return selectedEntry === "sporting_event" ? "sports" : "golf_music";
@@ -128,7 +115,7 @@ export default function ExperienceBuilder() {
         end_date: finalEnd,
         budget_tier: budget,
         group_size: groupSize,
-        preferences: { ...preferences, flexible_location: flexibleLocation, flexible_dates: flexibleDates },
+        preferences: { flexible_location: flexibleLocation, flexible_dates: flexibleDates },
         event_details: getEventDetails(),
         email: user?.email || null,
       }).select().single();
@@ -369,30 +356,6 @@ export default function ExperienceBuilder() {
             </div>
           </div>
 
-          {/* Preferences */}
-          <div className="space-y-3">
-            <Label>Preferences</Label>
-            <div className="flex flex-wrap gap-3">
-              {PREFERENCES.map((pref) => (
-                <label
-                  key={pref.id}
-                  className={`flex cursor-pointer items-center gap-2 rounded-full border px-4 py-2 text-sm transition-all ${
-                    preferences[pref.id]
-                      ? "border-primary bg-primary/5 text-foreground"
-                      : "border-border text-muted-foreground hover:border-primary/30"
-                  }`}
-                >
-                  <Checkbox
-                    id={pref.id}
-                    checked={!!preferences[pref.id]}
-                    onCheckedChange={() => togglePref(pref.id)}
-                    className="sr-only"
-                  />
-                  {pref.label}
-                </label>
-              ))}
-            </div>
-          </div>
 
           {/* Generate */}
           <div className="flex justify-center pt-4">
