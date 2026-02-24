@@ -18,7 +18,7 @@ function getIncludes(pkg: Package): string[] {
     items.push(`${holes} holes golf w/ cart`);
   }
   if (pkg.destinations) items.push("2 nights hotel");
-  if (pkg.drive_time_minutes) items.push("Ground transport");
+  
   return items;
 }
 
