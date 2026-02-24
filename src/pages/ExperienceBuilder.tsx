@@ -246,7 +246,7 @@ export default function ExperienceBuilder() {
               <Label htmlFor="artist-input">Who do you want to see?</Label>
               <Input
                 id="artist-input"
-                placeholder="e.g. Tyler Childers, Morgan Wallen, Zach Bryan"
+                placeholder="e.g. Morgan Wallen, Kendrick Lamar, The Killers"
                 value={eventInput}
                 onChange={(e) => setEventInput(e.target.value)}
                 autoFocus
