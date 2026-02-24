@@ -289,7 +289,7 @@ export default function ExperienceBuilder() {
               onClick={handleContinue}
               disabled={!selectedEntry}
               size="lg"
-              className="rounded-full px-8"
+              className="rounded-full px-8 bg-accent text-accent-foreground hover:bg-accent/90"
             >
               Continue <ArrowRight className="ml-2 h-4 w-4" />
             </Button>
