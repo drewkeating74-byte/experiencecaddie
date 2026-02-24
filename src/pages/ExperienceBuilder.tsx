@@ -19,20 +19,20 @@ const ENTRY_OPTIONS = [
   {
     id: "artist" as EntryOption,
     icon: Music,
-    label: "I have an artist in mind",
+    label: "I already know who I want to see...",
     description: "Build a golf weekend around a concert",
   },
   {
     id: "find_concert" as EntryOption,
     icon: Search,
-    label: "Help me find a concert",
-    description: "We'll suggest the best upcoming shows",
+    label: "Show me the best upcoming shows",
+    description: "We'll suggest top concerts and let you narrow it down",
   },
   {
     id: "surprise" as EntryOption,
     icon: Sparkles,
-    label: "Surprise me",
-    description: "Plan something epic — I'm flexible",
+    label: "I'm flexible — show me something great",
+    description: "Plan something epic — we'll handle everything",
   },
 ];
 
@@ -254,7 +254,7 @@ export default function ExperienceBuilder() {
             </div>
           )}
 
-          {(selectedEntry === "find_concert" || selectedEntry === "surprise") && (
+          {selectedEntry === "find_concert" && (
             <div className="space-y-3 animate-fade-in">
               <Label>What kind of music are you into?</Label>
               <div className="flex flex-wrap gap-2">
