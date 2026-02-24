@@ -19,8 +19,8 @@ const ENTRY_OPTIONS = [
   {
     id: "artist" as EntryOption,
     icon: Music,
-    label: "I already know who I want to see...",
-    description: "Build a golf weekend around a concert",
+    label: "I already know who I want to see",
+    description: "We'll match their tour dates with great public courses nearby",
   },
   {
     id: "find_concert" as EntryOption,
