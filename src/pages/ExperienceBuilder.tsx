@@ -202,7 +202,7 @@ export default function ExperienceBuilder() {
           <div className="text-center">
             <h1 className="font-serif text-4xl font-bold">Start Your Experience</h1>
             <p className="mt-3 text-muted-foreground">
-              Don't worry about dates or location yet — just tell us what sounds good.
+              Choose your starting point. We'll curate the rest.
             </p>
           </div>
 
