@@ -8,7 +8,19 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Music, MapPin, Calendar, Search } from "lucide-react";
+import { Music, MapPin, Calendar, Search, Check } from "lucide-react";
+
+function getIncludes(pkg: Package): string[] {
+  const items: string[] = [];
+  if (pkg.events) items.push("Concert tickets");
+  if (pkg.golf_courses) {
+    const holes = pkg.golf_courses.holes || 18;
+    items.push(`${holes} holes golf w/ cart`);
+  }
+  if (pkg.destinations) items.push("2 nights hotel");
+  if (pkg.drive_time_minutes) items.push("Ground transport");
+  return items;
+}
 
 export default function Packages() {
   const [packages, setPackages] = useState<Package[]>([]);
@@ -122,6 +134,16 @@ export default function Packages() {
                     <p className="mt-1 flex items-center gap-1 text-sm text-muted-foreground">
                       <Calendar className="h-3.5 w-3.5" /> {new Date(pkg.events.event_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                     </p>
+                  )}
+                  {getIncludes(pkg).length > 0 && (
+                    <ul className="mt-3 space-y-1">
+                      {getIncludes(pkg).map((item) => (
+                        <li key={item} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                          <Check className="h-3 w-3 shrink-0 text-primary" />
+                          {item}
+                        </li>
+                      ))}
+                    </ul>
                   )}
                   <div className="mt-3 flex items-end justify-between">
                     <div>
