@@ -325,6 +325,9 @@ export default function ExperienceBuilder() {
                 {flexibleLocation ? "I'm flexible ✓" : "Set a location"}
               </button>
             </div>
+            {flexibleLocation && (
+              <p className="text-xs text-muted-foreground">Tap above to set a specific city</p>
+            )}
             {!flexibleLocation && (
               <Input
                 placeholder="e.g. Austin, TX"
@@ -352,6 +355,9 @@ export default function ExperienceBuilder() {
                 {flexibleDates ? "I'm flexible ✓" : "Set dates"}
               </button>
             </div>
+            {flexibleDates && (
+              <p className="text-xs text-muted-foreground">Tap above to set specific dates</p>
+            )}
             {!flexibleDates && (
               <div className="flex gap-3 animate-fade-in">
                 <div className="flex-1 space-y-1">
