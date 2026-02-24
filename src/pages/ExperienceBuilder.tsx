@@ -140,7 +140,9 @@ export default function ExperienceBuilder() {
         event_details: typeof eventDetails === "string" ? eventDetails.slice(0, 1000) : null,
         email: user?.email || null,
       };
-      console.log("Payload:", JSON.stringify(payload));
+      if (import.meta.env.DEV) {
+        console.log("Payload (sanitized):", { ...payload, user_id: "[REDACTED]", email: "[REDACTED]" });
+      }
 
       // Send everything to the edge function — it handles insert + generation
       const genRes = await fetch(`${supabaseUrl}/functions/v1/generate-itinerary`, {
@@ -155,7 +157,9 @@ export default function ExperienceBuilder() {
       });
 
       const genData = await genRes.json();
-      console.log("Generation response:", genRes.status, JSON.stringify(genData));
+      if (import.meta.env.DEV) {
+        console.log("Generation response:", genRes.status);
+      }
 
       if (!genRes.ok || genData?.error) {
         throw new Error(genData?.error || `Generation failed (${genRes.status})`);
