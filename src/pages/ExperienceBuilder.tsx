@@ -26,7 +26,7 @@ const ENTRY_OPTIONS = [
     id: "find_concert" as EntryOption,
     icon: Search,
     label: "Show me the best upcoming shows",
-    description: "We'll suggest top concerts and let you narrow it down",
+    description: "We'll suggest high-demand events in great golf cities",
   },
   {
     id: "surprise" as EntryOption,
