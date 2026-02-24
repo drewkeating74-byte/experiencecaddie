@@ -29,6 +29,9 @@ export default function Packages() {
   const [searchParams] = useSearchParams();
   const categoryFilter = searchParams.get("category") || "all";
   const [sort, setSort] = useState("date");
+  const [budgetTier, setBudgetTier] = useState("all");
+  const [destination, setDestination] = useState("all");
+  const [month, setMonth] = useState("all");
 
   useEffect(() => {
     const fetchPackages = async () => {
@@ -55,16 +58,37 @@ export default function Packages() {
     fetchPackages();
   }, [categoryFilter]);
 
+  // Derive filter options from data
+  const destinations = [...new Set(packages.map(p => p.destinations?.name).filter(Boolean))] as string[];
+  const months = [...new Set(packages.map(p => {
+    if (!p.events?.event_date) return null;
+    const d = new Date(p.events.event_date);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  }).filter(Boolean))].sort() as string[];
+
   const filtered = packages
     .filter((p) => {
-      if (!search) return true;
-      const s = search.toLowerCase();
-      return (
-        p.name.toLowerCase().includes(s) ||
-        p.events?.artists?.name?.toLowerCase().includes(s) ||
-        p.destinations?.name?.toLowerCase().includes(s) ||
-        p.golf_courses?.name?.toLowerCase().includes(s)
-      );
+      if (search) {
+        const s = search.toLowerCase();
+        if (!(
+          p.name.toLowerCase().includes(s) ||
+          p.events?.artists?.name?.toLowerCase().includes(s) ||
+          p.destinations?.name?.toLowerCase().includes(s) ||
+          p.golf_courses?.name?.toLowerCase().includes(s)
+        )) return false;
+      }
+      if (destination !== "all" && p.destinations?.name !== destination) return false;
+      if (month !== "all" && p.events?.event_date) {
+        const d = new Date(p.events.event_date);
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+        if (key !== month) return false;
+      } else if (month !== "all" && !p.events?.event_date) return false;
+      if (budgetTier !== "all") {
+        if (budgetTier === "low" && p.price > 900) return false;
+        if (budgetTier === "mid" && (p.price <= 900 || p.price > 1200)) return false;
+        if (budgetTier === "high" && p.price <= 1200) return false;
+      }
+      return true;
     })
     .sort((a, b) => {
       if (sort === "price-low") return a.price - b.price;
@@ -86,7 +110,50 @@ export default function Packages() {
             onChange={(e) => setSearch(e.target.value)}
             className="pl-9"
           />
-        </div>
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-3">
+        <Select value={budgetTier} onValueChange={setBudgetTier}>
+          <SelectTrigger className="w-[150px]">
+            <SelectValue placeholder="Budget" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Budgets</SelectItem>
+            <SelectItem value="low">Under $900</SelectItem>
+            <SelectItem value="mid">$900 – $1,200</SelectItem>
+            <SelectItem value="high">$1,200+</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={destination} onValueChange={setDestination}>
+          <SelectTrigger className="w-[180px]">
+            <SelectValue placeholder="Destination" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Destinations</SelectItem>
+            {destinations.map((d) => (
+              <SelectItem key={d} value={d}>{d}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={month} onValueChange={setMonth}>
+          <SelectTrigger className="w-[160px]">
+            <SelectValue placeholder="Month" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Months</SelectItem>
+            {months.map((m) => {
+              const [y, mo] = m.split("-");
+              const label = new Date(Number(y), Number(mo) - 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+              return <SelectItem key={m} value={m}>{label}</SelectItem>;
+            })}
+          </SelectContent>
+        </Select>
+        {(budgetTier !== "all" || destination !== "all" || month !== "all") && (
+          <Button variant="ghost" size="sm" onClick={() => { setBudgetTier("all"); setDestination("all"); setMonth("all"); }} className="text-muted-foreground">
+            Clear filters
+          </Button>
+        )}
+      </div>
         <Select value={sort} onValueChange={setSort}>
           <SelectTrigger className="w-[180px]">
             <SelectValue placeholder="Sort by" />
