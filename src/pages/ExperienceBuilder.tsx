@@ -257,7 +257,7 @@ export default function ExperienceBuilder() {
           {selectedEntry === "find_concert" && (
             <div className="space-y-3 animate-fade-in">
               <Label>What kind of music are you into?</Label>
-              <div className="flex flex-wrap gap-2">
+              <div className="grid grid-cols-4 gap-2">
                 {GENRES.map((genre) => {
                   const active = selectedGenres.includes(genre);
                   return (
