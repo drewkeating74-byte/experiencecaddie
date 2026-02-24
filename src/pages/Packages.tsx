@@ -101,69 +101,70 @@ export default function Packages() {
       <h1 className="font-serif text-3xl font-bold">Concert + Golf Packages</h1>
       <p className="mt-1 text-muted-foreground">Find your perfect getaway</p>
 
-      <div className="mt-6 flex flex-col gap-4 sm:flex-row">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Search by artist, destination, course..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-9"
-          />
-      </div>
-
-      <div className="mt-3 flex flex-wrap gap-3">
-        <Select value={budgetTier} onValueChange={setBudgetTier}>
-          <SelectTrigger className="w-[150px]">
-            <SelectValue placeholder="Budget" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Budgets</SelectItem>
-            <SelectItem value="low">Under $900</SelectItem>
-            <SelectItem value="mid">$900 – $1,200</SelectItem>
-            <SelectItem value="high">$1,200+</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select value={destination} onValueChange={setDestination}>
-          <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="Destination" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Destinations</SelectItem>
-            {destinations.map((d) => (
-              <SelectItem key={d} value={d}>{d}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={month} onValueChange={setMonth}>
-          <SelectTrigger className="w-[160px]">
-            <SelectValue placeholder="Month" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Months</SelectItem>
-            {months.map((m) => {
-              const [y, mo] = m.split("-");
-              const label = new Date(Number(y), Number(mo) - 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
-              return <SelectItem key={m} value={m}>{label}</SelectItem>;
-            })}
-          </SelectContent>
-        </Select>
-        {(budgetTier !== "all" || destination !== "all" || month !== "all") && (
-          <Button variant="ghost" size="sm" onClick={() => { setBudgetTier("all"); setDestination("all"); setMonth("all"); }} className="text-muted-foreground">
-            Clear filters
-          </Button>
-        )}
-      </div>
-        <Select value={sort} onValueChange={setSort}>
-          <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="Sort by" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="date">Newest</SelectItem>
-            <SelectItem value="price-low">Price: Low → High</SelectItem>
-            <SelectItem value="price-high">Price: High → Low</SelectItem>
-          </SelectContent>
-        </Select>
+      <div className="mt-6 flex flex-col gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Search by artist, destination, course..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+          <Select value={sort} onValueChange={setSort}>
+            <SelectTrigger className="w-full sm:w-[180px]">
+              <SelectValue placeholder="Sort by" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="date">Newest</SelectItem>
+              <SelectItem value="price-low">Price: Low → High</SelectItem>
+              <SelectItem value="price-high">Price: High → Low</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <Select value={budgetTier} onValueChange={setBudgetTier}>
+            <SelectTrigger className="w-full sm:w-[160px]">
+              <SelectValue placeholder="Budget" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Budgets</SelectItem>
+              <SelectItem value="low">Budget-Friendly</SelectItem>
+              <SelectItem value="mid">Mid-Range</SelectItem>
+              <SelectItem value="high">Premium</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={destination} onValueChange={setDestination}>
+            <SelectTrigger className="w-full sm:w-[180px]">
+              <SelectValue placeholder="Destination" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Destinations</SelectItem>
+              {destinations.map((d) => (
+                <SelectItem key={d} value={d}>{d}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={month} onValueChange={setMonth}>
+            <SelectTrigger className="w-full sm:w-[170px]">
+              <SelectValue placeholder="Month" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Months</SelectItem>
+              {months.map((m) => {
+                const [y, mo] = m.split("-");
+                const label = new Date(Number(y), Number(mo) - 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+                return <SelectItem key={m} value={m}>{label}</SelectItem>;
+              })}
+            </SelectContent>
+          </Select>
+          {(budgetTier !== "all" || destination !== "all" || month !== "all") && (
+            <Button variant="ghost" size="sm" onClick={() => { setBudgetTier("all"); setDestination("all"); setMonth("all"); }} className="text-muted-foreground">
+              Clear filters
+            </Button>
+          )}
+        </div>
       </div>
 
       {loading ? (
