@@ -32,7 +32,7 @@ const ENTRY_OPTIONS = [
     id: "surprise" as EntryOption,
     icon: Sparkles,
     label: "I'm flexible — show me something great",
-    description: "Plan something epic — we'll handle everything",
+    description: "We'll build a strong weekend based on timing, travel flow, and course quality",
   },
 ];
 
