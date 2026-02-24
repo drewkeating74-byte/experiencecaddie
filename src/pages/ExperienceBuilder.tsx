@@ -326,7 +326,7 @@ export default function ExperienceBuilder() {
               </button>
             </div>
             {flexibleLocation && (
-              <p className="text-xs text-muted-foreground">Tap above to set a specific city</p>
+              <button onClick={() => setFlexibleLocation(false)} className="text-xs text-muted-foreground hover:text-primary transition-colors text-left cursor-pointer">Tap to set a specific city →</button>
             )}
             {!flexibleLocation && (
               <Input
@@ -356,7 +356,7 @@ export default function ExperienceBuilder() {
               </button>
             </div>
             {flexibleDates && (
-              <p className="text-xs text-muted-foreground">Tap above to set specific dates</p>
+              <button onClick={() => setFlexibleDates(false)} className="text-xs text-muted-foreground hover:text-primary transition-colors text-left cursor-pointer">Tap to set specific dates →</button>
             )}
             {!flexibleDates && (
               <div className="flex gap-3 animate-fade-in">
