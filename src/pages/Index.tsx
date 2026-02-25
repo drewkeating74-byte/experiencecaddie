@@ -83,6 +83,27 @@ export default function Index() {
         </div>
       </section>
 
+      {/* Value Props */}
+      <section className="container mx-auto px-4 py-16">
+        <div className="mx-auto max-w-2xl space-y-5">
+          {[
+            { title: "We prioritize playability and proximity", desc: "Courses chosen for quality and how close they are to your event — no three-hour drives." },
+            { title: "We build realistic weekend flow", desc: "Tee times, check-ins, and showtimes that actually work together — not just a wishlist." },
+            { title: "You book directly with official partners", desc: "Every link goes straight to the source. No markups, no middlemen." },
+          ].map((item) => (
+            <div key={item.title} className="flex gap-4">
+              <div className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                <Star className="h-3.5 w-3.5 fill-primary" />
+              </div>
+              <div>
+                <h3 className="font-serif text-lg font-semibold text-foreground">{item.title}</h3>
+                <p className="mt-0.5 text-sm text-muted-foreground">{item.desc}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
       {/* Featured Packages */}
       <section className="bg-muted/30 py-16">
         <div className="container mx-auto px-4">
