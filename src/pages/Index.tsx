@@ -10,8 +10,8 @@ import type { Package } from "@/types/database";
 import heroImage from "@/assets/hero-image.jpg";
 
 const categories = [
-  { icon: Music, label: "Golf + Concert", description: "Championship courses and live music", link: "/experience" },
-  { icon: Calendar, label: "Browse Packages", description: "Pre-built weekend combos", link: "/packages" },
+  { icon: Music, label: "Golf + Concert", description: "Build a weekend around a show", link: "/experience" },
+  { icon: Calendar, label: "Browse Packages", description: "Explore curated plans", link: "/packages" },
 ];
 
 export default function Index() {
