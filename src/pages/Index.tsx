@@ -84,23 +84,23 @@ export default function Index() {
       </section>
 
       {/* Value Props */}
-      <section className="container mx-auto px-4 py-16">
-        <div className="mx-auto max-w-2xl space-y-5">
-          {[
-            { title: "We prioritize playability and proximity", desc: "Courses chosen for quality and how close they are to your event — no three-hour drives." },
-            { title: "We build realistic weekend flow", desc: "Tee times, check-ins, and showtimes that actually work together — not just a wishlist." },
-            { title: "You book directly with official partners", desc: "Every link goes straight to the source. No markups, no middlemen." },
-          ].map((item) => (
-            <div key={item.title} className="flex gap-4">
-              <div className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-                <Star className="h-3.5 w-3.5 fill-primary" />
+      <section className="border-y border-border/40 bg-muted/20 py-14">
+        <div className="container mx-auto px-4">
+          <div className="mx-auto grid max-w-4xl gap-8 sm:grid-cols-3">
+            {[
+              { title: "Playability & Proximity", desc: "Courses chosen for quality and how close they are to your event — no three-hour drives." },
+              { title: "Realistic Weekend Flow", desc: "Tee times, check-ins, and showtimes that actually work together — not just a wishlist." },
+              { title: "Book with Official Partners", desc: "Every link goes straight to the source. No markups, no middlemen." },
+            ].map((item) => (
+              <div key={item.title} className="flex flex-col items-center text-center">
+                <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary">
+                  <Star className="h-4 w-4 fill-primary" />
+                </div>
+                <h3 className="font-serif text-base font-semibold text-foreground">{item.title}</h3>
+                <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{item.desc}</p>
               </div>
-              <div>
-                <h3 className="font-serif text-lg font-semibold text-foreground">{item.title}</h3>
-                <p className="mt-0.5 text-sm text-muted-foreground">{item.desc}</p>
-              </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       </section>
 
