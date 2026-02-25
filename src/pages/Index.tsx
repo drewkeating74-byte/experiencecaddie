@@ -93,7 +93,7 @@ export default function Index() {
               { title: "Book with Official Partners", desc: "Book directly with official venues and partners." },
             ].map((item) => (
               <div key={item.title} className="flex flex-col items-center text-center">
-                <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-primary/20 text-primary">
+                <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-white/70 text-primary">
                   <Star className="h-4 w-4 fill-primary" />
                 </div>
                 <h3 className="font-serif text-base font-semibold text-foreground">{item.title}</h3>
