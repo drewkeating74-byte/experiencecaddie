@@ -104,6 +104,26 @@ export default function Index() {
         </div>
       </section>
 
+      {/* How It Works */}
+      <section className="container mx-auto px-4 py-16">
+        <h2 className="text-center font-serif text-3xl font-bold text-foreground">How It Works</h2>
+        <div className="mx-auto mt-10 grid max-w-4xl gap-10 sm:grid-cols-3">
+          {[
+            { step: "1", title: "Choose Your Starting Point", desc: "Pick an artist, explore upcoming shows, or let us suggest something great." },
+            { step: "2", title: "We Curate the Weekend", desc: "We match strong public courses, realistic timing, and nearby stays." },
+            { step: "3", title: "Book with Confidence", desc: "You reserve directly with official ticket, hotel, and course providers." },
+          ].map((item) => (
+            <div key={item.step} className="flex flex-col items-center text-center">
+              <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-accent text-xl font-bold text-accent-foreground">
+                {item.step}
+              </div>
+              <h3 className="font-serif text-lg font-semibold text-foreground">{item.title}</h3>
+              <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{item.desc}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
       {/* Featured Packages */}
       <section className="bg-muted/30 py-16">
         <div className="container mx-auto px-4">
