@@ -88,9 +88,9 @@ export default function Index() {
         <div className="container mx-auto px-4">
           <div className="mx-auto grid max-w-4xl gap-8 sm:grid-cols-3">
             {[
-              { title: "Playability & Proximity", desc: "Courses chosen for quality and how close they are to your event — no three-hour drives." },
-              { title: "Realistic Weekend Flow", desc: "Tee times, check-ins, and showtimes that actually work together — not just a wishlist." },
-              { title: "Book with Official Partners", desc: "Every link goes straight to the source. No markups, no middlemen." },
+              { title: "Playability & Proximity", desc: "Quality public courses within easy reach of your event." },
+              { title: "Realistic Weekend Flow", desc: "Tee times, check-ins, and showtimes that actually work together." },
+              { title: "Book with Official Partners", desc: "Book directly with official venues and partners." },
             ].map((item) => (
               <div key={item.title} className="flex flex-col items-center text-center">
                 <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary">
