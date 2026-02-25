@@ -64,7 +64,7 @@ export default function Index() {
       <section className="container mx-auto px-4 py-16">
         <h2 className="text-center font-serif text-3xl font-bold text-foreground">Pick Your Play</h2>
         <p className="mx-auto mt-2 max-w-xl text-center text-muted-foreground">
-          Championship golf paired with the events you love
+          Thoughtfully paired golf and live events.
         </p>
         <div className="mt-10 grid gap-4 sm:grid-cols-2 max-w-2xl mx-auto">
           {categories.map((cat) => (
