@@ -123,7 +123,7 @@ export default function Index() {
           ))}
         </div>
         <p className="mx-auto mt-8 max-w-lg text-center text-sm italic text-muted-foreground">
-          Designed for guys trips, milestone birthdays, and long-overdue weekends.
+          Designed for guys trips, milestone birthdays, bachelor parties, and long-overdue weekends.
         </p>
       </section>
 
