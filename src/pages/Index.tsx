@@ -114,7 +114,7 @@ export default function Index() {
             { step: "3", title: "Book with Confidence", desc: "You reserve directly with official ticket, hotel, and course providers." },
           ].map((item) => (
             <div key={item.step} className="flex flex-col items-center text-center">
-              <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-accent text-xl font-bold text-accent-foreground">
+              <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-accent/60 text-xl font-bold text-accent-foreground">
                 {item.step}
               </div>
               <h3 className="font-serif text-lg font-semibold text-foreground">{item.title}</h3>
