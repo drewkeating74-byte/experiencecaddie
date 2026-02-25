@@ -84,7 +84,7 @@ export default function Index() {
       </section>
 
       {/* Value Props */}
-      <section className="bg-primary/8 border-y border-primary/10 py-14">
+      <section className="bg-primary/15 border-y border-primary/20 py-14">
         <div className="container mx-auto px-4">
           <div className="mx-auto grid max-w-4xl gap-8 sm:grid-cols-3">
             {[
