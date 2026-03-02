@@ -4,22 +4,41 @@ import type { SearchRequest } from "../contracts/search.js";
 
 const parseRequest = (req: Request): SearchRequest => {
   const body = (req.body || {}) as Partial<SearchRequest>;
+  const query = req.query as Record<string, unknown>;
+  const getString = (value: unknown) => (typeof value === "string" ? value : undefined);
+  const getNumber = (value: unknown) => {
+    if (typeof value === "number") return value;
+    if (typeof value === "string" && value.trim()) return Number(value);
+    return undefined;
+  };
+
+  const city = body.destination?.city || getString(query.city) || "Austin";
+  const state = body.destination?.state || getString(query.state);
+  const lat = body.destination?.lat ?? getNumber(query.lat);
+  const lng = body.destination?.lng ?? getNumber(query.lng);
+  const startDate = body.dates?.start_date || getString(query.start_date) || getString(query.startDate);
+  const endDate = body.dates?.end_date || getString(query.end_date) || getString(query.endDate);
+  const teeTimeStart = getString(query.tee_time_start);
+  const teeTimeEnd = getString(query.tee_time_end);
+
   return {
     destination: {
-      city: body.destination?.city || "Austin",
-      state: body.destination?.state,
-      lat: body.destination?.lat,
-      lng: body.destination?.lng,
+      city,
+      state,
+      lat,
+      lng,
     },
     dates: {
-      startDate: body.dates?.startDate || new Date().toISOString().split("T")[0],
-      endDate:
-        body.dates?.endDate ||
-        new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
+      start_date: startDate || new Date().toISOString().split("T")[0],
+      end_date:
+        endDate || new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
     },
-    groupSize: body.groupSize,
-    budgetTier: body.budgetTier,
-    teeTimeWindow: body.teeTimeWindow,
+    group_size: body.group_size ?? getNumber(query.group_size) ?? getNumber(query.groupSize),
+    budget_tier: body.budget_tier ?? body.budgetTier,
+    tee_time_window:
+      body.tee_time_window ??
+      body.teeTimeWindow ??
+      (teeTimeStart || teeTimeEnd ? { start: teeTimeStart || "07:00", end: teeTimeEnd || "11:00" } : undefined),
   };
 };
 
@@ -31,7 +50,7 @@ export const searchAll = (req: Request, res: Response) => {
 export const searchEvents = (req: Request, res: Response) => {
   const payload = parseRequest(req);
   const response = buildSearchResponse(payload);
-  res.json({ ...response, golfCourses: [], hotels: [], itinerary: undefined });
+  res.json({ ...response, golf_courses: [], hotels: [], itinerary: undefined });
 };
 
 export const searchGolf = (req: Request, res: Response) => {
@@ -43,5 +62,5 @@ export const searchGolf = (req: Request, res: Response) => {
 export const searchHotels = (req: Request, res: Response) => {
   const payload = parseRequest(req);
   const response = buildSearchResponse(payload);
-  res.json({ ...response, events: [], golfCourses: [], itinerary: undefined });
+  res.json({ ...response, events: [], golf_courses: [], itinerary: undefined });
 };

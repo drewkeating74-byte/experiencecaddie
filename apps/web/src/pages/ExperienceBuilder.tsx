@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Music, Search, Sparkles, ArrowRight, ArrowLeft, Loader2, Wand2, MapPin, Calendar } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
+import { fetchSearch } from "@/lib/api/search";
 
 
 
@@ -128,6 +129,18 @@ export default function ExperienceBuilder() {
       const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
       console.log("Starting itinerary generation...");
       const eventDetails = getEventDetails();
+      const searchRequest = {
+        destination: { city: finalCity === "flexible" ? "Austin" : finalCity },
+        dates: { start_date: finalStart, end_date: finalEnd },
+        group_size: Math.min(Math.max(groupSize, 1), 20),
+        budget_tier: budget,
+      };
+      const searchResult = await fetchSearch(searchRequest);
+      const searchResults = {
+        events: searchResult.events?.slice(0, 6) || [],
+        golf_courses: searchResult.golf_courses?.slice(0, 6) || [],
+        hotels: searchResult.hotels?.slice(0, 6) || [],
+      };
       const payload = {
         user_id: user?.id || null,
         path: "golf_music",
@@ -138,6 +151,7 @@ export default function ExperienceBuilder() {
         group_size: Math.min(Math.max(groupSize, 1), 20),
         preferences: { flexible_location: flexibleLocation, flexible_dates: flexibleDates },
         event_details: typeof eventDetails === "string" ? eventDetails.slice(0, 1000) : null,
+        search_results: searchResults,
         email: user?.email || null,
       };
       if (import.meta.env.DEV) {
