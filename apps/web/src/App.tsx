@@ -15,6 +15,7 @@ import Admin from "./pages/Admin";
 import ExperienceBuilder from "./pages/ExperienceBuilder";
 import ItineraryResults from "./pages/ItineraryResults";
 import SharedItinerary from "./pages/SharedItinerary";
+import SearchPreview from "./pages/SearchPreview";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -37,6 +38,7 @@ const App = () => (
             <Route path="/experience" element={<ExperienceBuilder />} />
             <Route path="/itinerary/:id" element={<ItineraryResults />} />
             <Route path="/share/:slug" element={<SharedItinerary />} />
+            <Route path="/search-preview" element={<SearchPreview />} />
             <Route path="/admin" element={<Admin />} />
           </Route>
           <Route path="*" element={<NotFound />} />

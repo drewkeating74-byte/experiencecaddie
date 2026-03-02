@@ -47,7 +47,23 @@ serve(async (req) => {
       });
     }
 
-    const body = await req.json();
+    let body: any = {};
+    try {
+      const raw = await req.text();
+      if (!raw || !raw.trim()) {
+        return new Response(
+          JSON.stringify({ error: "invalid_json", message: "Request body is empty." }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      body = JSON.parse(raw);
+    } catch (err) {
+      console.error("Invalid JSON body:", err);
+      return new Response(
+        JSON.stringify({ error: "invalid_json", message: "Request body must be valid JSON." }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
@@ -71,6 +87,28 @@ serve(async (req) => {
       }
       if (!validPaths.includes(p.path)) p.path = "golf_music";
       if (!validBudgets.includes(p.budget_tier)) p.budget_tier = "mid";
+
+      const rawSearchResults =
+        p.search_results ||
+        p.searchResults ||
+        body?.search_results ||
+        body?.searchResults ||
+        {};
+      const events = Array.isArray(rawSearchResults.events) ? rawSearchResults.events.slice(0, 6) : [];
+      const golfCourses = Array.isArray(rawSearchResults.golf_courses)
+        ? rawSearchResults.golf_courses.slice(0, 6)
+        : [];
+      const hotels = Array.isArray(rawSearchResults.hotels) ? rawSearchResults.hotels.slice(0, 6) : [];
+
+      if (!events.length && !golfCourses.length && !hotels.length) {
+        return new Response(
+          JSON.stringify({
+            error: "missing_search_results",
+            message: "Search results are required. Call /api/search first and pass search_results.",
+          }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
 
       const { data: inserted, error: insertErr } = await supabase
         .from("itineraries")
@@ -96,6 +134,7 @@ serve(async (req) => {
         });
       }
       itinerary = inserted;
+      itinerary.search_results = { events, golf_courses: golfCourses, hotels };
       itinerary_id = inserted.id;
     } else {
       // Legacy mode: fetch existing itinerary by ID
@@ -135,6 +174,60 @@ serve(async (req) => {
       .map(([k]) => k.replace(/_/g, " "))
       .join(", ");
 
+    const searchResults = itinerary.search_results || { events: [], golf_courses: [], hotels: [] };
+    if (!searchResults.events?.length && !searchResults.golf_courses?.length && !searchResults.hotels?.length) {
+      await supabase.from("itineraries").update({ status: "error" }).eq("id", itinerary_id);
+      return new Response(
+        JSON.stringify({
+          error: "missing_search_results",
+          message: "Search results are required. Call /api/search first and pass search_results.",
+        }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const eventOptions = (searchResults.events || []).map((event: any) => ({
+      id: event.id,
+      name: event.name,
+      date_time: event.date_time,
+      venue: event.venue,
+      price_min: event.price_min,
+      price_max: event.price_max,
+      book_url: event.book_url,
+      source_url: event.source_url,
+      provider: event.provider,
+      image_url: event.image_url,
+    }));
+    const golfOptions = (searchResults.golf_courses || []).map((course: any) => ({
+      id: course.id,
+      name: course.name,
+      city: course.city,
+      state: course.state,
+      tee_time_window: course.tee_time_window,
+      public_access: course.public_access,
+      rating: course.rating,
+      price_min: course.price_min,
+      price_max: course.price_max,
+      book_url: course.book_url,
+      source_url: course.source_url,
+      provider: course.provider,
+      image_url: course.image_url,
+    }));
+    const hotelOptions = (searchResults.hotels || []).map((hotel: any) => ({
+      id: hotel.id,
+      name: hotel.name,
+      city: hotel.city,
+      state: hotel.state,
+      stars: hotel.stars,
+      rating: hotel.rating,
+      price_min: hotel.price_min,
+      price_max: hotel.price_max,
+      book_url: hotel.book_url,
+      source_url: hotel.source_url,
+      provider: hotel.provider,
+      image_url: hotel.image_url,
+    }));
+
     const systemPrompt = `You are Experience Caddie, an AI travel planner specializing in legendary golf + concert weekend getaways. 
 You create curated trip packages with real vendor search links for booking.
 You MUST respond with ONLY valid JSON matching the exact schema specified. No markdown, no explanation, just JSON.`;
@@ -149,23 +242,25 @@ You MUST respond with ONLY valid JSON matching the exact schema specified. No ma
 ${prefs ? `- Preferences: ${prefsList || "none specified"}` : ""}
 ${itinerary.event_details ? `- Event details: ${itinerary.event_details}` : ""}
 
+Use ONLY the provided options below for events, golf courses, and hotels. Do NOT invent providers or URLs.
+If a book_url is available, use it. Otherwise use source_url.
+
+Provided events (use 1-2 across tiers):
+${JSON.stringify(eventOptions, null, 2)}
+
+Provided golf courses (use 2-3 across tiers):
+${JSON.stringify(golfOptions, null, 2)}
+
+Provided hotels (use 2-3 across tiers as lodging):
+${JSON.stringify(hotelOptions, null, 2)}
+
 For each tier, include:
-- 2-3 lodging options across these types: hotels, vacation rentals (Airbnb/VRBO), and golf resorts. Mix the types based on the tier — Bronze should lean budget hotels & rentals, Silver mid-range hotels & resorts, Gold premium resorts & luxury rentals.
-  Use these search URL formats:
-  - Hotels: https://www.booking.com/searchresults.html?ss={city}&checkin={start_date}&checkout={end_date}
-  - Vacation rentals: https://www.vrbo.com/search?destination={city}&startDate={start_date}&endDate={end_date}
-  - Golf resorts: https://www.booking.com/searchresults.html?ss={resort+name}+{city}
-- 1-2 concert/event options with links (use Ticketmaster search URLs)  
-- 2-3 golf course suggestions with tee time links (use GolfNow search URLs)
+- 2-3 lodging options (must come from provided hotels list)
+- 1-2 concert/event options (from provided events list)
+- 2-3 golf course suggestions (from provided golf list)
 - 2-4 extras (restaurants, bars, experiences) with links (use Google Maps/OpenTable/Viator search URLs)
 - A day-by-day itinerary (covering each day of the trip)
 - Estimated total cost range in USD
-
-Use real search URLs built from the city and date parameters. Format:
-- Tickets: https://www.ticketmaster.com/search?q={keywords}&daterange={start_date}
-- Golf: https://www.golfnow.com/tee-times/search#sortby=Date&view=List&search={city}
-- Restaurants: https://www.google.com/maps/search/{restaurant+type}+{city}
-- Experiences: https://www.viator.com/search/{city}
 
 Return this exact JSON structure:
 {
