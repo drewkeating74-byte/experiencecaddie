@@ -26,5 +26,6 @@ dist-ssr
 .env.local
 .env.*
 apps/web/supabase/.temp/
+supabase/.temp/
 .cursor/
 apps/web/.vercel/
