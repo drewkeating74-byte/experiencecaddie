@@ -17,36 +17,10 @@ const BUDGET_LABELS: Record<string, string> = {
   high: "Premium ($$$)",
 };
 
-// Simple in-memory rate limiter (resets on cold start, which is acceptable)
-const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
-const RATE_LIMIT_MAX = 10; // max requests per window
-const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000; // 1 hour
-
-function isRateLimited(ip: string): boolean {
-  const now = Date.now();
-  const entry = rateLimitMap.get(ip);
-  if (!entry || now > entry.resetAt) {
-    rateLimitMap.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
-    return false;
-  }
-  entry.count++;
-  return entry.count > RATE_LIMIT_MAX;
-}
-
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    // Rate limit by IP
-    const clientIp = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || 
-                     req.headers.get("cf-connecting-ip") || "unknown";
-    if (isRateLimited(clientIp)) {
-      return new Response(JSON.stringify({ error: "Too many requests. Please try again later." }), {
-        status: 429,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
     let body: any = {};
     try {
       const raw = await req.text();
@@ -65,8 +39,8 @@ serve(async (req) => {
       );
     }
 
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
+    const PERPLEXITY_API_KEY = Deno.env.get("PERPLEXITY_API_KEY");
+    if (!PERPLEXITY_API_KEY) throw new Error("PERPLEXITY_API_KEY not configured");
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -94,20 +68,60 @@ serve(async (req) => {
         body?.search_results ||
         body?.searchResults ||
         {};
-      const events = Array.isArray(rawSearchResults.events) ? rawSearchResults.events.slice(0, 6) : [];
-      const golfCourses = Array.isArray(rawSearchResults.golf_courses)
+      let events = Array.isArray(rawSearchResults.events) ? rawSearchResults.events.slice(0, 6) : [];
+      let golfCourses = Array.isArray(rawSearchResults.golf_courses)
         ? rawSearchResults.golf_courses.slice(0, 6)
         : [];
-      const hotels = Array.isArray(rawSearchResults.hotels) ? rawSearchResults.hotels.slice(0, 6) : [];
+      let hotels = Array.isArray(rawSearchResults.hotels) ? rawSearchResults.hotels.slice(0, 6) : [];
 
+      // Fallback mock when frontend doesn't pass search_results (e.g. old deploy or API unreachable)
       if (!events.length && !golfCourses.length && !hotels.length) {
-        return new Response(
-          JSON.stringify({
-            error: "missing_search_results",
-            message: "Search results are required. Call /api/search first and pass search_results.",
-          }),
-          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
+        const city = (p.city === "flexible" ? "Austin" : p.city || "Austin").slice(0, 50);
+        const state = "TX";
+        events = [
+          {
+            id: "fallback_evt_1",
+            name: "Sample Concert",
+            date_time: `${p.start_date}T20:00:00-05:00`,
+            venue: { name: "Mock Arena", city, state, capacity: 12000 },
+            book_url: "https://www.ticketmaster.com/",
+            source_url: "https://www.ticketmaster.com/",
+            price_min: 75,
+            price_max: 250,
+            provider: "mock",
+          },
+        ];
+        golfCourses = [
+          {
+            id: "fallback_golf_1",
+            name: "Mock Golf Club",
+            city,
+            state,
+            public_access: true,
+            rating: 4.4,
+            tee_time_window: { start: "07:00", end: "11:00" },
+            book_url: "https://www.golfnow.com/",
+            source_url: "https://www.golfnow.com/",
+            price_min: 80,
+            price_max: 180,
+            provider: "mock",
+          },
+        ];
+        hotels = [
+          {
+            id: "fallback_hotel_1",
+            name: "Mock Boutique Hotel",
+            city,
+            state,
+            stars: 4,
+            rating: 4.6,
+            book_url: "https://www.booking.com/",
+            source_url: "https://www.booking.com/",
+            price_min: 160,
+            price_max: 320,
+            provider: "mock",
+          },
+        ];
       }
 
       const { data: inserted, error: insertErr } = await supabase
@@ -174,16 +188,55 @@ serve(async (req) => {
       .map(([k]) => k.replace(/_/g, " "))
       .join(", ");
 
-    const searchResults = itinerary.search_results || { events: [], golf_courses: [], hotels: [] };
+    let searchResults = itinerary.search_results || { events: [], golf_courses: [], hotels: [] };
     if (!searchResults.events?.length && !searchResults.golf_courses?.length && !searchResults.hotels?.length) {
-      await supabase.from("itineraries").update({ status: "error" }).eq("id", itinerary_id);
-      return new Response(
-        JSON.stringify({
-          error: "missing_search_results",
-          message: "Search results are required. Call /api/search first and pass search_results.",
-        }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      const city = (itinerary.city === "flexible" ? "Austin" : itinerary.city || "Austin").slice(0, 50);
+      searchResults = {
+        events: [
+          {
+            id: "fallback_evt_1",
+            name: "Sample Concert",
+            date_time: `${itinerary.start_date}T20:00:00-05:00`,
+            venue: { name: "Mock Arena", city, state: "TX", capacity: 12000 },
+            book_url: "https://www.ticketmaster.com/",
+            source_url: "https://www.ticketmaster.com/",
+            price_min: 75,
+            price_max: 250,
+            provider: "mock",
+          },
+        ],
+        golf_courses: [
+          {
+            id: "fallback_golf_1",
+            name: "Mock Golf Club",
+            city,
+            state: "TX",
+            public_access: true,
+            rating: 4.4,
+            tee_time_window: { start: "07:00", end: "11:00" },
+            book_url: "https://www.golfnow.com/",
+            source_url: "https://www.golfnow.com/",
+            price_min: 80,
+            price_max: 180,
+            provider: "mock",
+          },
+        ],
+        hotels: [
+          {
+            id: "fallback_hotel_1",
+            name: "Mock Boutique Hotel",
+            city,
+            state: "TX",
+            stars: 4,
+            rating: 4.6,
+            book_url: "https://www.booking.com/",
+            source_url: "https://www.booking.com/",
+            price_min: 160,
+            price_max: 320,
+            provider: "mock",
+          },
+        ],
+      };
     }
 
     const eventOptions = (searchResults.events || []).map((event: any) => ({
@@ -232,37 +285,32 @@ serve(async (req) => {
 You create curated trip packages with real vendor search links for booking.
 You MUST respond with ONLY valid JSON matching the exact schema specified. No markdown, no explanation, just JSON.`;
 
-    const userPrompt = `Create 3 curated weekend packages (Bronze, Silver, Gold tiers) for this golf + concert trip:
+    const cityForSearch = itinerary.city === "flexible" ? "Austin" : itinerary.city;
+    const userPrompt = `Search the web for REAL upcoming concerts, public golf courses, and hotels, then create 3 curated weekend packages (Bronze, Silver, Gold tiers) for this golf + concert trip.
 
-- Path: ${pathLabel}
-- City: ${itinerary.city}
+Trip details:
+- City: ${cityForSearch}
 - Dates: ${itinerary.start_date} to ${itinerary.end_date}
 - Budget: ${budgetLabel}
 - Group size: ${itinerary.group_size}
 ${prefs ? `- Preferences: ${prefsList || "none specified"}` : ""}
-${itinerary.event_details ? `- Event details: ${itinerary.event_details}` : ""}
+${itinerary.event_details ? `- Event/artist preference: ${itinerary.event_details}` : ""}
 
-Use ONLY the provided options below for events, golf courses, and hotels. Do NOT invent providers or URLs.
-If a book_url is available, use it. Otherwise use source_url.
-
-Provided events (use 1-2 across tiers):
-${JSON.stringify(eventOptions, null, 2)}
-
-Provided golf courses (use 2-3 across tiers):
-${JSON.stringify(golfOptions, null, 2)}
-
-Provided hotels (use 2-3 across tiers as lodging):
-${JSON.stringify(hotelOptions, null, 2)}
+SEARCH for and use REAL data:
+1. Concerts/events: Search Ticketmaster, SeatGeek, StubHub, or venue sites for upcoming shows in ${cityForSearch} between ${itinerary.start_date} and ${itinerary.end_date}. Use actual event names, venues, dates, and real ticket purchase URLs.
+2. Golf: Search for public golf courses or resort courses near ${cityForSearch}. Use GolfNow, TeeOff, or course websites. Include real tee time booking URLs.
+3. Hotels: Search Expedia, Booking.com, or Hotels.com for hotels in ${cityForSearch}. Use real booking URLs.
+4. Extras: Suggest real restaurants, bars, or experiences with Google Maps or OpenTable links.
 
 For each tier, include:
-- 2-3 lodging options (must come from provided hotels list)
-- 1-2 concert/event options (from provided events list)
-- 2-3 golf course suggestions (from provided golf list)
-- 2-4 extras (restaurants, bars, experiences) with links (use Google Maps/OpenTable/Viator search URLs)
+- 2-3 lodging options with real booking URLs
+- 1-2 concert/event options with real ticket URLs
+- 2-3 golf course suggestions with real tee time URLs
+- 2-4 extras (restaurants, bars, experiences) with real links
 - A day-by-day itinerary (covering each day of the trip)
-- Estimated total cost range in USD
+- Estimated total cost range in USD based on typical prices
 
-Return this exact JSON structure:
+Return ONLY valid JSON matching this exact structure (no markdown, no explanation):
 {
   "summary": {
     "title": "string - catchy trip title",
@@ -294,25 +342,26 @@ Return this exact JSON structure:
   ]
 }`;
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const response = await fetch("https://api.perplexity.ai/chat/completions", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
+        Authorization: `Bearer ${PERPLEXITY_API_KEY}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
+        model: "sonar",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
         ],
         temperature: 0.8,
+        max_tokens: 4096,
       }),
     });
 
     if (!response.ok) {
       const errText = await response.text();
-      console.error("AI gateway error:", response.status, errText);
+      console.error("Perplexity API error:", response.status, errText);
 
       if (response.status === 429) {
         await supabase.from("itineraries").update({ status: "error" }).eq("id", itinerary_id);
@@ -321,10 +370,10 @@ Return this exact JSON structure:
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      if (response.status === 402) {
+      if (response.status === 401 || response.status === 402) {
         await supabase.from("itineraries").update({ status: "error" }).eq("id", itinerary_id);
-        return new Response(JSON.stringify({ error: "AI credits exhausted." }), {
-          status: 402,
+        return new Response(JSON.stringify({ error: "Perplexity API key invalid or quota exceeded." }), {
+          status: 502,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
