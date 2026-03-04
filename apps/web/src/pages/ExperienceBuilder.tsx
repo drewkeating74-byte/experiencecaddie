@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Music, Search, Sparkles, ArrowRight, ArrowLeft, Loader2, Wand2, MapPin, Calendar } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
-import { fetchSearch } from "@/lib/api/search";
+import { fetchSearch, buildFallbackSearchResponse } from "@/lib/api/search";
 
 
 
@@ -119,8 +119,7 @@ export default function ExperienceBuilder() {
     }
 
     setGenerating(true);
-    
-    // Wrap the ENTIRE flow in a timeout
+
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 120000);
 
@@ -135,7 +134,13 @@ export default function ExperienceBuilder() {
         group_size: Math.min(Math.max(groupSize, 1), 20),
         budget_tier: budget,
       };
-      const searchResult = await fetchSearch(searchRequest);
+      let searchResult;
+      try {
+        searchResult = await fetchSearch(searchRequest);
+      } catch (err) {
+        if (import.meta.env.DEV) console.warn("Search API unreachable, using fallback:", err);
+        searchResult = buildFallbackSearchResponse(searchRequest);
+      }
       const searchResults = {
         events: searchResult.events?.slice(0, 6) || [],
         golf_courses: searchResult.golf_courses?.slice(0, 6) || [],
@@ -159,6 +164,7 @@ export default function ExperienceBuilder() {
       }
 
       // Send everything to the edge function — it handles insert + generation
+      // Use controller.signal (not AbortSignal.timeout) for older mobile Safari compatibility
       const genRes = await fetch(`${supabaseUrl}/functions/v1/generate-itinerary`, {
         method: "POST",
         headers: {
@@ -167,7 +173,7 @@ export default function ExperienceBuilder() {
           "Authorization": `Bearer ${supabaseKey}`,
         },
         body: JSON.stringify({ payload }),
-        signal: AbortSignal.timeout(120000),
+        signal: controller.signal,
       });
 
       const genData = await genRes.json();
@@ -182,7 +188,8 @@ export default function ExperienceBuilder() {
       navigate(`/share/${genData.share_slug}`);
     } catch (err: any) {
       console.error("Generation error:", err);
-      toast.error(err.message || "Failed to generate itinerary");
+      const isAbort = err?.name === "AbortError";
+      toast.error(isAbort ? "Request timed out. Please try again and keep the tab open." : (err.message || "Failed to generate itinerary"));
       setGenerating(false);
     } finally {
       clearTimeout(timeoutId);
@@ -197,6 +204,7 @@ export default function ExperienceBuilder() {
           <h2 className="font-serif text-2xl font-bold">Crafting Your Legendary Weekend...</h2>
           <p className="mt-2 text-muted-foreground">Our AI is finding the best options for you</p>
           <p className="mt-1 text-xs text-muted-foreground">This usually takes 30–60 seconds</p>
+          <p className="mt-1 text-xs text-muted-foreground">On mobile: keep this tab open and the screen on</p>
         </div>
         <Button
           variant="ghost"
