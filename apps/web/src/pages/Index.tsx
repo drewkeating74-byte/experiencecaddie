@@ -8,6 +8,7 @@ import { supabase } from "@/integrations/supabase/client";
 const db = supabase as any;
 import type { Package } from "@/types/database";
 import heroImage from "@/assets/hero-image.jpg";
+import { DEFAULT_PACKAGE_IMAGE } from "@/lib/constants";
 
 const categories = [
   { icon: Music, label: "Golf + Concert", description: "Build a weekend around a show", link: "/experience" },
@@ -178,7 +179,7 @@ function PackageCard({ pkg }: { pkg: Package }) {
       <Card className="group overflow-hidden border-border/50 transition-all hover:shadow-xl">
         <div className="relative aspect-[16/10] overflow-hidden">
           <img
-            src={pkg.image_url || event?.image_url || "/placeholder.svg"}
+            src={pkg.image_url || event?.image_url || DEFAULT_PACKAGE_IMAGE}
             alt={pkg.name}
             className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
           />

@@ -16,6 +16,8 @@ import { fetchSearch, buildFallbackSearchResponse } from "@/lib/api/search";
 type EntryOption = "artist" | "find_concert" | "surprise";
 type BudgetTier = "low" | "mid" | "high";
 
+type ConcertOption = { artist: string; city: string; venue: string; date: string; url?: string };
+
 const ENTRY_OPTIONS = [
   {
     id: "artist" as EntryOption,
@@ -57,6 +59,11 @@ export default function ExperienceBuilder() {
   const [groupSize, setGroupSize] = useState(2);
   const [generating, setGenerating] = useState(false);
 
+  // Two-step flow: discover concerts → user picks → build full itinerary
+  const [discoveryStep, setDiscoveryStep] = useState<"form" | "discovering" | "pick" | "building">("form");
+  const [concertOptions, setConcertOptions] = useState<ConcertOption[]>([]);
+  const [savedParams, setSavedParams] = useState<{ finalCity: string; finalStart: string; finalEnd: string; budget: BudgetTier; groupSize: number; eventDetails: string } | null>(null);
+
   const { user } = useAuth();
   const navigate = useNavigate();
 
@@ -65,6 +72,70 @@ export default function ExperienceBuilder() {
     if (selectedEntry === "find_concert") return `discover for me — genres: ${selectedGenres.length ? selectedGenres.join(", ") : "any"}`;
     const genreStr = selectedGenres.length ? ` — genres: ${selectedGenres.join(", ")}` : "";
     return `surprise me — concert${genreStr}`;
+  };
+
+  const handleBuildFromConcert = async (concert: ConcertOption) => {
+    if (!savedParams) return;
+    setDiscoveryStep("building");
+    setGenerating(true);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 120000);
+    try {
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+      const searchRequest = {
+        destination: { city: concert.city },
+        dates: { start_date: savedParams.finalStart, end_date: savedParams.finalEnd },
+        group_size: Math.min(Math.max(savedParams.groupSize, 1), 20),
+        budget_tier: savedParams.budget,
+      };
+      let searchResult;
+      try {
+        searchResult = await fetchSearch(searchRequest);
+      } catch {
+        searchResult = buildFallbackSearchResponse(searchRequest);
+      }
+      const payload = {
+        user_id: user?.id || null,
+        path: "golf_music",
+        city: concert.city,
+        start_date: savedParams.finalStart,
+        end_date: savedParams.finalEnd,
+        budget_tier: savedParams.budget,
+        group_size: Math.min(Math.max(savedParams.groupSize, 1), 20),
+        preferences: { flexible_location: false, flexible_dates: false },
+        event_details: savedParams.eventDetails,
+        search_results: {
+          events: searchResult.events?.slice(0, 6) || [],
+          golf_courses: searchResult.golf_courses?.slice(0, 6) || [],
+          hotels: searchResult.hotels?.slice(0, 6) || [],
+        },
+        selected_concert: concert,
+        email: user?.email || null,
+      };
+      const genRes = await fetch(`${supabaseUrl}/functions/v1/generate-itinerary`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "apikey": supabaseKey,
+          "Authorization": `Bearer ${supabaseKey}`,
+        },
+        body: JSON.stringify({ payload }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      const genData = await genRes.json();
+      if (!genRes.ok || genData?.error) {
+        throw new Error(genData?.error || "Generation failed");
+      }
+      navigate(`/share/${genData.share_slug}`);
+    } catch (err: any) {
+      clearTimeout(timeoutId);
+      const isAbort = err?.name === "AbortError";
+      toast.error(isAbort ? "Request timed out. Keep the tab open." : (err.message || "Failed to generate"));
+      setDiscoveryStep("pick");
+      setGenerating(false);
+    }
   };
 
   const handleContinue = () => {
@@ -118,8 +189,55 @@ export default function ExperienceBuilder() {
       return;
     }
 
-    setGenerating(true);
+    const useDiscoveryFlow = selectedEntry === "find_concert" || selectedEntry === "surprise";
+    const eventDetails = getEventDetails();
 
+    if (useDiscoveryFlow && discoveryStep === "form") {
+      // Stage 1: Discover 3 concerts
+      setDiscoveryStep("discovering");
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60000);
+      try {
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+        const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+        const discRes = await fetch(`${supabaseUrl}/functions/v1/generate-itinerary`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "apikey": supabaseKey,
+            "Authorization": `Bearer ${supabaseKey}`,
+          },
+          body: JSON.stringify({
+            payload: {
+              discover_concerts: true,
+              start_date: finalStart,
+              end_date: finalEnd,
+              city: finalCity,
+              event_details: typeof eventDetails === "string" ? eventDetails.slice(0, 500) : null,
+            },
+          }),
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+        const discData = await discRes.json();
+        if (!discRes.ok || discData?.error) {
+          throw new Error(discData?.error || "Concert discovery failed");
+        }
+        const opts = discData.concert_options || [];
+        if (!opts.length) throw new Error("No concerts found for your dates");
+        setConcertOptions(opts);
+        setSavedParams({ finalCity, finalStart, finalEnd, budget, groupSize, eventDetails });
+        setDiscoveryStep("pick");
+      } catch (err: any) {
+        clearTimeout(timeoutId);
+        const isAbort = err?.name === "AbortError";
+        toast.error(isAbort ? "Request timed out." : (err.message || "Failed to find concerts"));
+        setDiscoveryStep("form");
+      }
+      return;
+    }
+
+    setGenerating(true);
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 120000);
 
@@ -127,9 +245,8 @@ export default function ExperienceBuilder() {
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
       console.log("Starting itinerary generation...");
-      const eventDetails = getEventDetails();
       const searchRequest = {
-        destination: { city: finalCity === "flexible" ? "Austin" : finalCity },
+        destination: { city: finalCity === "flexible" ? savedParams?.finalCity || "Austin" : finalCity },
         dates: { start_date: finalStart, end_date: finalEnd },
         group_size: Math.min(Math.max(groupSize, 1), 20),
         budget_tier: budget,
@@ -146,7 +263,7 @@ export default function ExperienceBuilder() {
         golf_courses: searchResult.golf_courses?.slice(0, 6) || [],
         hotels: searchResult.hotels?.slice(0, 6) || [],
       };
-      const payload = {
+      const payload: Record<string, unknown> = {
         user_id: user?.id || null,
         path: "golf_music",
         city: finalCity,
@@ -164,7 +281,6 @@ export default function ExperienceBuilder() {
       }
 
       // Send everything to the edge function — it handles insert + generation
-      // Use controller.signal (not AbortSignal.timeout) for older mobile Safari compatibility
       const genRes = await fetch(`${supabaseUrl}/functions/v1/generate-itinerary`, {
         method: "POST",
         headers: {
@@ -195,6 +311,68 @@ export default function ExperienceBuilder() {
       clearTimeout(timeoutId);
     }
   };
+
+  if (discoveryStep === "discovering") {
+    return (
+      <div className="flex min-h-[60vh] flex-col items-center justify-center gap-6">
+        <Loader2 className="h-12 w-12 animate-spin text-primary" />
+        <div className="text-center">
+          <h2 className="font-serif text-2xl font-bold">Finding the best concerts...</h2>
+          <p className="mt-2 text-muted-foreground">Looking for 5,000+ capacity venues in great golf cities</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (discoveryStep === "pick" && concertOptions.length) {
+    return (
+      <div className="container mx-auto max-w-2xl px-4 py-12">
+        <div className="space-y-6">
+          <div>
+            <Button variant="ghost" onClick={() => { setDiscoveryStep("form"); setConcertOptions([]); setSavedParams(null); }} className="mb-4">
+              <ArrowLeft className="mr-2 h-4 w-4" /> Back
+            </Button>
+            <h2 className="font-serif text-2xl font-bold">Pick your concert</h2>
+            <p className="mt-1 text-muted-foreground">We&apos;ll build golf + hotel around your choice</p>
+          </div>
+          <div className="space-y-3">
+            {concertOptions.map((opt, i) => (
+              <Card key={i} className="overflow-hidden border-border/50 hover:border-primary/30 transition-all">
+                <CardContent className="p-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div className="min-w-0">
+                      <h3 className="font-semibold text-lg">{opt.artist}</h3>
+                      <p className="text-sm text-muted-foreground flex items-center gap-1 mt-0.5">
+                        <MapPin className="h-3.5 w-3 shrink-0" />
+                        {opt.venue} · {opt.city}
+                      </p>
+                      <p className="text-sm text-muted-foreground flex items-center gap-1">
+                        <Calendar className="h-3.5 w-3 shrink-0" />
+                        {opt.date}
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      className="shrink-0 rounded-full"
+                      onClick={() => handleBuildFromConcert(opt)}
+                      disabled={generating}
+                    >
+                      {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : "Build my trip"}
+                    </Button>
+                  </div>
+                  {opt.url && (
+                    <a href={opt.url} target="_blank" rel="noopener noreferrer" className="text-xs text-primary mt-2 inline-block hover:underline">
+                      Get tickets →
+                    </a>
+                  )}
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (generating) {
     return (

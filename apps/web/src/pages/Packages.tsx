@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Music, MapPin, Calendar, Search, Check } from "lucide-react";
+import { DEFAULT_PACKAGE_IMAGE } from "@/lib/constants";
 
 function getIncludes(pkg: Package): string[] {
   const items: string[] = [];
@@ -172,7 +173,7 @@ export default function Packages() {
               <Card className="group overflow-hidden border-border/50 transition-all hover:shadow-xl">
                 <div className="relative aspect-[16/10] overflow-hidden">
                   <img
-                    src={pkg.image_url || pkg.events?.image_url || "/placeholder.svg"}
+                    src={pkg.image_url || pkg.events?.image_url || DEFAULT_PACKAGE_IMAGE}
                     alt={pkg.name}
                     className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
                   />

@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Music, MapPin, Calendar, Clock, Car, Users, ArrowLeft, ExternalLink } from "lucide-react";
+import { DEFAULT_PACKAGE_IMAGE } from "@/lib/constants";
 import { toast } from "sonner";
 
 export default function PackageDetail() {
@@ -73,7 +74,7 @@ export default function PackageDetail() {
         <div className="lg:col-span-2 space-y-6">
           <div className="overflow-hidden rounded-lg">
             <img
-              src={pkg.image_url || event?.image_url || "/placeholder.svg"}
+              src={pkg.image_url || event?.image_url || DEFAULT_PACKAGE_IMAGE}
               alt={pkg.name}
               className="aspect-[16/9] w-full object-cover"
             />

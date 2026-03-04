@@ -50,17 +50,93 @@ serve(async (req) => {
     let itinerary_id: string;
 
     if (body?.payload) {
-      // Create the itinerary from the edge function (service role bypasses RLS)
       const p = body.payload;
       const validPaths = ["golf_music", "sports", "luxury", "custom"];
       const validBudgets = ["low", "mid", "high"];
-      if (!p.city || typeof p.city !== "string" || !p.start_date || !p.end_date) {
-        return new Response(JSON.stringify({ error: "Missing required fields" }), {
+      if (!validPaths.includes(p.path)) p.path = "golf_music";
+      if (!validBudgets.includes(p.budget_tier)) p.budget_tier = "mid";
+
+      // Stage 1: Concert discovery only — return 3 options for user to pick
+      if (p.discover_concerts) {
+        if (!p.start_date || !p.end_date) {
+          return new Response(JSON.stringify({ error: "Missing start_date or end_date" }), {
+            status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        const cityHint = p.city && p.city !== "flexible" ? `Focus on ${p.city}.` : "Search across US cities with strong golf and live music scenes — vary the cities for different options.";
+        const eventHint = p.event_details ? `User preference: ${String(p.event_details).slice(0, 200)}. Prioritize this when relevant.` : "";
+        const discoverPrompt = `Search the web for 3 REAL upcoming concerts. Return ONLY valid JSON with this exact structure (no markdown):
+
+{
+  "concert_options": [
+    { "artist": "string", "city": "string", "venue": "string", "date": "YYYY-MM-DD", "url": "ticket purchase URL" },
+    ... (exactly 3 options)
+  ]
+}
+
+Requirements:
+- Venue capacity must be at least 5,000 people (arenas, amphitheaters, large venues only)
+- Concert must be in a city that has quality public golf within 25 miles (we add golf in the next step)
+- Use Ticketmaster, SeatGeek, StubHub, or official venue sites. Return real ticket URLs.
+- Dates between ${p.start_date} and ${p.end_date}
+- ${cityHint}
+${eventHint}
+- Pick 3 different artist+city+date combinations so the user has real choices`;
+
+        const discRes = await fetch("https://api.perplexity.ai/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${PERPLEXITY_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "sonar",
+            messages: [
+              { role: "system", content: "You return only valid JSON. No markdown, no explanation." },
+              { role: "user", content: discoverPrompt },
+            ],
+            temperature: 0.7,
+            max_tokens: 1024,
+          }),
+        });
+        if (!discRes.ok) {
+          const errText = await discRes.text();
+          console.error("Perplexity discover error:", discRes.status, errText);
+          return new Response(JSON.stringify({ error: "Concert discovery failed" }), {
+            status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        const discData = await discRes.json();
+        const discContent = discData.choices?.[0]?.message?.content;
+        if (!discContent) {
+          return new Response(JSON.stringify({ error: "Empty discovery response" }), {
+            status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        let concertOptions: any;
+        try {
+          const cleaned = discContent.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+          concertOptions = JSON.parse(cleaned);
+        } catch {
+          console.error("Failed to parse discovery JSON:", discContent.substring(0, 300));
+          return new Response(JSON.stringify({ error: "Invalid discovery response format" }), {
+            status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        return new Response(JSON.stringify({ success: true, concert_options: concertOptions.concert_options || [] }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // Stage 2: Full itinerary — requires (city or selected_concert) and dates
+      if (!p.start_date || !p.end_date) {
+        return new Response(JSON.stringify({ error: "Missing required fields: start_date, end_date" }), {
           status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      if (!validPaths.includes(p.path)) p.path = "golf_music";
-      if (!validBudgets.includes(p.budget_tier)) p.budget_tier = "mid";
+      const selectedConcert = p.selected_concert;
+      const cityFromConcert = selectedConcert?.city;
+      const effectiveCity = cityFromConcert || (p.city && p.city !== "flexible" ? p.city : "Austin");
 
       const rawSearchResults =
         p.search_results ||
@@ -74,9 +150,31 @@ serve(async (req) => {
         : [];
       let hotels = Array.isArray(rawSearchResults.hotels) ? rawSearchResults.hotels.slice(0, 6) : [];
 
-      // Fallback mock when frontend doesn't pass search_results (e.g. old deploy or API unreachable)
-      if (!events.length && !golfCourses.length && !hotels.length) {
-        const city = (p.city === "flexible" ? "Austin" : p.city || "Austin").slice(0, 50);
+      // When user selected a concert, use it as the sole event
+      if (selectedConcert?.artist && selectedConcert?.city) {
+        events = [{
+          id: "selected_concert",
+          name: selectedConcert.artist,
+          date_time: selectedConcert.date ? `${selectedConcert.date}T20:00:00` : `${p.start_date}T20:00:00`,
+          venue: { name: selectedConcert.venue || "Venue", city: selectedConcert.city },
+          book_url: selectedConcert.url || undefined,
+          source_url: selectedConcert.url || undefined,
+          provider: "user_selected",
+        }];
+      }
+
+      // Fallback mock when frontend doesn't pass search_results
+      const fallbackCity = (effectiveCity || selectedConcert?.city || (p.city !== "flexible" ? p.city : null) || "Austin").slice(0, 50);
+      if (!golfCourses.length && !hotels.length) {
+        golfCourses = [
+          { id: "fallback_golf_1", name: "Mock Golf Club", city: fallbackCity, state: "TX", public_access: true, rating: 4.4, tee_time_window: { start: "07:00", end: "11:00" }, book_url: "https://www.golfnow.com/", source_url: "https://www.golfnow.com/", price_min: 80, price_max: 180, provider: "mock" },
+        ];
+        hotels = [
+          { id: "fallback_hotel_1", name: "Mock Boutique Hotel", city: fallbackCity, state: "TX", stars: 4, rating: 4.6, book_url: "https://www.booking.com/", source_url: "https://www.booking.com/", price_min: 160, price_max: 320, provider: "mock" },
+        ];
+      }
+      if (!events.length) {
+        const city = fallbackCity;
         const state = "TX";
         events = [
           {
@@ -124,12 +222,13 @@ serve(async (req) => {
         ];
       }
 
+      const dbCity = (effectiveCity || fallbackCity).slice(0, 100);
       const { data: inserted, error: insertErr } = await supabase
         .from("itineraries")
         .insert({
           user_id: p.user_id || null,
           path: p.path || "golf_music",
-          city: p.city.slice(0, 100),
+          city: dbCity,
           start_date: p.start_date,
           end_date: p.end_date,
           budget_tier: p.budget_tier || "mid",
@@ -285,7 +384,10 @@ serve(async (req) => {
 You create curated trip packages with real vendor search links for booking.
 You MUST respond with ONLY valid JSON matching the exact schema specified. No markdown, no explanation, just JSON.`;
 
-    const cityForSearch = itinerary.city === "flexible" ? "Austin" : itinerary.city;
+    const cityForSearch = itinerary.city;
+    const selectedConcertNote = (searchResults.events || []).find((e: any) => e.provider === "user_selected")
+      ? `\nCONCERT ALREADY CHOSEN: The user selected a concert (${(searchResults.events?.[0] as any)?.name} in ${(searchResults.events?.[0] as any)?.venue?.city}). Use this concert in all packages. Focus your search on golf and hotels only. Golf courses must be within 25 miles of the concert city.`
+      : "";
     const userPrompt = `Search the web for REAL upcoming concerts, public golf courses, and hotels, then create 3 curated weekend packages (Bronze, Silver, Gold tiers) for this golf + concert trip.
 
 Trip details:
@@ -295,10 +397,11 @@ Trip details:
 - Group size: ${itinerary.group_size}
 ${prefs ? `- Preferences: ${prefsList || "none specified"}` : ""}
 ${itinerary.event_details ? `- Event/artist preference: ${itinerary.event_details}` : ""}
+${selectedConcertNote}
 
 SEARCH for and use REAL data:
-1. Concerts/events: Search Ticketmaster, SeatGeek, StubHub, or venue sites for upcoming shows in ${cityForSearch} between ${itinerary.start_date} and ${itinerary.end_date}. Use actual event names, venues, dates, and real ticket purchase URLs.
-2. Golf: Search for public golf courses or resort courses near ${cityForSearch}. Use GolfNow, TeeOff, or course websites. Include real tee time booking URLs.
+1. Concerts/events: Search Ticketmaster, SeatGeek, StubHub, or venue sites for upcoming shows in ${cityForSearch} between ${itinerary.start_date} and ${itinerary.end_date}. Venues must be at least 5,000 capacity (arenas, amphitheaters). Use actual event names, venues, dates, and real ticket purchase URLs.
+2. Golf: Search for public golf courses or resort courses within 25 miles of ${cityForSearch}. Use GolfNow, TeeOff, or course websites. Include real tee time booking URLs.
 3. Hotels: Search Expedia, Booking.com, or Hotels.com for hotels in ${cityForSearch}. Use real booking URLs.
 4. Extras: Suggest real restaurants, bars, or experiences with Google Maps or OpenTable links.
 

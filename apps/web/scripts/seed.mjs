@@ -1,6 +1,10 @@
 import { createClient } from "@supabase/supabase-js";
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const projectRoot = path.resolve(__dirname, "../..");
 
 const loadEnvFile = (filePath) => {
   if (!fs.existsSync(filePath)) return;
@@ -15,9 +19,8 @@ const loadEnvFile = (filePath) => {
   });
 };
 
-const cwd = process.cwd();
-loadEnvFile(path.resolve(cwd, ".env"));
-loadEnvFile(path.resolve(cwd, "apps/web/.env"));
+loadEnvFile(path.join(projectRoot, ".env"));
+loadEnvFile(path.join(__dirname, "../.env"));
 
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -77,6 +80,15 @@ const seed = async () => {
       lat: 36.1627,
       lng: -86.7816,
     },
+    {
+      name: "Scottsdale Weekend",
+      city: "Scottsdale",
+      state: "AZ",
+      country: "United States",
+      description: "Desert golf and arena shows in the Valley of the Sun.",
+      lat: 33.4942,
+      lng: -111.9261,
+    },
   ];
 
   const destinationRecords = [];
@@ -86,8 +98,9 @@ const seed = async () => {
   }
 
   const artists = [
-    { name: "Zach Bryan", genre: "Country", subgenre: "Americana" },
-    { name: "Foo Fighters", genre: "Rock", subgenre: "Alternative" },
+    { name: "Zach Bryan", genre: "Country", subgenre: "Americana", image_url: "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=800" },
+    { name: "Foo Fighters", genre: "Rock", subgenre: "Alternative", image_url: "https://images.unsplash.com/photo-1470229722913-7c0e2dbbafd3?w=800" },
+    { name: "Post Malone", genre: "Hip-Hop", subgenre: "Pop", image_url: "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=800" },
   ];
 
   const artistRecords = [];
@@ -115,6 +128,15 @@ const seed = async () => {
       capacity: 20000,
       destination_id: destinationRecords[1]?.id,
     },
+    {
+      name: "Footprint Center",
+      city: "Phoenix",
+      state: "AZ",
+      country: "United States",
+      address: "201 E Jefferson St, Phoenix, AZ",
+      capacity: 18000,
+      destination_id: destinationRecords[2]?.id,
+    },
   ];
 
   const venueRecords = [];
@@ -134,6 +156,7 @@ const seed = async () => {
       min_price: 65,
       max_price: 250,
       source_name: "seed",
+      image_url: "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=800",
     },
     {
       name: "Foo Fighters Tour",
@@ -145,6 +168,19 @@ const seed = async () => {
       min_price: 75,
       max_price: 275,
       source_name: "seed",
+      image_url: "https://images.unsplash.com/photo-1470229722913-7c0e2dbbafd3?w=800",
+    },
+    {
+      name: "Post Malone: F-1 Trillion Tour",
+      artist_id: artistRecords[2]?.id,
+      venue_id: venueRecords[2]?.id,
+      event_date: addDays(42),
+      event_time: "20:00",
+      ticket_url: "https://www.ticketmaster.com",
+      min_price: 89,
+      max_price: 350,
+      source_name: "seed",
+      image_url: "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=800",
     },
   ];
 
@@ -169,6 +205,7 @@ const seed = async () => {
       green_fee_max: 210,
       booking_url: "https://www.golfnow.com",
       description: "Hill Country layout with dramatic elevation changes.",
+      image_url: "https://images.unsplash.com/photo-1587174486073-ae5e5cff23aa?w=800",
     },
     {
       name: "Gaylord Springs Golf Links",
@@ -184,6 +221,23 @@ const seed = async () => {
       green_fee_max: 180,
       booking_url: "https://www.golfnow.com",
       description: "Scenic, top-ranked public course outside downtown.",
+      image_url: "https://images.unsplash.com/photo-1589829545856-d10d557cf95f?w=800",
+    },
+    {
+      name: "TPC Scottsdale - Stadium Course",
+      city: "Scottsdale",
+      state: "AZ",
+      country: "United States",
+      address: "17020 N Hayden Rd, Scottsdale, AZ",
+      destination_id: destinationRecords[2]?.id,
+      holes: 18,
+      public_access: true,
+      rating: 4.8,
+      green_fee_min: 289,
+      green_fee_max: 425,
+      booking_url: "https://www.golfnow.com",
+      description: "Home of the Waste Management Phoenix Open. Iconic 16th hole.",
+      image_url: "https://images.unsplash.com/photo-1535131749006-b7f58c99034b?w=800",
     },
   ];
 
@@ -204,6 +258,7 @@ const seed = async () => {
       category: "weekend",
       featured: true,
       description: "Big show, great course, and a classic Austin weekend.",
+      image_url: "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=800",
     },
     {
       name: "Nashville Weekend Classic",
@@ -213,13 +268,40 @@ const seed = async () => {
       price: 649,
       original_price: 799,
       category: "weekend",
-      featured: false,
+      featured: true,
       description: "Broadway nights with a top public golf day.",
+      image_url: "https://images.unsplash.com/photo-1470229722913-7c0e2dbbafd3?w=800",
+    },
+    {
+      name: "Scottsdale Desert Vibes",
+      event_id: eventRecords[2]?.id,
+      golf_course_id: courseRecords[2]?.id,
+      destination_id: destinationRecords[2]?.id,
+      price: 899,
+      original_price: 1099,
+      category: "weekend",
+      featured: true,
+      description: "TPC Scottsdale plus a massive arena show. Desert golf meets hip-hop.",
+      image_url: "https://images.unsplash.com/photo-1535131749006-b7f58c99034b?w=800",
     },
   ];
 
   for (const p of packages) {
-    await insertIfMissing("packages", "name", p.name, p);
+    const existing = await getByName("packages", "name", p.name);
+    if (existing) {
+      await supabase.from("packages").update({
+        image_url: p.image_url,
+        featured: p.featured,
+        description: p.description,
+        price: p.price,
+        original_price: p.original_price,
+        event_id: p.event_id,
+        golf_course_id: p.golf_course_id,
+        destination_id: p.destination_id,
+      }).eq("id", existing.id);
+    } else {
+      await supabase.from("packages").insert(p);
+    }
   }
 
   console.log("Seed complete.");
