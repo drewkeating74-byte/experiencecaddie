@@ -189,7 +189,7 @@ export default function ExperienceBuilder() {
       return;
     }
 
-    const useDiscoveryFlow = selectedEntry === "find_concert" || selectedEntry === "surprise";
+    const useDiscoveryFlow = selectedEntry === "find_concert" || selectedEntry === "surprise" || selectedEntry === "artist";
     const eventDetails = getEventDetails();
 
     if (useDiscoveryFlow && discoveryStep === "form") {
@@ -214,14 +214,22 @@ export default function ExperienceBuilder() {
               end_date: finalEnd,
               city: finalCity,
               event_details: typeof eventDetails === "string" ? eventDetails.slice(0, 500) : null,
+              artist_search: selectedEntry === "artist" ? eventInput.trim().slice(0, 200) : null,
             },
           }),
           signal: controller.signal,
         });
         clearTimeout(timeoutId);
-        const discData = await discRes.json();
-        if (!discRes.ok || discData?.error) {
-          throw new Error(discData?.error || "Concert discovery failed");
+        let discData: Record<string, unknown> = {};
+        try {
+          const text = await discRes.text();
+          discData = text ? JSON.parse(text) : {};
+        } catch {
+          throw new Error(discRes.ok ? "Invalid response" : `Server error (${discRes.status})`);
+        }
+        const errMsg = (discData?.error || discData?.message) as string | undefined;
+        if (!discRes.ok || errMsg) {
+          throw new Error((errMsg as string) || `Concert discovery failed (${discRes.status})`);
         }
         const opts = discData.concert_options || [];
         if (!opts.length) throw new Error("No concerts found for your dates");
@@ -231,7 +239,11 @@ export default function ExperienceBuilder() {
       } catch (err: any) {
         clearTimeout(timeoutId);
         const isAbort = err?.name === "AbortError";
-        toast.error(isAbort ? "Request timed out." : (err.message || "Failed to find concerts"));
+        let msg = err?.message || "Failed to find concerts";
+        if (isAbort) msg = "Request timed out. Keep the tab open and try again.";
+        else if (msg?.includes("Failed to fetch") || msg?.includes("NetworkError")) msg = "Could not reach server. Check your connection and try again.";
+        else if (msg?.includes("404")) msg = "Concert discovery service unavailable. Please try again later.";
+        toast.error(msg);
         setDiscoveryStep("form");
       }
       return;

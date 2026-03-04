@@ -31,6 +31,18 @@ MVP Phase:
 
 (TBD — will update once backend is scaffolded)
 
+## ⚡ Supabase Edge Function (Concert Discovery & Itinerary)
+
+The `generate-itinerary` edge function powers concert discovery and itinerary generation. **Deploy it separately** from the frontend:
+
+```bash
+cd apps/web
+supabase functions deploy generate-itinerary
+```
+
+Set the secret in Supabase Dashboard → Project Settings → Edge Functions → Secrets:
+- `PERPLEXITY_API_KEY` — required for concert search and itinerary AI
+
 ## 📍 Roadmap
 
 - [ ] Build search API

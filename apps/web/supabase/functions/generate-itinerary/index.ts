@@ -63,8 +63,11 @@ serve(async (req) => {
             status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
+        const artistSearch = p.artist_search?.trim();
         const cityHint = p.city && p.city !== "flexible" ? `Focus on ${p.city}.` : "Search across US cities with strong golf and live music scenes — vary the cities for different options.";
-        const eventHint = p.event_details ? `User preference: ${String(p.event_details).slice(0, 200)}. Prioritize this when relevant.` : "";
+        const eventHint = artistSearch
+          ? `Find 3 different tour dates for "${artistSearch}" in different cities. Each option must be this artist.`
+          : (p.event_details ? `User preference: ${String(p.event_details).slice(0, 200)}. Prioritize when relevant.` : "");
         const discoverPrompt = `Search the web for 3 REAL upcoming concerts. Return ONLY valid JSON with this exact structure (no markdown):
 
 {
@@ -81,7 +84,8 @@ Requirements:
 - Dates between ${p.start_date} and ${p.end_date}
 - ${cityHint}
 ${eventHint}
-- Pick 3 different artist+city+date combinations so the user has real choices`;
+- Pick 3 different artist+city+date combinations so the user has real choices
+${artistSearch ? `- IMPORTANT: All 3 must be "${artistSearch}" — different cities and dates on their tour.` : ""}`;
 
         const discRes = await fetch("https://api.perplexity.ai/chat/completions", {
           method: "POST",
@@ -102,7 +106,12 @@ ${eventHint}
         if (!discRes.ok) {
           const errText = await discRes.text();
           console.error("Perplexity discover error:", discRes.status, errText);
-          return new Response(JSON.stringify({ error: "Concert discovery failed" }), {
+          let errMsg = "Concert discovery failed";
+          try {
+            const errJson = JSON.parse(errText);
+            errMsg = errJson?.error?.message || errJson?.error || errMsg;
+          } catch { /* use default */ }
+          return new Response(JSON.stringify({ error: errMsg }), {
             status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
@@ -534,10 +543,11 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
       JSON.stringify({ success: true, itinerary_id, share_slug: shareSlug, result: parsedResult }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
-  } catch (e) {
+  } catch (e: any) {
     console.error("generate-itinerary error:", e);
+    const msg = e?.message?.includes("PERPLEXITY") ? "API configuration error. Please try again later." : "Internal server error";
     return new Response(
-      JSON.stringify({ error: "Internal server error" }),
+      JSON.stringify({ error: msg }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
