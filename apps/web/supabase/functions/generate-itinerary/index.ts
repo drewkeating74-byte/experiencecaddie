@@ -467,7 +467,7 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
           { role: "user", content: userPrompt },
         ],
         temperature: 0.8,
-        max_tokens: 4096,
+        max_tokens: 8192,
       }),
     });
 
@@ -490,8 +490,13 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
         });
       }
 
+      let errMsg = "Failed to generate itinerary";
+      try {
+        const errJson = JSON.parse(errText);
+        errMsg = errJson?.error?.message || errJson?.error || errMsg;
+      } catch { /* use default */ }
       await supabase.from("itineraries").update({ status: "error" }).eq("id", itinerary_id);
-      return new Response(JSON.stringify({ error: "Failed to generate itinerary" }), {
+      return new Response(JSON.stringify({ error: errMsg }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -514,12 +519,20 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
       const cleaned = content.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
       parsedResult = JSON.parse(cleaned);
     } catch {
-      console.error("Failed to parse AI JSON:", content.substring(0, 500));
-      await supabase.from("itineraries").update({ status: "error" }).eq("id", itinerary_id);
-      return new Response(JSON.stringify({ error: "Invalid AI response format" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      try {
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        if (jsonMatch) parsedResult = JSON.parse(jsonMatch[0]);
+      } catch {
+        /* fall through to error */
+      }
+      if (!parsedResult) {
+        console.error("Failed to parse AI JSON:", content.substring(0, 500));
+        await supabase.from("itineraries").update({ status: "error" }).eq("id", itinerary_id);
+        return new Response(JSON.stringify({ error: "AI returned invalid format. Please try again." }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
     }
 
     // Save result (share_slug already set during "generating" phase)

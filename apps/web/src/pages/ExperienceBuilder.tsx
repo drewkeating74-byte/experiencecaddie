@@ -124,15 +124,27 @@ export default function ExperienceBuilder() {
         signal: controller.signal,
       });
       clearTimeout(timeoutId);
-      const genData = await genRes.json();
-      if (!genRes.ok || genData?.error) {
-        throw new Error(genData?.error || "Generation failed");
+      let genData: Record<string, unknown> = {};
+      try {
+        const text = await genRes.text();
+        genData = text ? JSON.parse(text) : {};
+      } catch {
+        throw new Error(genRes.ok ? "Invalid response" : `Server error (${genRes.status})`);
       }
-      navigate(`/share/${genData.share_slug}`);
+      const errMsg = (genData?.error || genData?.message) as string | undefined;
+      if (!genRes.ok || errMsg) {
+        throw new Error((errMsg as string) || `Generation failed (${genRes.status})`);
+      }
+      const slug = genData.share_slug as string;
+      if (!slug) throw new Error("Missing share link");
+      navigate(`/share/${slug}`);
     } catch (err: any) {
       clearTimeout(timeoutId);
       const isAbort = err?.name === "AbortError";
-      toast.error(isAbort ? "Request timed out. Keep the tab open." : (err.message || "Failed to generate"));
+      let msg = err?.message || "Failed to generate";
+      if (isAbort) msg = "Request timed out. Keep the tab open and try again.";
+      else if (msg?.includes("Failed to fetch") || msg?.includes("NetworkError")) msg = "Could not reach server. Check your connection.";
+      toast.error(msg);
       setDiscoveryStep("pick");
       setGenerating(false);
     }
