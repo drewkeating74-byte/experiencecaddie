@@ -254,12 +254,14 @@ export default function ExperienceBuilder() {
       } catch (err: any) {
         clearTimeout(timeoutId);
         const isAbort = err?.name === "AbortError";
-        let msg = err?.message || "Failed to find concerts";
-        if (isAbort) msg = "Request timed out. Keep the tab open and try again.";
-        else if (msg?.includes("Failed to fetch") || msg?.includes("NetworkError")) msg = "Could not reach server. Check your connection and try again.";
-        else if (msg?.includes("404")) msg = "Concert discovery service unavailable. Please try again later.";
-        toast.error(msg);
-        setDiscoveryStep("form");
+        const msg = err?.message || "Failed to find concerts";
+        const isTransient = isAbort || msg?.includes("Failed to fetch") || msg?.includes("NetworkError") || msg?.includes("404");
+        if (isTransient) {
+          toast.error(isAbort ? "Request timed out. Keep the tab open and try again." : msg);
+          setDiscoveryStep("form");
+        } else {
+          setDiscoveryStep("no_results");
+        }
       }
       return;
     }

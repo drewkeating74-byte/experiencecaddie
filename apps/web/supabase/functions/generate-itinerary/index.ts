@@ -127,6 +127,12 @@ ${artistSearch ? `- IMPORTANT: All 3 must be "${artistSearch}" — different cit
           const cleaned = discContent.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
           concertOptions = JSON.parse(cleaned);
         } catch {
+          const lower = discContent.toLowerCase();
+          if (lower.includes("no upcoming") || lower.includes("couldn't find") || lower.includes("could not find") || lower.includes("not touring") || lower.includes("no concerts")) {
+            return new Response(JSON.stringify({ success: true, concert_options: [] }), {
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
           console.error("Failed to parse discovery JSON:", discContent.substring(0, 300));
           return new Response(JSON.stringify({ error: "Invalid discovery response format" }), {
             status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" },
