@@ -391,7 +391,8 @@ ${artistSearch ? `- IMPORTANT: All 3 must be "${artistSearch}" — different cit
 
     const systemPrompt = `You are Experience Caddie, an AI travel planner specializing in legendary golf + concert weekend getaways. 
 You create curated trip packages with real vendor search links for booking.
-You MUST respond with ONLY valid JSON matching the exact schema specified. No markdown, no explanation, just JSON.`;
+You MUST respond with ONLY valid JSON matching the exact schema specified. No markdown, no explanation, just JSON.
+CRITICAL: Be concise. Keep "why" and "assumptions" to 1 short sentence each. Limit "plan" arrays to 3-4 items per day. Your response MUST be complete valid JSON — do not truncate.`;
 
     const cityForSearch = itinerary.city;
     const selectedConcertNote = (searchResults.events || []).find((e: any) => e.provider === "user_selected")
@@ -422,13 +423,13 @@ For each tier, include:
 - A day-by-day itinerary (covering each day of the trip)
 - Estimated total cost range in USD based on typical prices
 
-Return ONLY valid JSON matching this exact structure (no markdown, no explanation):
+Return ONLY valid JSON matching this exact structure (no markdown, no explanation). Keep assumptions to 2 short items max:
 {
   "summary": {
     "title": "string - catchy trip title",
-    "vibe": "string - 1-2 sentence vibe description",
+    "vibe": "string - 1-2 sentence vibe",
     "estimated_total_range_usd": [min_number, max_number],
-    "assumptions": ["string array of caveats"]
+    "assumptions": ["short string", "short string"]
   },
   "packages": [
     {
@@ -466,8 +467,8 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
         ],
-        temperature: 0.8,
-        max_tokens: 8192,
+        temperature: 0.7,
+        max_tokens: 16384,
       }),
     });
 
