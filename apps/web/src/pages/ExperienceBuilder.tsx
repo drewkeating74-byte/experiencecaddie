@@ -60,7 +60,7 @@ export default function ExperienceBuilder() {
   const [generating, setGenerating] = useState(false);
 
   // Two-step flow: discover concerts → user picks → build full itinerary
-  const [discoveryStep, setDiscoveryStep] = useState<"form" | "discovering" | "pick" | "building">("form");
+  const [discoveryStep, setDiscoveryStep] = useState<"form" | "discovering" | "pick" | "building" | "no_results">("form");
   const [concertOptions, setConcertOptions] = useState<ConcertOption[]>([]);
   const [savedParams, setSavedParams] = useState<{ finalCity: string; finalStart: string; finalEnd: string; budget: BudgetTier; groupSize: number; eventDetails: string } | null>(null);
 
@@ -244,7 +244,10 @@ export default function ExperienceBuilder() {
           throw new Error((errMsg as string) || `Concert discovery failed (${discRes.status})`);
         }
         const opts = discData.concert_options || [];
-        if (!opts.length) throw new Error("No concerts found for your dates");
+        if (!opts.length) {
+          setDiscoveryStep("no_results");
+          return;
+        }
         setConcertOptions(opts);
         setSavedParams({ finalCity, finalStart, finalEnd, budget, groupSize, eventDetails });
         setDiscoveryStep("pick");
@@ -335,6 +338,51 @@ export default function ExperienceBuilder() {
       clearTimeout(timeoutId);
     }
   };
+
+  if (discoveryStep === "no_results") {
+    const artistName = selectedEntry === "artist" ? eventInput.trim() : null;
+    return (
+      <div className="container mx-auto max-w-2xl px-4 py-12">
+        <div className="flex flex-col items-center text-center gap-6">
+          <div className="rounded-full bg-muted p-4">
+            <Music className="h-12 w-12 text-muted-foreground" />
+          </div>
+          <div className="space-y-2">
+            <h2 className="font-serif text-2xl font-bold">
+              {artistName
+                ? `No upcoming tour dates for ${artistName}`
+                : "No concerts found"}
+            </h2>
+            <p className="text-muted-foreground max-w-md">
+              {artistName ? (
+                <>
+                  We couldn&apos;t find any upcoming concerts or tour dates for <strong>{artistName}</strong> in your date range.
+                  They may not be touring right now, or dates could be outside our search window.
+                </>
+              ) : (
+                "We couldn&apos;t find any concerts matching your criteria in your date range. Try broadening your search or adjusting your dates."
+              )}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-3 justify-center">
+            <Button
+              variant="outline"
+              onClick={() => { setDiscoveryStep("form"); }}
+              className="rounded-full"
+            >
+              <ArrowLeft className="mr-2 h-4 w-4" /> Try different dates or artist
+            </Button>
+            <Button
+              onClick={() => { setStep("start"); setDiscoveryStep("form"); setSelectedEntry("find_concert"); }}
+              className="rounded-full"
+            >
+              <Search className="mr-2 h-4 w-4" /> Explore other artists
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (discoveryStep === "discovering") {
     return (
