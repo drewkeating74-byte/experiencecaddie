@@ -3,6 +3,14 @@ import { fileURLToPath } from "node:url";
 import fs from "node:fs";
 import { config } from "dotenv";
 
+// Keep process alive on unhandled errors
+process.on("uncaughtException", (err) => {
+  console.error("[FATAL] uncaughtException:", err);
+});
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("[FATAL] unhandledRejection:", reason, promise);
+});
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const envPaths = [
   path.resolve(__dirname, "../../../.env"),
@@ -23,7 +31,7 @@ for (const p of envPaths) {
   }
 }
 if (!loaded && !process.env.TICKETMASTER_CONSUMER_KEY && !process.env.TICKETMASTER_API_KEY) {
-  console.warn("[env] TICKETMASTER key not found. Tried:", envPaths);
+  console.warn("[env] TICKETMASTER key not found. Search will use mock data.");
 }
 import express from "express";
 import cors from "cors";
@@ -42,8 +50,9 @@ app.get("/", (_req, res) => {
 });
 
 function startServer(port: number) {
-  const server = app.listen(port, () => {
-    console.log(`API listening on http://localhost:${port}`);
+  const host = "0.0.0.0";
+  const server = app.listen(port, host, () => {
+    console.log(`API listening on http://${host}:${port}`);
   });
   server.on("error", (err: NodeJS.ErrnoException) => {
     if (err.code === "EADDRINUSE" && port === 4000) {
