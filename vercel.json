@@ -1,3 +1,5 @@
 {
-  "outputDirectory": "apps/web/dist"
+  "buildCommand": "cd apps/web && npm install && npm run build",
+  "outputDirectory": "apps/web/dist",
+  "installCommand": "npm install"
 }
