@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Music, Search, Sparkles, ArrowRight, ArrowLeft, Loader2, Wand2, MapPin, Calendar } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
+import { fetchSearch } from "@/lib/api/search";
 
 
 
@@ -107,7 +108,7 @@ export default function ExperienceBuilder() {
     const finalCity = trimmedCity;
     const finalStart = flexibleDates ? new Date().toISOString().split("T")[0] : startDate;
     const finalEnd = flexibleDates
-      ? new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]
+      ? new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]
       : endDate;
 
     // Validate date format
@@ -128,6 +129,29 @@ export default function ExperienceBuilder() {
       const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
       console.log("Starting itinerary generation...");
       const eventDetails = getEventDetails();
+
+      // Fetch real search data (Ticketmaster events) when API is configured
+      // Call when: artist specified OR city specified (not flexible)
+      const hasArtist = selectedEntry === "artist" && eventInput?.trim();
+      const hasCity = finalCity !== "flexible";
+      let search_results: { events?: unknown[]; golf_courses?: unknown[]; hotels?: unknown[] } | undefined;
+      if (hasArtist || hasCity) {
+        const searchRes = await fetchSearch({
+          artist: hasArtist ? eventInput.trim() : undefined,
+          destination: hasCity ? { city: finalCity } : {},
+          dates: { start_date: finalStart, end_date: finalEnd },
+          group_size: Math.min(Math.max(groupSize, 1), 20),
+          budget_tier: budget,
+        });
+        if (searchRes?.events?.length) {
+          search_results = {
+            events: searchRes.events.slice(0, 6),
+            golf_courses: searchRes.golf_courses?.slice(0, 6) ?? [],
+            hotels: searchRes.hotels?.slice(0, 6) ?? [],
+          };
+        }
+      }
+
       const payload = {
         user_id: user?.id || null,
         path: "golf_music",
@@ -139,9 +163,10 @@ export default function ExperienceBuilder() {
         preferences: { flexible_location: flexibleLocation, flexible_dates: flexibleDates },
         event_details: typeof eventDetails === "string" ? eventDetails.slice(0, 1000) : null,
         email: user?.email || null,
+        ...(search_results && { search_results }),
       };
       if (import.meta.env.DEV) {
-        console.log("Payload (sanitized):", { ...payload, user_id: "[REDACTED]", email: "[REDACTED]" });
+        console.log("Payload (sanitized):", { ...payload, user_id: "[REDACTED]", email: "[REDACTED]", search_results: search_results ? "[INCLUDED]" : undefined });
       }
 
       // Send everything to the edge function — it handles insert + generation

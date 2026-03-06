@@ -135,6 +135,24 @@ serve(async (req) => {
       .map(([k]) => k.replace(/_/g, " "))
       .join(", ");
 
+    // Use real search_results when provided (from API / Ticketmaster)
+    const p = body?.payload || {};
+    const rawSearch = p.search_results || p.searchResults || body?.search_results || body?.searchResults || {};
+    const events = Array.isArray(rawSearch.events) ? rawSearch.events : [];
+    const golfCourses = Array.isArray(rawSearch.golf_courses) ? rawSearch.golf_courses : [];
+    const hotels = Array.isArray(rawSearch.hotels) ? rawSearch.hotels : [];
+
+    const hasRealData = events.length > 0 || golfCourses.length > 0 || hotels.length > 0;
+    const realDataSection = hasRealData
+      ? `
+REAL DATA PROVIDED (use these exact options in your packages; include their book_url/ticket URLs):
+${events.length ? `- CONCERTS: ${JSON.stringify(events.slice(0, 6).map((e: any) => ({ name: e.name, venue: e.venue?.name, date: e.date_time, url: e.book_url || e.source_url })))}` : ""}
+${golfCourses.length ? `- GOLF: ${JSON.stringify(golfCourses.slice(0, 6).map((g: any) => ({ name: g.name, url: g.book_url || g.source_url })))}` : ""}
+${hotels.length ? `- HOTELS: ${JSON.stringify(hotels.slice(0, 6).map((h: any) => ({ name: h.name, url: h.book_url || h.source_url })))}` : ""}
+
+Use the URLs above when composing packages. Do not invent different events or links.`
+      : "";
+
     const systemPrompt = `You are Experience Caddie, an AI travel planner specializing in legendary golf + concert weekend getaways. 
 You create curated trip packages with real vendor search links for booking.
 You MUST respond with ONLY valid JSON matching the exact schema specified. No markdown, no explanation, just JSON.`;
@@ -148,6 +166,7 @@ You MUST respond with ONLY valid JSON matching the exact schema specified. No ma
 - Group size: ${itinerary.group_size}
 ${prefs ? `- Preferences: ${prefsList || "none specified"}` : ""}
 ${itinerary.event_details ? `- Event details: ${itinerary.event_details}` : ""}
+${realDataSection}
 
 For each tier, include:
 - 2-3 lodging options across these types: hotels, vacation rentals (Airbnb/VRBO), and golf resorts. Mix the types based on the tier — Bronze should lean budget hotels & rentals, Silver mid-range hotels & resorts, Gold premium resorts & luxury rentals.
