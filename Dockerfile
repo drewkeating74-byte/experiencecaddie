@@ -1,25 +1,22 @@
-# Build stage
-FROM node:20-alpine AS builder
-
-WORKDIR /app
-
-COPY apps/api/package.json apps/api/package-lock.json ./
-RUN npm install --include=dev
-
-COPY apps/api/ ./
-RUN npm run build
-
-# Production stage
+# Single-stage build for reliability
 FROM node:20-alpine
 
 WORKDIR /app
 
+# Copy package files and install (dev for build)
 COPY apps/api/package.json apps/api/package-lock.json ./
-RUN npm install --omit=dev
+RUN npm install --include=dev
 
-COPY --from=builder /app/dist ./dist
+# Copy source and build
+COPY apps/api/ ./
+RUN npm run build
 
+# Remove dev deps for smaller image
+RUN npm prune --omit=dev
+
+ENV NODE_ENV=production
 ENV PORT=4000
 EXPOSE 4000
 
+# Use exec form so node is PID 1
 CMD ["node", "dist/index.js"]

@@ -9,16 +9,15 @@ Tee Off. Rock Out. Plan Less. Experience More.
 We help men 30–60 discover unforgettable golf + event weekends by intelligently pairing:
 
 - 🎵 Concerts & Live Music
-- 🏟 Sporting Events
 - ⛳ Public Golf Courses
 - 🏨 Accommodations
 
 ## 🧱 Current Status
 
 MVP Phase:
-- Front-end built in Lovable
+- Front-end built in Lovable / moved to Vercel
 - GitHub repository initialized
-- Backend/API development starting
+- Backend/API development starting using Cursor with ChatGPT support
 
 ## 🛠 Tech Stack
 
@@ -30,18 +29,6 @@ MVP Phase:
 ## 🚀 Running Locally
 
 (TBD — will update once backend is scaffolded)
-
-## ⚡ Supabase Edge Function (Concert Discovery & Itinerary)
-
-The `generate-itinerary` edge function powers concert discovery and itinerary generation. **Deploy it separately** from the frontend:
-
-```bash
-cd apps/web
-supabase functions deploy generate-itinerary
-```
-
-Set the secret in Supabase Dashboard → Project Settings → Edge Functions → Secrets:
-- `PERPLEXITY_API_KEY` — required for concert search and itinerary AI
 
 ## 📍 Roadmap
 

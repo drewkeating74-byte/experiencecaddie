@@ -1,3 +1,4 @@
+console.log("[api] Starting...");
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import fs from "node:fs";
@@ -33,10 +34,12 @@ for (const p of envPaths) {
 if (!loaded && !process.env.TICKETMASTER_CONSUMER_KEY && !process.env.TICKETMASTER_API_KEY) {
   console.warn("[env] TICKETMASTER key not found. Search will use mock data.");
 }
+console.log("[api] Loading express...");
 import express from "express";
 import cors from "cors";
 import routes from "./routes/index.js";
 
+console.log("[api] Configuring app...");
 const app = express();
 const port = Number(process.env.PORT || 4000);
 
@@ -52,7 +55,7 @@ app.get("/", (_req, res) => {
 function startServer(port: number) {
   const host = "0.0.0.0";
   const server = app.listen(port, host, () => {
-    console.log(`API listening on http://${host}:${port}`);
+    console.log(`[api] Listening on http://${host}:${port} (PORT=${process.env.PORT})`);
   });
   server.on("error", (err: NodeJS.ErrnoException) => {
     if (err.code === "EADDRINUSE" && port === 4000) {
