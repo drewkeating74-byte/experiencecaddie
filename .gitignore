@@ -25,6 +25,7 @@ dist-ssr
 .env
 .env.local
 .env.*
+!.env.example
 apps/web/supabase/.temp/
 supabase/.temp/
 .cursor/

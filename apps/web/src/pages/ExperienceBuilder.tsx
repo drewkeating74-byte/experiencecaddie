@@ -191,7 +191,7 @@ export default function ExperienceBuilder() {
     const finalCity = trimmedCity;
     const finalStart = flexibleDates ? new Date().toISOString().split("T")[0] : startDate;
     const finalEnd = flexibleDates
-      ? new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]
+      ? new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]
       : endDate;
 
     // Validate date format
@@ -274,25 +274,29 @@ export default function ExperienceBuilder() {
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
       console.log("Starting itinerary generation...");
+      const eventDetails = getEventDetails();
+      const hasArtist = selectedEntry === "artist" && eventInput?.trim();
+      const hasCity = finalCity !== "flexible";
       const searchRequest = {
-        destination: { city: finalCity === "flexible" ? savedParams?.finalCity || "Austin" : finalCity },
+        artist: hasArtist ? eventInput.trim() : undefined,
+        destination: { city: hasCity ? finalCity : finalCity === "flexible" ? undefined : finalCity },
         dates: { start_date: finalStart, end_date: finalEnd },
         group_size: Math.min(Math.max(groupSize, 1), 20),
         budget_tier: budget,
       };
       let searchResult;
       try {
-        searchResult = await fetchSearch(searchRequest);
+        searchResult = (hasArtist || hasCity) ? await fetchSearch(searchRequest) : buildFallbackSearchResponse({ ...searchRequest, destination: { ...searchRequest.destination, city: "Austin" } });
       } catch (err) {
         if (import.meta.env.DEV) console.warn("Search API unreachable, using fallback:", err);
-        searchResult = buildFallbackSearchResponse(searchRequest);
+        searchResult = buildFallbackSearchResponse({ ...searchRequest, destination: { city: finalCity === "flexible" ? "Austin" : finalCity, state: searchRequest.destination?.state } });
       }
-      const searchResults = {
+      const search_results = {
         events: searchResult.events?.slice(0, 6) || [],
         golf_courses: searchResult.golf_courses?.slice(0, 6) || [],
         hotels: searchResult.hotels?.slice(0, 6) || [],
       };
-      const payload: Record<string, unknown> = {
+      const payload = {
         user_id: user?.id || null,
         path: "golf_music",
         city: finalCity,
@@ -302,11 +306,11 @@ export default function ExperienceBuilder() {
         group_size: Math.min(Math.max(groupSize, 1), 20),
         preferences: { flexible_location: flexibleLocation, flexible_dates: flexibleDates },
         event_details: typeof eventDetails === "string" ? eventDetails.slice(0, 1000) : null,
-        search_results: searchResults,
+        search_results,
         email: user?.email || null,
       };
       if (import.meta.env.DEV) {
-        console.log("Payload (sanitized):", { ...payload, user_id: "[REDACTED]", email: "[REDACTED]" });
+        console.log("Payload (sanitized):", { ...payload, user_id: "[REDACTED]", email: "[REDACTED]", search_results: search_results ? "[INCLUDED]" : undefined });
       }
 
       // Send everything to the edge function — it handles insert + generation

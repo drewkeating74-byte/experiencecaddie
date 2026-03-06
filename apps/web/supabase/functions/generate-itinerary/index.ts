@@ -307,93 +307,29 @@ ${artistSearch ? `- IMPORTANT: All 3 must be "${artistSearch}" — different cit
       const city = (itinerary.city === "flexible" ? "Austin" : itinerary.city || "Austin").slice(0, 50);
       searchResults = {
         events: [
-          {
-            id: "fallback_evt_1",
-            name: "Sample Concert",
-            date_time: `${itinerary.start_date}T20:00:00-05:00`,
-            venue: { name: "Mock Arena", city, state: "TX", capacity: 12000 },
-            book_url: "https://www.ticketmaster.com/",
-            source_url: "https://www.ticketmaster.com/",
-            price_min: 75,
-            price_max: 250,
-            provider: "mock",
-          },
+          { id: "fallback_evt_1", name: "Sample Concert", date_time: `${itinerary.start_date}T20:00:00-05:00`, venue: { name: "Mock Arena", city, state: "TX", capacity: 12000 }, book_url: "https://www.ticketmaster.com/", source_url: "https://www.ticketmaster.com/", price_min: 75, price_max: 250, provider: "mock" },
         ],
         golf_courses: [
-          {
-            id: "fallback_golf_1",
-            name: "Mock Golf Club",
-            city,
-            state: "TX",
-            public_access: true,
-            rating: 4.4,
-            tee_time_window: { start: "07:00", end: "11:00" },
-            book_url: "https://www.golfnow.com/",
-            source_url: "https://www.golfnow.com/",
-            price_min: 80,
-            price_max: 180,
-            provider: "mock",
-          },
+          { id: "fallback_golf_1", name: "Mock Golf Club", city, state: "TX", public_access: true, rating: 4.4, tee_time_window: { start: "07:00", end: "11:00" }, book_url: "https://www.golfnow.com/", source_url: "https://www.golfnow.com/", price_min: 80, price_max: 180, provider: "mock" },
         ],
         hotels: [
-          {
-            id: "fallback_hotel_1",
-            name: "Mock Boutique Hotel",
-            city,
-            state: "TX",
-            stars: 4,
-            rating: 4.6,
-            book_url: "https://www.booking.com/",
-            source_url: "https://www.booking.com/",
-            price_min: 160,
-            price_max: 320,
-            provider: "mock",
-          },
+          { id: "fallback_hotel_1", name: "Mock Boutique Hotel", city, state: "TX", stars: 4, rating: 4.6, book_url: "https://www.booking.com/", source_url: "https://www.booking.com/", price_min: 160, price_max: 320, provider: "mock" },
         ],
       };
     }
+    const events = searchResults.events || [];
+    const golfCourses = searchResults.golf_courses || [];
+    const hotels = searchResults.hotels || [];
+    const hasRealData = events.length > 0 || golfCourses.length > 0 || hotels.length > 0;
+    const realDataSection = hasRealData
+      ? `
+REAL DATA PROVIDED (use these exact options in your packages; include their book_url/ticket URLs):
+${events.length ? `- CONCERTS: ${JSON.stringify(events.slice(0, 6).map((e: any) => ({ name: e.name, venue: e.venue?.name, date: e.date_time, url: e.book_url || e.source_url })))}` : ""}
+${golfCourses.length ? `- GOLF: ${JSON.stringify(golfCourses.slice(0, 6).map((g: any) => ({ name: g.name, url: g.book_url || g.source_url })))}` : ""}
+${hotels.length ? `- HOTELS: ${JSON.stringify(hotels.slice(0, 6).map((h: any) => ({ name: h.name, url: h.book_url || h.source_url })))}` : ""}
 
-    const eventOptions = (searchResults.events || []).map((event: any) => ({
-      id: event.id,
-      name: event.name,
-      date_time: event.date_time,
-      venue: event.venue,
-      price_min: event.price_min,
-      price_max: event.price_max,
-      book_url: event.book_url,
-      source_url: event.source_url,
-      provider: event.provider,
-      image_url: event.image_url,
-    }));
-    const golfOptions = (searchResults.golf_courses || []).map((course: any) => ({
-      id: course.id,
-      name: course.name,
-      city: course.city,
-      state: course.state,
-      tee_time_window: course.tee_time_window,
-      public_access: course.public_access,
-      rating: course.rating,
-      price_min: course.price_min,
-      price_max: course.price_max,
-      book_url: course.book_url,
-      source_url: course.source_url,
-      provider: course.provider,
-      image_url: course.image_url,
-    }));
-    const hotelOptions = (searchResults.hotels || []).map((hotel: any) => ({
-      id: hotel.id,
-      name: hotel.name,
-      city: hotel.city,
-      state: hotel.state,
-      stars: hotel.stars,
-      rating: hotel.rating,
-      price_min: hotel.price_min,
-      price_max: hotel.price_max,
-      book_url: hotel.book_url,
-      source_url: hotel.source_url,
-      provider: hotel.provider,
-      image_url: hotel.image_url,
-    }));
+Use the URLs above when composing packages. Do not invent different events or links.`
+      : "";
 
     const systemPrompt = `You are Experience Caddie, an AI travel planner specializing in legendary golf + concert weekend getaways. 
 You create curated trip packages with real vendor search links for booking.
@@ -412,14 +348,15 @@ Trip details:
 - Budget: ${budgetLabel}
 - Group size: ${itinerary.group_size}
 ${prefs ? `- Preferences: ${prefsList || "none specified"}` : ""}
-${itinerary.event_details ? `- Event/artist preference: ${itinerary.event_details}` : ""}
+${itinerary.event_details ? `- Event details: ${itinerary.event_details}` : ""}
 ${selectedConcertNote}
-
+${realDataSection}
+${!hasRealData ? `
 SEARCH for and use REAL data:
-1. Concerts/events: Search Ticketmaster, SeatGeek, StubHub, or venue sites for upcoming shows in ${cityForSearch} between ${itinerary.start_date} and ${itinerary.end_date}. Venues must be at least 5,000 capacity (arenas, amphitheaters). Use actual event names, venues, dates, and real ticket purchase URLs.
-2. Golf: Search for public golf courses or resort courses within 25 miles of ${cityForSearch}. Use GolfNow, TeeOff, or course websites. Include real tee time booking URLs.
+1. Concerts/events: Search Ticketmaster, SeatGeek, StubHub, or venue sites for upcoming shows in ${cityForSearch} between ${itinerary.start_date} and ${itinerary.end_date}. Venues must be at least 5,000 capacity. Use actual event names, venues, dates, and real ticket purchase URLs.
+2. Golf: Search for public golf courses within 25 miles of ${cityForSearch}. Use GolfNow, TeeOff, or course websites. Include real tee time booking URLs.
 3. Hotels: Search Expedia, Booking.com, or Hotels.com for hotels in ${cityForSearch}. Use real booking URLs.
-4. Extras: Suggest real restaurants, bars, or experiences with Google Maps or OpenTable links.
+4. Extras: Suggest real restaurants, bars, or experiences with Google Maps or OpenTable links.` : ""}
 
 For each tier, include:
 - 2-3 lodging options with real booking URLs
