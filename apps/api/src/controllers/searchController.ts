@@ -3,7 +3,7 @@ import { buildSearchResponse } from "../services/searchService.js";
 import type { SearchRequest } from "../contracts/search.js";
 
 function parseRequest(req: Request): SearchRequest {
-  const body = (req.body || {}) as Partial<SearchRequest>;
+  const body = (req.body || {}) as Partial<SearchRequest> & { budgetTier?: string; teeTimeWindow?: { start: string; end: string } };
   const query = req.query as Record<string, unknown>;
   const getString = (v: unknown) => (typeof v === "string" ? v : undefined);
   const getNumber = (v: unknown) => {
@@ -21,6 +21,8 @@ function parseRequest(req: Request): SearchRequest {
   const endDate = body.dates?.end_date ?? getString(query.end_date) ?? getString(query.endDate);
   const teeTimeStart = getString(query.tee_time_start);
   const teeTimeEnd = getString(query.tee_time_end);
+  const rawBudget = body.budget_tier ?? body.budgetTier ?? getString(query.budget_tier) ?? getString(query.budgetTier);
+  const budget_tier = rawBudget === "low" || rawBudget === "mid" || rawBudget === "high" ? rawBudget : undefined;
 
   return {
     artist: artist || undefined,
@@ -30,7 +32,7 @@ function parseRequest(req: Request): SearchRequest {
       end_date: endDate ?? new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
     },
     group_size: body.group_size ?? getNumber(query.group_size) ?? getNumber(query.groupSize),
-    budget_tier: body.budget_tier ?? body.budgetTier,
+    budget_tier,
     tee_time_window:
       body.tee_time_window ??
       body.teeTimeWindow ??
