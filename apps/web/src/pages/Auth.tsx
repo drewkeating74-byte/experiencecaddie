@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { lovable } from "@/integrations/lovable/index";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -65,10 +64,12 @@ export default function Auth() {
             variant="outline"
             className="w-full rounded-full"
             onClick={async () => {
-              const { error } = await lovable.auth.signInWithOAuth("google", {
-                redirect_uri: window.location.origin,
+              const { data, error } = await supabase.auth.signInWithOAuth({
+                provider: "google",
+                options: { redirectTo: `${window.location.origin}${redirect}` },
               });
               if (error) toast.error(error.message);
+              else if (data?.url) window.location.href = data.url;
             }}
           >
             <svg className="mr-2 h-4 w-4" viewBox="0 0 24 24">
@@ -85,10 +86,12 @@ export default function Auth() {
             variant="outline"
             className="w-full rounded-full mt-2"
             onClick={async () => {
-              const { error } = await lovable.auth.signInWithOAuth("apple", {
-                redirect_uri: window.location.origin,
+              const { data, error } = await supabase.auth.signInWithOAuth({
+                provider: "apple",
+                options: { redirectTo: `${window.location.origin}${redirect}` },
               });
               if (error) toast.error(error.message);
+              else if (data?.url) window.location.href = data.url;
             }}
           >
             <svg className="mr-2 h-4 w-4" viewBox="0 0 24 24" fill="currentColor">

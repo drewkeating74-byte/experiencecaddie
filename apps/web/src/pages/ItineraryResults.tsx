@@ -34,7 +34,7 @@ export default function ItineraryResults() {
   const { user } = useAuth();
   const [itinerary, setItinerary] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [saved, setSaved] = useState(false);
+  const [savedTiers, setSavedTiers] = useState<Set<string>>(new Set());
   const [shareEmailOpen, setShareEmailOpen] = useState(false);
   const [shareEmails, setShareEmails] = useState("");
   const [sendingEmail, setSendingEmail] = useState(false);
@@ -43,16 +43,15 @@ export default function ItineraryResults() {
   // Only select non-sensitive columns to avoid exposing email/user_id in shared views
   const safeColumns = "id, path, city, start_date, end_date, budget_tier, group_size, preferences, event_details, result_json, share_slug, status, created_at, updated_at";
 
-  // Check if user has saved this itinerary
+  // Load which package tiers user has saved
   useEffect(() => {
     if (!user?.id || !itinerary?.id) return;
     supabase
-      .from("user_saved_itineraries")
-      .select("id")
+      .from("user_saved_packages")
+      .select("package_tier")
       .eq("user_id", user.id)
       .eq("itinerary_id", itinerary.id)
-      .maybeSingle()
-      .then(({ data }) => setSaved(!!data));
+      .then(({ data }) => setSavedTiers(new Set((data || []).map((r: any) => r.package_tier))));
   }, [user?.id, itinerary?.id]);
 
   useEffect(() => {
@@ -98,19 +97,34 @@ export default function ItineraryResults() {
     window.open(url, "_blank", "noopener,noreferrer");
   };
 
-  const handleSave = async () => {
+  const handleSave = async (tier: string) => {
     if (!user || !itinerary?.id) {
-      toast.error("Log in to save this trip");
+      toast.error("Log in to save this package");
       navigate(`/auth?redirect=${encodeURIComponent(window.location.pathname)}`);
       return;
     }
-    if (saved) {
-      await supabase.from("user_saved_itineraries").delete().eq("user_id", user.id).eq("itinerary_id", itinerary.id);
-      setSaved(false);
+    const isSaved = savedTiers.has(tier);
+    if (isSaved) {
+      await supabase
+        .from("user_saved_packages")
+        .delete()
+        .eq("user_id", user.id)
+        .eq("itinerary_id", itinerary.id)
+        .eq("package_tier", tier);
+      setSavedTiers((prev) => {
+        const next = new Set(prev);
+        next.delete(tier);
+        return next;
+      });
       toast.success("Removed from My Trips");
     } else {
-      await supabase.from("user_saved_itineraries").upsert({ user_id: user.id, itinerary_id: itinerary.id }, { onConflict: "user_id,itinerary_id" });
-      setSaved(true);
+      await supabase
+        .from("user_saved_packages")
+        .upsert(
+          { user_id: user.id, itinerary_id: itinerary.id, package_tier: tier },
+          { onConflict: "user_id,itinerary_id,package_tier" }
+        );
+      setSavedTiers((prev) => new Set(prev).add(tier));
       toast.success("Saved to My Trips");
     }
   };
@@ -206,31 +220,6 @@ export default function ItineraryResults() {
 
   return (
     <div className="container mx-auto max-w-5xl px-4 py-8">
-      {!user && (
-        <div className="mb-4 rounded-lg border border-amber-500/50 bg-amber-500/10 p-4 text-sm">
-          <p className="font-medium">Log in to share, save, or book</p>
-          <p className="mt-1 text-muted-foreground">Copy the link below to share. Sign in to email this trip, save it to My Trips, or click booking links.</p>
-          <Button size="sm" className="mt-3" onClick={() => navigate(`/auth?redirect=${encodeURIComponent(window.location.pathname)}`)}>
-            Sign In
-          </Button>
-        </div>
-      )}
-
-      <div className="mb-4 rounded-lg border border-border bg-muted/30 p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="text-sm text-muted-foreground">
-            Last updated: {formatLastUpdated(itinerary.updated_at)}
-          </p>
-          <Button variant="outline" size="sm" onClick={handleRefresh} disabled={refreshing}>
-            {refreshing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-            Refresh
-          </Button>
-        </div>
-        <p className="mt-2 text-xs text-muted-foreground">
-          Prices, availability, and accommodations may change. Refresh to get the latest.
-        </p>
-      </div>
-
       <div className="mb-6 flex items-center justify-between">
         <Button variant="ghost" asChild>
           <Link to="/experience"><ArrowLeft className="mr-2 h-4 w-4" /> New Trip</Link>
@@ -303,26 +292,44 @@ export default function ItineraryResults() {
           return (
             <TabsContent key={pkg.tier} value={pkg.tier}>
               <div className={`rounded-xl border-2 ${style.border} ${style.bg} p-6 space-y-6`}>
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-9"
-                      onClick={handleSave}
-                      disabled={!user}
-                      title={user ? (saved ? "Remove from My Trips" : "Save to My Trips") : "Log in to save"}
-                    >
-                      {saved ? <BookmarkCheck className="h-4 w-4 text-primary" /> : <Bookmark className="h-4 w-4" />}
-                    </Button>
-                    <Badge className={style.badge}>{pkg.tier}</Badge>
-                  </div>
-                  {pkg.estimated_total_usd && (
-                    <span className="font-serif text-xl font-bold">
-                      ${pkg.estimated_total_usd[0]?.toLocaleString()} – ${pkg.estimated_total_usd[1]?.toLocaleString()}
-                    </span>
-                  )}
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 w-8 p-0"
+                    onClick={() => handleSave(pkg.tier)}
+                    disabled={!user}
+                    title={user ? (savedTiers.has(pkg.tier) ? "Remove from My Trips" : "Save to My Trips") : "Log in to save"}
+                  >
+                    {savedTiers.has(pkg.tier) ? <BookmarkCheck className="h-4 w-4 text-primary" /> : <Bookmark className="h-4 w-4" />}
+                  </Button>
+                  <Badge className={style.badge}>{pkg.tier}</Badge>
                 </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-2 py-1 text-xs text-muted-foreground border-b border-border/50">
+                  <span>Updated {formatLastUpdated(itinerary.updated_at)}</span>
+                  <div className="flex items-center gap-2">
+                    {!user && (
+                      <button
+                        type="button"
+                        className="text-amber-600 hover:underline"
+                        onClick={() => navigate(`/auth?redirect=${encodeURIComponent(window.location.pathname)}`)}
+                      >
+                        Log in to share, save, or book
+                      </button>
+                    )}
+                    <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={handleRefresh} disabled={refreshing}>
+                      {refreshing ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                      Refresh
+                    </Button>
+                  </div>
+                </div>
+
+                {pkg.estimated_total_usd && (
+                  <div className="font-serif text-xl font-bold">
+                    ${pkg.estimated_total_usd[0]?.toLocaleString()} – ${pkg.estimated_total_usd[1]?.toLocaleString()}
+                  </div>
+                )}
 
                 {/* Lodging */}
                 {(pkg.lodging?.length > 0 || pkg.hotels?.length > 0) && (
