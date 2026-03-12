@@ -476,7 +476,13 @@ export default function ExperienceBuilder() {
   return (
     <div className="container mx-auto max-w-2xl px-4 py-12">
       {step === "start" && (
-        <div className="space-y-8">
+        <form
+          className="space-y-8"
+          onSubmit={(e) => {
+            e.preventDefault();
+            handleContinue();
+          }}
+        >
           <div className="text-center">
             <h1 className="font-serif text-4xl font-bold">Start Your Experience</h1>
             <p className="mt-3 text-muted-foreground">
@@ -564,7 +570,7 @@ export default function ExperienceBuilder() {
 
           <div className="flex justify-center pt-2">
             <Button
-              onClick={handleContinue}
+              type="submit"
               disabled={!selectedEntry}
               size="lg"
               className="rounded-full px-8 bg-accent text-accent-foreground hover:bg-accent/90"
@@ -572,13 +578,19 @@ export default function ExperienceBuilder() {
               Continue <ArrowRight className="ml-2 h-4 w-4" />
             </Button>
           </div>
-        </div>
+        </form>
       )}
 
       {step === "details" && (
-        <div className="space-y-8">
+        <form
+          className="space-y-8"
+          onSubmit={(e) => {
+            e.preventDefault();
+            handleGenerate();
+          }}
+        >
           <div>
-            <Button variant="ghost" onClick={() => setStep("start")} className="mb-4">
+            <Button type="button" variant="ghost" onClick={() => setStep("start")} className="mb-4">
               <ArrowLeft className="mr-2 h-4 w-4" /> Back
             </Button>
             <h2 className="font-serif text-2xl font-bold">Fine-tune your trip</h2>
@@ -595,6 +607,7 @@ export default function ExperienceBuilder() {
                 <Label className="text-base font-medium">Location</Label>
               </div>
               <button
+                type="button"
                 onClick={() => setFlexibleLocation(!flexibleLocation)}
                 className={`text-sm font-medium transition-colors ${
                   flexibleLocation ? "text-primary" : "text-muted-foreground hover:text-foreground"
@@ -604,7 +617,7 @@ export default function ExperienceBuilder() {
               </button>
             </div>
             {flexibleLocation && (
-              <button onClick={() => setFlexibleLocation(false)} className="text-xs text-muted-foreground hover:text-primary transition-colors text-left cursor-pointer">Tap to set a specific city →</button>
+              <button type="button" onClick={() => setFlexibleLocation(false)} className="text-xs text-muted-foreground hover:text-primary transition-colors text-left cursor-pointer">Tap to set a specific city →</button>
             )}
             {!flexibleLocation && (
               <Input
@@ -625,6 +638,7 @@ export default function ExperienceBuilder() {
                 <Label className="text-base font-medium">Dates</Label>
               </div>
               <button
+                type="button"
                 onClick={() => setFlexibleDates(!flexibleDates)}
                 className={`text-sm font-medium transition-colors ${
                   flexibleDates ? "text-primary" : "text-muted-foreground hover:text-foreground"
@@ -634,7 +648,7 @@ export default function ExperienceBuilder() {
               </button>
             </div>
             {flexibleDates && (
-              <button onClick={() => setFlexibleDates(false)} className="text-xs text-muted-foreground hover:text-primary transition-colors text-left cursor-pointer">Tap to set specific dates →</button>
+              <button type="button" onClick={() => setFlexibleDates(false)} className="text-xs text-muted-foreground hover:text-primary transition-colors text-left cursor-pointer">Tap to set specific dates →</button>
             )}
             {!flexibleDates && (
               <div className="flex gap-3 animate-fade-in">
@@ -699,10 +713,10 @@ export default function ExperienceBuilder() {
             </div>
           </div>
 
-          <Button onClick={handleGenerate} size="lg" className="w-full rounded-full">
+          <Button type="submit" size="lg" className="w-full rounded-full">
             Generate My Itinerary <Sparkles className="ml-2 h-4 w-4" />
           </Button>
-        </div>
+        </form>
       )}
     </div>
   );

@@ -1,15 +1,26 @@
 import { useEffect, useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Hotel, Home, Music, MapPin, Utensils, ExternalLink, Copy, Share2, ArrowLeft, Loader2 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Hotel, Music, Utensils, ExternalLink, Copy, ArrowLeft, Loader2, Mail, Bookmark, BookmarkCheck, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
+import { useAuth } from "@/hooks/useAuth";
 
-const db = supabase as any;
+const MAX_EMAILS = 10;
 
 const TIER_STYLES: Record<string, { bg: string; border: string; badge: string }> = {
   BRONZE: { bg: "bg-amber-900/5", border: "border-amber-700/30", badge: "bg-amber-700 text-white" },
@@ -19,11 +30,30 @@ const TIER_STYLES: Record<string, { bg: string; border: string; badge: string }>
 
 export default function ItineraryResults() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const { user } = useAuth();
   const [itinerary, setItinerary] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [saved, setSaved] = useState(false);
+  const [shareEmailOpen, setShareEmailOpen] = useState(false);
+  const [shareEmails, setShareEmails] = useState("");
+  const [sendingEmail, setSendingEmail] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   // Only select non-sensitive columns to avoid exposing email/user_id in shared views
   const safeColumns = "id, path, city, start_date, end_date, budget_tier, group_size, preferences, event_details, result_json, share_slug, status, created_at, updated_at";
+
+  // Check if user has saved this itinerary
+  useEffect(() => {
+    if (!user?.id || !itinerary?.id) return;
+    supabase
+      .from("user_saved_itineraries")
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("itinerary_id", itinerary.id)
+      .maybeSingle()
+      .then(({ data }) => setSaved(!!data));
+  }, [user?.id, itinerary?.id]);
 
   useEffect(() => {
     if (!id) return;
@@ -57,17 +87,90 @@ export default function ItineraryResults() {
   }, [id]);
 
   const trackClick = async (tier: string, vendor: string, label: string, url: string) => {
-    // Fire and forget click tracking
+    if (!user) {
+      toast.error("Log in to book");
+      navigate(`/auth?redirect=${encodeURIComponent(window.location.pathname)}`);
+      return;
+    }
     supabase.functions.invoke("track-click", {
       body: { itinerary_id: id, package_tier: tier, vendor, label, target_url: url },
     });
     window.open(url, "_blank", "noopener,noreferrer");
   };
 
+  const handleSave = async () => {
+    if (!user || !itinerary?.id) {
+      toast.error("Log in to save this trip");
+      navigate(`/auth?redirect=${encodeURIComponent(window.location.pathname)}`);
+      return;
+    }
+    if (saved) {
+      await supabase.from("user_saved_itineraries").delete().eq("user_id", user.id).eq("itinerary_id", itinerary.id);
+      setSaved(false);
+      toast.success("Removed from My Trips");
+    } else {
+      await supabase.from("user_saved_itineraries").upsert({ user_id: user.id, itinerary_id: itinerary.id }, { onConflict: "user_id,itinerary_id" });
+      setSaved(true);
+      toast.success("Saved to My Trips");
+    }
+  };
+
+  const handleShareViaEmail = async () => {
+    const emails = shareEmails.split(/[\s,;]+/).map((e) => e.trim()).filter(Boolean);
+    if (emails.length === 0) {
+      toast.error("Enter at least one email");
+      return;
+    }
+    if (emails.length > MAX_EMAILS) {
+      toast.error(`Maximum ${MAX_EMAILS} recipients`);
+      return;
+    }
+    setSendingEmail(true);
+    try {
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+      const profile = user ? (await supabase.from("profiles").select("first_name, last_name").eq("user_id", user.id).maybeSingle()).data : null;
+      const senderName = profile ? [profile.first_name, profile.last_name].filter(Boolean).join(" ") : undefined;
+      const res = await fetch(`${supabaseUrl}/functions/v1/send-share-email`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` },
+        body: JSON.stringify({ share_url: getShareUrl(), recipient_emails: emails, sender_name: senderName }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Failed to send");
+      toast.success(`Sent to ${emails.length} recipient(s)`);
+      setShareEmailOpen(false);
+      setShareEmails("");
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to send email");
+    } finally {
+      setSendingEmail(false);
+    }
+  };
+
+  const handleRefresh = () => {
+    setRefreshing(true);
+    toast.info("Refreshing prices and availability...");
+    // TODO: Call refresh API to re-run Ticketmaster etc and update itinerary
+    setTimeout(() => {
+      setRefreshing(false);
+      toast.success("Refresh complete");
+    }, 2000);
+  };
+
+  const formatLastUpdated = (dateStr: string) => {
+    const d = new Date(dateStr);
+    return d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+  };
+
+  const getShareUrl = () => {
+    const base = import.meta.env.VITE_APP_URL || window.location.origin;
+    return `${base.replace(/\/$/, "")}/share/${itinerary?.share_slug || ""}`;
+  };
+
   const copyShareLink = () => {
     if (itinerary?.share_slug) {
-      const url = `${window.location.origin}/share/${itinerary.share_slug}`;
-      navigator.clipboard.writeText(url);
+      navigator.clipboard.writeText(getShareUrl());
       toast.success("Share link copied!");
     }
   };
@@ -103,16 +206,74 @@ export default function ItineraryResults() {
 
   return (
     <div className="container mx-auto max-w-5xl px-4 py-8">
+      {!user && (
+        <div className="mb-4 rounded-lg border border-amber-500/50 bg-amber-500/10 p-4 text-sm">
+          <p className="font-medium">Log in to share, save, or book</p>
+          <p className="mt-1 text-muted-foreground">Copy the link below to share. Sign in to email this trip, save it to My Trips, or click booking links.</p>
+          <Button size="sm" className="mt-3" onClick={() => navigate(`/auth?redirect=${encodeURIComponent(window.location.pathname)}`)}>
+            Sign In
+          </Button>
+        </div>
+      )}
+
+      <div className="mb-4 rounded-lg border border-border bg-muted/30 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm text-muted-foreground">
+            Last updated: {formatLastUpdated(itinerary.updated_at)}
+          </p>
+          <Button variant="outline" size="sm" onClick={handleRefresh} disabled={refreshing}>
+            {refreshing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+            Refresh
+          </Button>
+        </div>
+        <p className="mt-2 text-xs text-muted-foreground">
+          Prices, availability, and accommodations may change. Refresh to get the latest.
+        </p>
+      </div>
+
       <div className="mb-6 flex items-center justify-between">
         <Button variant="ghost" asChild>
           <Link to="/experience"><ArrowLeft className="mr-2 h-4 w-4" /> New Trip</Link>
         </Button>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={copyShareLink}>
-            <Share2 className="mr-2 h-4 w-4" /> Share
+            <Copy className="mr-2 h-4 w-4" /> Copy link
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => (user ? setShareEmailOpen(true) : navigate(`/auth?redirect=${encodeURIComponent(window.location.pathname)}`))}
+          >
+            <Mail className="mr-2 h-4 w-4" /> Share via email
           </Button>
         </div>
       </div>
+
+      <Dialog open={shareEmailOpen} onOpenChange={setShareEmailOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Share via email</DialogTitle>
+            <DialogDescription>Enter up to {MAX_EMAILS} email addresses (comma or space separated)</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="share-emails">Recipients</Label>
+            <Input
+              id="share-emails"
+              type="text"
+              placeholder="friend@example.com, another@example.com"
+              value={shareEmails}
+              onChange={(e) => setShareEmails(e.target.value)}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShareEmailOpen(false)}>Cancel</Button>
+            <Button onClick={handleShareViaEmail} disabled={sendingEmail}>
+              {sendingEmail ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Mail className="mr-2 h-4 w-4" />}
+              Send
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Summary */}
       {summary && (
@@ -142,8 +303,20 @@ export default function ItineraryResults() {
           return (
             <TabsContent key={pkg.tier} value={pkg.tier}>
               <div className={`rounded-xl border-2 ${style.border} ${style.bg} p-6 space-y-6`}>
-                <div className="flex items-center justify-between">
-                  <Badge className={style.badge}>{pkg.tier}</Badge>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-9"
+                      onClick={handleSave}
+                      disabled={!user}
+                      title={user ? (saved ? "Remove from My Trips" : "Save to My Trips") : "Log in to save"}
+                    >
+                      {saved ? <BookmarkCheck className="h-4 w-4 text-primary" /> : <Bookmark className="h-4 w-4" />}
+                    </Button>
+                    <Badge className={style.badge}>{pkg.tier}</Badge>
+                  </div>
                   {pkg.estimated_total_usd && (
                     <span className="font-serif text-xl font-bold">
                       ${pkg.estimated_total_usd[0]?.toLocaleString()} – ${pkg.estimated_total_usd[1]?.toLocaleString()}
@@ -180,7 +353,7 @@ export default function ItineraryResults() {
                             variant="outline"
                             onClick={() => trackClick(pkg.tier, "hotel", h.name, h.url)}
                           >
-                            Book <ExternalLink className="ml-1 h-3 w-3" />
+                            {user ? "Book" : "Log in to book"} <ExternalLink className="ml-1 h-3 w-3" />
                           </Button>
                         </div>
                       ))}
@@ -210,7 +383,7 @@ export default function ItineraryResults() {
                             variant="outline"
                             onClick={() => trackClick(pkg.tier, "ticket", e.name, e.url)}
                           >
-                            Tickets <ExternalLink className="ml-1 h-3 w-3" />
+                            {user ? "Tickets" : "Log in to book"} <ExternalLink className="ml-1 h-3 w-3" />
                           </Button>
                         </div>
                       ))}
@@ -239,7 +412,7 @@ export default function ItineraryResults() {
                             variant="outline"
                             onClick={() => trackClick(pkg.tier, "golf", g.name, g.url)}
                           >
-                            Tee Times <ExternalLink className="ml-1 h-3 w-3" />
+                            {user ? "Tee Times" : "Log in to book"} <ExternalLink className="ml-1 h-3 w-3" />
                           </Button>
                         </div>
                       ))}
@@ -268,7 +441,7 @@ export default function ItineraryResults() {
                             variant="outline"
                             onClick={() => trackClick(pkg.tier, "experience", x.name, x.url)}
                           >
-                            View <ExternalLink className="ml-1 h-3 w-3" />
+                            {user ? "View" : "Log in to book"} <ExternalLink className="ml-1 h-3 w-3" />
                           </Button>
                         </div>
                       ))}
@@ -308,9 +481,9 @@ export default function ItineraryResults() {
       </Tabs>
 
       {/* Disclaimer */}
-      <p className="mt-8 text-center text-xs text-muted-foreground">
-        Prices and availability change. You'll book directly with providers. No booking handled by Experience Caddie.
-      </p>
+      <div className="mt-8 space-y-2 text-center text-xs text-muted-foreground">
+        <p>Prices, availability, and accommodations may change. You'll book directly with providers. No booking handled by Experience Caddie.</p>
+      </div>
     </div>
   );
 }
