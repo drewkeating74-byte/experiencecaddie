@@ -80,6 +80,9 @@ export type SearchResponse = {
   destination: { city: string; state?: string; start_date: string; end_date: string };
   events: EventResult[];
   golf_courses: GolfCourseResult[];
+  bronze_golf_candidates?: GolfCourseResult[];
+  silver_golf_candidates?: GolfCourseResult[];
+  gold_golf_candidates?: GolfCourseResult[];
   hotels: HotelResult[];
   meta: { providers: Provider[]; cached: boolean; generated_at: string; request_id: string };
 };

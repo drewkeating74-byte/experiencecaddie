@@ -163,6 +163,9 @@ ${artistSearch ? `- IMPORTANT: All 3 must be "${artistSearch}" — different cit
       let golfCourses = Array.isArray(rawSearchResults.golf_courses)
         ? rawSearchResults.golf_courses.slice(0, 12)
         : [];
+      let bronzeGolfCandidates = Array.isArray(rawSearchResults.bronze_golf_candidates) ? rawSearchResults.bronze_golf_candidates : null;
+      let silverGolfCandidates = Array.isArray(rawSearchResults.silver_golf_candidates) ? rawSearchResults.silver_golf_candidates : null;
+      let goldGolfCandidates = Array.isArray(rawSearchResults.gold_golf_candidates) ? rawSearchResults.gold_golf_candidates : null;
       let hotels = Array.isArray(rawSearchResults.hotels) ? rawSearchResults.hotels.slice(0, 6) : [];
 
       // When user selected a concert, use it as the sole event
@@ -262,7 +265,14 @@ ${artistSearch ? `- IMPORTANT: All 3 must be "${artistSearch}" — different cit
         });
       }
       itinerary = inserted;
-      itinerary.search_results = { events, golf_courses: golfCourses, hotels };
+      itinerary.search_results = {
+        events,
+        golf_courses: golfCourses,
+        bronze_golf_candidates: bronzeGolfCandidates,
+        silver_golf_candidates: silverGolfCandidates,
+        gold_golf_candidates: goldGolfCandidates,
+        hotels,
+      };
       itinerary_id = inserted.id;
     } else {
       // Legacy mode: fetch existing itinerary by ID
@@ -320,10 +330,14 @@ ${artistSearch ? `- IMPORTANT: All 3 must be "${artistSearch}" — different cit
     const events = searchResults.events || [];
     const golfCourses = (searchResults.golf_courses || []).slice(0, 12);
     const hotels = searchResults.hotels || [];
-    const golfBronze = golfCourses.filter((g: any) => g.tier_hint === "bronze").map((g: any) => ({ name: g.name, url: g.book_url || g.source_url }));
-    const golfSilver = golfCourses.filter((g: any) => g.tier_hint === "silver").map((g: any) => ({ name: g.name, url: g.book_url || g.source_url }));
-    const golfGold = golfCourses.filter((g: any) => g.tier_hint === "gold").map((g: any) => ({ name: g.name, url: g.book_url || g.source_url }));
-    const golfUnassigned = golfCourses.filter((g: any) => !g.tier_hint || !["bronze", "silver", "gold"].includes(g.tier_hint)).map((g: any) => ({ name: g.name, url: g.book_url || g.source_url }));
+    const poolBronze = Array.isArray(searchResults.bronze_golf_candidates) ? searchResults.bronze_golf_candidates : null;
+    const poolSilver = Array.isArray(searchResults.silver_golf_candidates) ? searchResults.silver_golf_candidates : null;
+    const poolGold = Array.isArray(searchResults.gold_golf_candidates) ? searchResults.gold_golf_candidates : null;
+    const toGolfEntry = (g: any) => ({ name: g.name, url: g.book_url || g.source_url });
+    const golfBronze = poolBronze?.length ? poolBronze.map(toGolfEntry) : golfCourses.filter((g: any) => g.tier_hint === "bronze").map(toGolfEntry);
+    const golfSilver = poolSilver?.length ? poolSilver.map(toGolfEntry) : golfCourses.filter((g: any) => g.tier_hint === "silver").map(toGolfEntry);
+    const golfGold = poolGold?.length ? poolGold.map(toGolfEntry) : golfCourses.filter((g: any) => g.tier_hint === "gold").map(toGolfEntry);
+    const golfUnassigned = golfCourses.filter((g: any) => !g.tier_hint || !["bronze", "silver", "gold"].includes(g.tier_hint)).map(toGolfEntry);
     const hasRealHotels = hotels.length > 0 && hotels.some((h: any) => h.provider !== "mock");
     const hasRealData = events.length > 0 || golfCourses.length > 0 || hotels.length > 0;
     const hasTieredGolf = golfBronze.length > 0 || golfSilver.length > 0 || golfGold.length > 0;

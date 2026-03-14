@@ -110,6 +110,9 @@ type SearchResponse = {
   destination: { city: string; state?: string; start_date: string; end_date: string };
   events: EventResult[];
   golf_courses: GolfCourseResult[];
+  bronze_golf_candidates?: GolfCourseResult[];
+  silver_golf_candidates?: GolfCourseResult[];
+  gold_golf_candidates?: GolfCourseResult[];
   hotels: HotelResult[];
   meta: { providers: ("ticketmaster" | "google_places" | "mock")[]; cached: boolean; generated_at: string; request_id: string };
 };
@@ -281,8 +284,8 @@ async function geocodeCity(city: string, state?: string): Promise<GeoResult> {
 
 function publicAccessConfidence(name: string): "likely_public" | "unknown" | "likely_private" {
   const n = (name || "").toLowerCase();
-  if (/country club|private|members only/i.test(n)) return "likely_private";
-  if (/municipal|public|city\b/i.test(n)) return "likely_public";
+  if (/country club|private club|private\b|members only|members'? club|invitation only|invite only|invitational/i.test(n)) return "likely_private";
+  if (/municipal|muny|public\b|city\b/i.test(n)) return "likely_public";
   return "unknown";
 }
 
@@ -309,8 +312,11 @@ function haversineMiles(
 
 function namePremiumScore(name: string): number {
   const n = (name || "").toLowerCase();
-  if (/resort|country club|private club|national\b/i.test(n) && !/public|municipal/i.test(n)) return 20;
-  if (/golf club|club\b|links\b|plantation\b/i.test(n) && !/municipal|city|public/i.test(n)) return 12;
+  if (/country club|private club|members only/i.test(n)) return 0;
+  if (/resort\b|golf resort/i.test(n) && !/public|municipal/i.test(n)) return 22;
+  if (/\blinks\b|plantation\b|dunes\b|pebble|ocean course/i.test(n) && !/public|municipal/i.test(n)) return 18;
+  if (/\bnational\b/i.test(n) && !/public|municipal/i.test(n)) return 14;
+  if (/golf club|club\b/i.test(n) && !/municipal|city|public|country club/i.test(n)) return 6;
   return 0;
 }
 
@@ -331,19 +337,21 @@ function computeQualityScore(c: {
 }): number {
   let score = 0;
   const rating = c.rating ?? 0;
-  score += Math.min(30, rating * 6);
+  score += Math.min(32, rating * 7);
   const premium = namePremiumScore(c.name);
   score += premium;
   const value = nameValueScore(c.name);
-  if (value > 0) score += Math.min(15, value);
-  if (c.public_access_confidence === "likely_public") score += 8;
-  if (c.public_access_confidence === "unknown") score += 4;
-  if (c.distance_miles != null && c.distance_miles < 10) score += 10;
-  else if (c.distance_miles != null && c.distance_miles < 20) score += 5;
+  if (value > 0) score += Math.min(14, value);
+  if (c.public_access_confidence === "likely_public") score += 6;
+  if (c.public_access_confidence === "unknown") score += 3;
+  if (c.public_access_confidence === "likely_private") score -= 15;
+  if (c.distance_miles != null && c.distance_miles < 10) score += 8;
+  else if (c.distance_miles != null && c.distance_miles < 20) score += 4;
   const reviewCount = c.user_rating_count ?? 0;
-  if (reviewCount >= 100) score += 4;
+  if (reviewCount >= 200) score += 6;
+  else if (reviewCount >= 100) score += 4;
   else if (reviewCount >= 50) score += 2;
-  return Math.min(100, Math.round(score));
+  return Math.min(100, Math.max(0, Math.round(score)));
 }
 
 function assignTierHint(c: {
@@ -353,15 +361,21 @@ function assignTierHint(c: {
   quality_score: number;
   distance_miles?: number;
   distance_rank: number;
+  user_rating_count?: number;
 }): TierHint {
   const premium = namePremiumScore(c.name);
   const value = nameValueScore(c.name);
   const rating = c.rating ?? 0;
+  const reviewCount = c.user_rating_count ?? 0;
   const isValueCourse = value >= 10 || c.public_access_confidence === "likely_public";
-  const isPremiumCourse = premium >= 12 && rating >= 4.0;
+  const isTopTierPremium = premium >= 14;
+  const isLikelyPrivate = c.public_access_confidence === "likely_private";
+  const hasStrongReviews = reviewCount >= 50 && rating >= 4.3;
 
-  if (isPremiumCourse && !isValueCourse && rating >= 4.2 && c.quality_score >= 70) return "gold";
-  if (isValueCourse || (c.distance_rank <= 2 && rating < 4.3) || c.quality_score < 55) return "bronze";
+  if (isLikelyPrivate) return "bronze";
+  if (isTopTierPremium && !isValueCourse && rating >= 4.2 && c.quality_score >= 68) return "gold";
+  if ((premium >= 6 && rating >= 4.4 && hasStrongReviews) || (rating >= 4.5 && c.quality_score >= 72 && !isValueCourse)) return "gold";
+  if (isValueCourse || (c.distance_rank <= 2 && rating < 4.2) || c.quality_score < 50) return "bronze";
   return "silver";
 }
 
@@ -370,7 +384,8 @@ function applyGolfTiering(
   centerLat: number,
   centerLng: number
 ): GolfCourseResult[] {
-  const withDistance = courses.map((c) => {
+  const publicOnly = courses.filter((c) => c.public_access_confidence !== "likely_private");
+  const withDistance = publicOnly.map((c) => {
     const dist =
       c.lat != null && c.lng != null
         ? haversineMiles(centerLat, centerLng, c.lat, c.lng)
@@ -386,9 +401,14 @@ function applyGolfTiering(
     return { ...c, quality_score, tier_hint };
   });
 
-  const bronze = withScores.filter((c) => c.tier_hint === "bronze");
-  const silver = withScores.filter((c) => c.tier_hint === "silver");
-  const gold = withScores.filter((c) => c.tier_hint === "gold");
+  const bronze = withScores.filter((c) => c.tier_hint === "bronze").sort((a, b) => (a.distance_miles ?? 999) - (b.distance_miles ?? 999));
+  const silver = withScores.filter((c) => c.tier_hint === "silver").sort((a, b) => (b.quality_score ?? 0) - (a.quality_score ?? 0) || (a.distance_miles ?? 999) - (b.distance_miles ?? 999));
+  const gold = withScores.filter((c) => c.tier_hint === "gold").sort((a, b) => (b.quality_score ?? 0) - (a.quality_score ?? 0) || (b.rating ?? 0) - (a.rating ?? 0));
+
+  const maxPerPool = 5;
+  const bronzePool = bronze.slice(0, maxPerPool);
+  const silverPool = silver.slice(0, maxPerPool);
+  const goldPool = gold.slice(0, maxPerPool);
 
   const result: GolfCourseResult[] = [];
   const seen = new Set<string>();
@@ -403,7 +423,10 @@ function applyGolfTiering(
     }
   }
   const remaining = withScores.filter((c) => !seen.has(c.id));
-  return [...result, ...remaining];
+  return {
+    courses: [...result, ...remaining],
+    pools: { bronze: bronzePool, silver: silverPool, gold: goldPool },
+  };
 }
 
 type PlaceNearby = {
@@ -607,6 +630,9 @@ Deno.serve(async (req: Request) => {
     }
 
     let golfCourses: GolfCourseResult[];
+    let bronzePool: GolfCourseResult[] = [];
+    let silverPool: GolfCourseResult[] = [];
+    let goldPool: GolfCourseResult[] = [];
     const teeWindow = payload.tee_time_window ?? { start: "07:00", end: "11:00" };
     const googleKey = Deno.env.get("GOOGLE_PLACES_API_KEY");
     const hasCity = effectiveCity && effectiveCity !== "flexible" && effectiveCity !== "Various";
@@ -631,14 +657,18 @@ Deno.serve(async (req: Request) => {
       try {
         const center = await resolveGolfCenter();
         if (center) {
-          let raw = await searchGolfGooglePlaces(
+          const raw = await searchGolfGooglePlaces(
             center.lat,
             center.lng,
             48000,
             teeWindow,
             googleKey
           );
-          golfCourses = applyGolfTiering(raw, center.lat, center.lng);
+          const tiered = applyGolfTiering(raw, center.lat, center.lng);
+          golfCourses = tiered.courses;
+          bronzePool = tiered.pools.bronze;
+          silverPool = tiered.pools.silver;
+          goldPool = tiered.pools.gold;
           if (golfCourses.length > 0 && !providers.includes("google_places")) {
             providers.push("google_places");
           }
@@ -647,6 +677,7 @@ Deno.serve(async (req: Request) => {
             ...payload,
             destination: { ...payload.destination, city: effectiveCity },
           });
+          silverPool = [...golfCourses];
         }
       } catch (err) {
         console.error("Google Places golf search error:", err);
@@ -654,12 +685,14 @@ Deno.serve(async (req: Request) => {
           ...payload,
           destination: { ...payload.destination, city: effectiveCity },
         });
+        silverPool = [...golfCourses];
       }
     } else {
       golfCourses = mockGolf({
         ...payload,
         destination: { ...payload.destination, city: effectiveCity },
       });
+      silverPool = [...golfCourses];
     }
 
     const hotels = mockHotels({
@@ -672,6 +705,9 @@ Deno.serve(async (req: Request) => {
       destination: { city: effectiveCity, state: payload.destination?.state, start_date: startDate, end_date: endDate },
       events,
       golf_courses: golfCourses,
+      bronze_golf_candidates: bronzePool.length > 0 ? bronzePool : undefined,
+      silver_golf_candidates: silverPool.length > 0 ? silverPool : undefined,
+      gold_golf_candidates: goldPool.length > 0 ? goldPool : undefined,
       hotels,
       meta: {
         providers,

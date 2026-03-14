@@ -108,6 +108,9 @@ export default function ExperienceBuilder() {
         search_results: {
           events: searchResult.events?.slice(0, 6) || [],
           golf_courses: searchResult.golf_courses?.slice(0, 12) || [],
+          bronze_golf_candidates: searchResult.bronze_golf_candidates,
+          silver_golf_candidates: searchResult.silver_golf_candidates,
+          gold_golf_candidates: searchResult.gold_golf_candidates,
           hotels: searchResult.hotels?.slice(0, 6) || [],
         },
         selected_concert: concert,
@@ -294,6 +297,9 @@ export default function ExperienceBuilder() {
       const search_results = {
         events: searchResult.events?.slice(0, 6) || [],
         golf_courses: searchResult.golf_courses?.slice(0, 12) || [],
+        bronze_golf_candidates: searchResult.bronze_golf_candidates,
+        silver_golf_candidates: searchResult.silver_golf_candidates,
+        gold_golf_candidates: searchResult.gold_golf_candidates,
         hotels: searchResult.hotels?.slice(0, 6) || [],
       };
       const payload = {
