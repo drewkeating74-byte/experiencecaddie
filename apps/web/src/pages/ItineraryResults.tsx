@@ -344,7 +344,7 @@ export default function ItineraryResults() {
                         </CardTitle>
                       </CardHeader>
                       <CardContent className="space-y-3">
-                        {all.map((h: any, i: number) => (
+                        {lodgingItems.map((h: any, i: number) => (
                           <div key={i} className="flex items-start justify-between gap-4">
                             <div>
                               <div className="flex items-center gap-2">
@@ -375,8 +375,11 @@ export default function ItineraryResults() {
                   ) : null;
                 })()}
 
-                {/* Events */}
-                {pkg.events?.length > 0 && (
+                {/* Events — only concerts/shows; exclude restaurant/bar/experience/attraction */}
+                {(() => {
+                  const extrasTypes = ["restaurant", "bar", "experience", "attraction"];
+                  const eventItems = (pkg.events || []).filter((e: any) => !extrasTypes.includes(e.type));
+                  return eventItems.length > 0 && (
                   <Card>
                     <CardHeader className="pb-3">
                       <CardTitle className="flex items-center gap-2 font-serif text-lg">
@@ -384,7 +387,7 @@ export default function ItineraryResults() {
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-3">
-                      {pkg.events.map((e: any, i: number) => (
+                      {eventItems.map((e: any, i: number) => (
                         <div key={i} className="flex items-start justify-between gap-4">
                           <div>
                             <p className="font-medium">{e.name}</p>
@@ -403,10 +406,14 @@ export default function ItineraryResults() {
                       ))}
                     </CardContent>
                   </Card>
-                )}
+                  );
+                })()}
 
-                {/* Golf */}
-                {pkg.golf?.length > 0 && (
+                {/* Golf — only golf courses; exclude restaurant/bar/experience/attraction */}
+                {(() => {
+                  const extrasTypes = ["restaurant", "bar", "experience", "attraction"];
+                  const golfItems = (pkg.golf || []).filter((g: any) => !extrasTypes.includes(g.type));
+                  return golfItems.length > 0 && (
                   <Card>
                     <CardHeader className="pb-3">
                       <CardTitle className="flex items-center gap-2 font-serif text-lg">
@@ -414,7 +421,7 @@ export default function ItineraryResults() {
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-3">
-                      {pkg.golf.map((g: any, i: number) => (
+                      {golfItems.map((g: any, i: number) => (
                         <div key={i} className="flex items-start justify-between gap-4">
                           <div>
                             <p className="font-medium">{g.name}</p>
@@ -432,14 +439,18 @@ export default function ItineraryResults() {
                       ))}
                     </CardContent>
                   </Card>
-                )}
+                  );
+                })()}
 
                 {/* Extras — restaurants, bars, experiences; no book buttons */}
                 {(() => {
-                  const misplaced = ((pkg.lodging || pkg.hotels || []).filter(
-                    (h: any) => ["restaurant", "bar", "experience", "attraction"].includes(h.type)
-                  ) as any[]).map((h) => ({ name: h.name, type: h.type, why: h.why }));
-                  const extrasItems = [...(pkg.extras || []), ...misplaced];
+                  const extrasTypes = ["restaurant", "bar", "experience", "attraction"];
+                  const toExtra = (x: any) => ({ name: x.name, type: x.type || "experience", why: x.why });
+                  const fromLodging = ((pkg.lodging || pkg.hotels || []).filter((h: any) => extrasTypes.includes(h.type)) as any[]).map(toExtra);
+                  const fromEvents = ((pkg.events || []).filter((e: any) => extrasTypes.includes(e.type)) as any[]).map(toExtra);
+                  const fromGolf = ((pkg.golf || []).filter((g: any) => extrasTypes.includes(g.type)) as any[]).map(toExtra);
+                  const fromExtras = (pkg.extras || []).map((x: any) => ({ name: x.name, type: x.type || "experience", why: x.why }));
+                  const extrasItems = [...fromExtras, ...fromLodging, ...fromEvents, ...fromGolf];
                   return extrasItems.length > 0 && (
                     <Card>
                       <CardHeader className="pb-3">
