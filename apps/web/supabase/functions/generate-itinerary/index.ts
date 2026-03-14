@@ -359,7 +359,7 @@ SEARCH for and use REAL data:
 4. Extras: Suggest real restaurants, bars, or experiences with Google Maps or OpenTable links.` : ""}
 
 For each tier, include:
-- 2-3 lodging options with real booking URLs
+- 2-3 lodging options (hotels/vacation rentals/golf resorts only) with real booking URLs. Never put restaurants or bars in lodging.
 - 1-2 concert/event options with real ticket URLs
 - 2-3 golf course suggestions with real tee time URLs
 - 2-4 extras (restaurants, bars, experiences) with real links

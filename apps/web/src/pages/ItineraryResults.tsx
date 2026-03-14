@@ -340,7 +340,9 @@ export default function ItineraryResults() {
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-3">
-                      {(pkg.lodging || pkg.hotels || []).map((h: any, i: number) => (
+                      {(pkg.lodging || pkg.hotels || []).map((h: any, i: number) => {
+                        const isBookable = ["hotel", "vacation_rental", "golf_resort"].includes(h.type);
+                        return (
                         <div key={i} className="flex items-start justify-between gap-4">
                           <div>
                             <div className="flex items-center gap-2">
@@ -355,15 +357,17 @@ export default function ItineraryResults() {
                             {h.why && <p className="text-sm text-muted-foreground italic">{h.why}</p>}
                             {h.price_per_night && <p className="text-sm font-medium">{h.price_per_night}/night</p>}
                           </div>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => trackClick(pkg.tier, "hotel", h.name, h.url)}
-                          >
-                            {user ? "Book" : "Log in to book"} <ExternalLink className="ml-1 h-3 w-3" />
-                          </Button>
+                          {isBookable && h.url && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => trackClick(pkg.tier, "hotel", h.name, h.url)}
+                            >
+                              {user ? "Book" : "Log in to book"} <ExternalLink className="ml-1 h-3 w-3" />
+                            </Button>
+                          )}
                         </div>
-                      ))}
+                      );})}
                     </CardContent>
                   </Card>
                 )}
