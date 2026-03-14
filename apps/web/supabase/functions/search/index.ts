@@ -88,6 +88,7 @@ type GolfCourseResult = {
   quality_score?: number;
   tier_hint?: TierHint;
   distance_miles?: number;
+  drive_time_minutes?: number;
   user_rating_count?: number;
 };
 
@@ -289,6 +290,26 @@ function publicAccessConfidence(name: string): "likely_public" | "unknown" | "li
   return "unknown";
 }
 
+function isLikelyPlayableCourse(name: string): boolean {
+  const n = (name || "").toLowerCase();
+  if (/gym\b|fitness|workout|training\s*center|performance\s*center/i.test(n)) return false;
+  if (/simulator|indoor\s*golf|golf\s*simulator/i.test(n)) return false;
+  if (/mini\s*golf|minigolf|putt-?putt|pitch\s*and\s*putt|executive\s*course/i.test(n)) return false;
+  if (/9\s*hole|nine\s*hole|par\s*3\b|par\s*27/i.test(n)) return false;
+  if (/topgolf|top\s*golf|driving\s*range/i.test(n) && !/course|club|links|resort/i.test(n)) return false;
+  if (/academy|instruction|lessons?\b|golf\s*school/i.test(n) && !/course|club|resort|links/i.test(n)) return false;
+  if (/community\s*group|golf\s*community\b|golf\s*association|golf\s*organization/i.test(n)) return false;
+  if (/\bshop\b|\bstore\b|retail|pro\s*shop\s*only/i.test(n) && !/course|club|links|resort/i.test(n)) return false;
+  if (/cafe\b|café|coffee\b|restaurant|dining|eatery|bar\b|grill\b|tavern\b|lounge\b/i.test(n) && !/course|club|country\s*club|links|resort|golf\s*club/i.test(n)) return false;
+  if (/rec\s*center|recreation\s*center|community\s*center/i.test(n) && !/golf\s*course|golf\s*club/i.test(n)) return false;
+  if (/nonprofit|foundation|foundation\s*golf/i.test(n) && !/course|club|links/i.test(n)) return false;
+  if (/\.(com|org|net)\b|website|online|web\s*community/i.test(n)) return false;
+  if (n.length < 10) return false;
+  if (!/\bgolf\b|course|club|links|resort|municipal|muny|park\b/i.test(n)) return false;
+  if (!/golf\s*course|golf\s*club|golf\s*links|golf\s*resort|municipal|muny|country\s*club|golf\s*park|golf\b/i.test(n)) return false;
+  return true;
+}
+
 function buildGolfNowSearchUrl(name: string, city: string, state?: string): string {
   const q = state ? `${name} ${city} ${state}` : `${name} ${city}`;
   return `https://www.golfnow.com/search?q=${encodeURIComponent(q)}`;
@@ -332,7 +353,7 @@ function computeQualityScore(c: {
   public_access_confidence?: string;
   name: string;
   distance_miles?: number;
-  distance_rank?: number;
+  drive_time_minutes?: number;
   user_rating_count?: number;
 }): number {
   let score = 0;
@@ -345,13 +366,94 @@ function computeQualityScore(c: {
   if (c.public_access_confidence === "likely_public") score += 6;
   if (c.public_access_confidence === "unknown") score += 3;
   if (c.public_access_confidence === "likely_private") score -= 15;
-  if (c.distance_miles != null && c.distance_miles < 10) score += 8;
-  else if (c.distance_miles != null && c.distance_miles < 20) score += 4;
+  if (c.distance_miles != null && c.distance_miles <= 30) score += 2;
   const reviewCount = c.user_rating_count ?? 0;
   if (reviewCount >= 200) score += 6;
   else if (reviewCount >= 100) score += 4;
   else if (reviewCount >= 50) score += 2;
   return Math.min(100, Math.max(0, Math.round(score)));
+}
+
+// Second-pass quality filter & enrichment (on top of Text Search)
+// - Pre-filter: exclude likely_private; require min rating 3.8 and min 5 reviews when rated
+// - Enrichment: Place Details for top 12 shortlist → better links, rating, review count
+// - quality_score recomputed after enrichment in applyGolfTiering
+const MIN_GOLF_RATING = 3.8;
+const MIN_GOLF_REVIEW_COUNT = 5;
+const ENRICHMENT_SHORTLIST_SIZE = 12;
+
+function preliminaryQualityScore(c: GolfCourseResult): number {
+  const rating = c.rating ?? 0;
+  const reviewCount = c.user_rating_count ?? 0;
+  let score = rating * 10 + Math.min(5, Math.floor(reviewCount / 20));
+  if (c.public_access_confidence === "likely_private") score -= 50;
+  return score;
+}
+
+function applyQualityPreFilter(courses: GolfCourseResult[]): GolfCourseResult[] {
+  const filtered = courses.filter((c) => {
+    if (c.public_access_confidence === "likely_private") return false;
+    const rating = c.rating ?? 0;
+    if (rating > 0 && rating < MIN_GOLF_RATING) return false;
+    const reviewCount = c.user_rating_count ?? 0;
+    if (rating > 0 && reviewCount < MIN_GOLF_REVIEW_COUNT) return false;
+    return true;
+  });
+  return filtered
+    .sort((a, b) => preliminaryQualityScore(b) - preliminaryQualityScore(a))
+    .slice(0, ENRICHMENT_SHORTLIST_SIZE);
+}
+
+async function fetchPlaceDetails(
+  placeId: string,
+  apiKey: string
+): Promise<{ websiteUri?: string; googleMapsUri?: string; rating?: number; userRatingCount?: number; businessStatus?: string } | null> {
+  const id = placeId.replace(/^places\//, "");
+  const url = `https://places.googleapis.com/v1/places/${id}`;
+  const fieldMask = "websiteUri,googleMapsUri,rating,userRatingCount,businessStatus";
+  try {
+    const res = await fetch(url, {
+      headers: {
+        "X-Goog-Api-Key": apiKey,
+        "X-Goog-FieldMask": fieldMask,
+      },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as {
+      websiteUri?: string;
+      googleMapsUri?: string;
+      rating?: number;
+      userRatingCount?: number;
+      businessStatus?: string;
+    };
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+async function enrichGolfCandidates(
+  courses: GolfCourseResult[],
+  apiKey: string
+): Promise<GolfCourseResult[]> {
+  const enriched = await Promise.all(
+    courses.map(async (c) => {
+      const details = await fetchPlaceDetails(c.id, apiKey);
+      if (!details) return c;
+      if (details.businessStatus === "CLOSED_PERMANENTLY") return null;
+      const bookUrl = details.websiteUri ?? details.googleMapsUri ?? c.book_url;
+      const sourceUrl = details.websiteUri ?? details.googleMapsUri ?? c.source_url;
+      return {
+        ...c,
+        book_url: bookUrl,
+        source_url: sourceUrl,
+        rating: details.rating ?? c.rating,
+        user_rating_count: details.userRatingCount ?? c.user_rating_count,
+      };
+    })
+  );
+  return enriched.filter((c): c is GolfCourseResult => c != null);
 }
 
 function assignTierHint(c: {
@@ -360,7 +462,6 @@ function assignTierHint(c: {
   public_access_confidence?: string;
   quality_score: number;
   distance_miles?: number;
-  distance_rank: number;
   user_rating_count?: number;
 }): TierHint {
   const premium = namePremiumScore(c.name);
@@ -375,7 +476,7 @@ function assignTierHint(c: {
   if (isLikelyPrivate) return "bronze";
   if (isTopTierPremium && !isValueCourse && rating >= 4.2 && c.quality_score >= 68) return "gold";
   if ((premium >= 6 && rating >= 4.4 && hasStrongReviews) || (rating >= 4.5 && c.quality_score >= 72 && !isValueCourse)) return "gold";
-  if (isValueCourse || (c.distance_rank <= 2 && rating < 4.2) || c.quality_score < 50) return "bronze";
+  if (isValueCourse || c.quality_score < 50) return "bronze";
   return "silver";
 }
 
@@ -386,23 +487,21 @@ function applyGolfTiering(
 ): GolfCourseResult[] {
   const publicOnly = courses.filter((c) => c.public_access_confidence !== "likely_private");
   const withDistance = publicOnly.map((c) => {
-    const dist =
-      c.lat != null && c.lng != null
-        ? haversineMiles(centerLat, centerLng, c.lat, c.lng)
-        : undefined;
+    const dist = c.distance_miles ?? (c.lat != null && c.lng != null
+      ? haversineMiles(centerLat, centerLng, c.lat, c.lng)
+      : undefined);
     return { ...c, distance_miles: dist };
   });
-  const sortedByDist = [...withDistance].sort((a, b) => (a.distance_miles ?? 999) - (b.distance_miles ?? 999));
-  const withRank = sortedByDist.map((c, i) => ({ ...c, distance_rank: i }));
 
-  const withScores = withRank.map((c) => {
+  const withScores = withDistance.map((c) => {
     const quality_score = computeQualityScore(c);
     const tier_hint = assignTierHint({ ...c, quality_score });
     return { ...c, quality_score, tier_hint };
   });
 
-  const bronze = withScores.filter((c) => c.tier_hint === "bronze").sort((a, b) => (a.distance_miles ?? 999) - (b.distance_miles ?? 999));
-  const silver = withScores.filter((c) => c.tier_hint === "silver").sort((a, b) => (b.quality_score ?? 0) - (a.quality_score ?? 0) || (a.distance_miles ?? 999) - (b.distance_miles ?? 999));
+  const distTiebreaker = (a: { distance_miles?: number }, b: { distance_miles?: number }) => (a.distance_miles ?? 999) - (b.distance_miles ?? 999);
+  const bronze = withScores.filter((c) => c.tier_hint === "bronze").sort((a, b) => (b.quality_score ?? 0) - (a.quality_score ?? 0) || distTiebreaker(a, b));
+  const silver = withScores.filter((c) => c.tier_hint === "silver").sort((a, b) => (b.quality_score ?? 0) - (a.quality_score ?? 0) || distTiebreaker(a, b));
   const gold = withScores.filter((c) => c.tier_hint === "gold").sort((a, b) => (b.quality_score ?? 0) - (a.quality_score ?? 0) || (b.rating ?? 0) - (a.rating ?? 0));
 
   const maxPerPool = 5;
@@ -442,26 +541,42 @@ type PlaceNearby = {
   userRatingCount?: number;
 };
 
+function viewportFromCenter(lat: number, lng: number, radiusMiles: number): { low: { latitude: number; longitude: number }; high: { latitude: number; longitude: number } } {
+  const degPerMileLat = 1 / 69;
+  const degPerMileLng = 1 / (69 * Math.cos((lat * Math.PI) / 180));
+  const dLat = radiusMiles * degPerMileLat;
+  const dLng = radiusMiles * degPerMileLng;
+  return {
+    low: { latitude: lat - dLat, longitude: lng - dLng },
+    high: { latitude: lat + dLat, longitude: lng + dLng },
+  };
+}
+
 async function searchGolfGooglePlaces(
   lat: number,
   lng: number,
   radiusMeters: number,
   teeWindow: { start: string; end: string },
-  apiKey: string
+  apiKey: string,
+  city?: string,
+  state?: string
 ): Promise<GolfCourseResult[]> {
+  const radiusMiles = radiusMeters / 1609.344;
+  const locationPart = city && state ? ` in ${city}, ${state}` : city ? ` in ${city}` : "";
+  const textQuery = `18 hole public golf course${locationPart}`.trim();
+  const viewport = viewportFromCenter(lat, lng, radiusMiles);
   const body = {
-    includedTypes: ["golf_course"],
-    maxResultCount: 20,
-    rankPreference: "DISTANCE",
-    locationRestriction: {
-      circle: {
-        center: { latitude: lat, longitude: lng },
-        radius: radiusMeters,
-      },
+    textQuery,
+    pageSize: 12,
+    locationRestriction: { rectangle: viewport },
+    includedType: "golf_course",
+    strictTypeFiltering: true,
+    routingParameters: {
+      origin: { latitude: lat, longitude: lng },
     },
   };
-  const fieldMask = "places.id,places.displayName,places.formattedAddress,places.addressComponents,places.location,places.websiteUri,places.googleMapsUri,places.rating,places.userRatingCount";
-  const res = await fetch("https://places.googleapis.com/v1/places:searchNearby", {
+  const fieldMask = "places.id,places.displayName,places.formattedAddress,places.addressComponents,places.location,places.websiteUri,places.googleMapsUri,places.rating,places.userRatingCount,routingSummaries";
+  const res = await fetch("https://places.googleapis.com/v1/places:searchText", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -475,10 +590,14 @@ async function searchGolfGooglePlaces(
     const text = await res.text();
     throw new Error(`Places API error ${res.status}: ${text.slice(0, 200)}`);
   }
-  const data = (await res.json()) as { places?: PlaceNearby[] };
+  const data = (await res.json()) as {
+    places?: PlaceNearby[];
+    routingSummaries?: Array<{ legs?: Array<{ duration?: string; distanceMeters?: number }> }>;
+  };
   const places = data.places ?? [];
+  const routingSummaries = data.routingSummaries ?? [];
   const asOf = new Date().toISOString();
-  return places.map((p) => {
+  return places.map((p, i) => {
     const name = p.displayName?.text ?? p.name ?? "Golf Course";
     const id = p.id ?? `golf_${Date.now()}_${Math.random().toString(36).slice(2)}`;
     const cityComp = p.addressComponents?.find((c) => c.types?.includes("locality"));
@@ -487,6 +606,16 @@ async function searchGolfGooglePlaces(
     const state = stateComp?.shortText ?? stateComp?.longText;
     const url = p.websiteUri ?? p.googleMapsUri ?? buildGolfNowSearchUrl(name, city || "USA", state);
     const confidence = publicAccessConfidence(name);
+    const routing = routingSummaries[i]?.legs?.[0];
+    let distance_miles: number | undefined;
+    let drive_time_minutes: number | undefined;
+    if (routing?.distanceMeters != null) {
+      distance_miles = Math.round((routing.distanceMeters / 1609.344) * 10) / 10;
+    }
+    if (routing?.duration) {
+      const secMatch = routing.duration.match(/^(\d+)s?$/);
+      if (secMatch) drive_time_minutes = Math.round(parseInt(secMatch[1], 10) / 6) / 10;
+    }
     return {
       id,
       name,
@@ -503,8 +632,11 @@ async function searchGolfGooglePlaces(
       source: "google_places",
       as_of: asOf,
       provider: "google_places",
+      user_rating_count: typeof p.userRatingCount === "number" ? p.userRatingCount : undefined,
+      ...(distance_miles != null && { distance_miles }),
+      ...(drive_time_minutes != null && { drive_time_minutes }),
     };
-  });
+  }).filter((c) => isLikelyPlayableCourse(c.name));
 }
 
 function mockHotels(request: SearchRequest): HotelResult[] {
@@ -660,11 +792,15 @@ Deno.serve(async (req: Request) => {
           const raw = await searchGolfGooglePlaces(
             center.lat,
             center.lng,
-            48000,
+            48280,
             teeWindow,
-            googleKey
+            googleKey,
+            effectiveCity !== "Various" ? effectiveCity : undefined,
+            payload.destination?.state
           );
-          const tiered = applyGolfTiering(raw, center.lat, center.lng);
+          const preFiltered = applyQualityPreFilter(raw);
+          const enriched = await enrichGolfCandidates(preFiltered, googleKey);
+          const tiered = applyGolfTiering(enriched, center.lat, center.lng);
           golfCourses = tiered.courses;
           bronzePool = tiered.pools.bronze;
           silverPool = tiered.pools.silver;

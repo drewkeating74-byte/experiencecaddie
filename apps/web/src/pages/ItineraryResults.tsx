@@ -17,6 +17,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Hotel, Music, Utensils, ExternalLink, Copy, ArrowLeft, Loader2, Mail, Bookmark, BookmarkCheck, RefreshCw } from "lucide-react";
+import { GolfTrustPanel, EventTrustPanel } from "@/components/TrustPanel";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 
@@ -387,20 +388,31 @@ export default function ItineraryResults() {
                     </CardHeader>
                     <CardContent className="space-y-3">
                       {eventItems.map((e: any, i: number) => (
-                        <div key={i} className="flex items-start justify-between gap-4">
-                          <div>
-                            <p className="font-medium">{e.name}</p>
-                            {e.venue && <p className="text-sm text-muted-foreground">{e.venue}</p>}
-                            {e.date_time && <p className="text-sm text-muted-foreground">{e.date_time}</p>}
-                            {e.price_range && <p className="text-sm font-medium">{e.price_range}</p>}
+                        <div key={i} className="rounded-lg border border-border/50 p-4">
+                          <div className="flex items-start justify-between gap-4">
+                            <div>
+                              <p className="font-medium">{e.name}</p>
+                              {e.venue && <p className="text-sm text-muted-foreground">{e.venue}</p>}
+                              {e.date_time && <p className="text-sm text-muted-foreground">{e.date_time}</p>}
+                              {e.price_range && <p className="text-sm font-medium">{e.price_range}</p>}
+                            </div>
+                            {e.url && (
+                              <Button
+                                size="sm"
+                                variant="default"
+                                className="shrink-0"
+                                onClick={() => trackClick(pkg.tier, "ticket", e.name, e.url)}
+                              >
+                                Tickets <ExternalLink className="ml-1 h-3 w-3" />
+                              </Button>
+                            )}
                           </div>
-                          <Button
-                            size="sm"
-                            variant="default"
-                            onClick={() => trackClick(pkg.tier, "ticket", e.name, e.url)}
-                          >
-                            Tickets <ExternalLink className="ml-1 h-3 w-3" />
-                          </Button>
+                          <EventTrustPanel
+                            venue={typeof e.venue_obj === "object" ? e.venue_obj : (e.venue ? { name: e.venue } : undefined)}
+                            date_time={e.date_time}
+                            provider={e.provider}
+                            generatedAt={result._generated_at || itinerary.updated_at}
+                          />
                         </div>
                       ))}
                     </CardContent>
@@ -421,19 +433,36 @@ export default function ItineraryResults() {
                     </CardHeader>
                     <CardContent className="space-y-3">
                       {golfItems.map((g: any, i: number) => (
-                        <div key={i} className="flex items-start justify-between gap-4">
-                          <div>
-                            <p className="font-medium">{g.name}</p>
-                            {g.why && <p className="text-sm text-muted-foreground italic">{g.why}</p>}
-                            {g.green_fee && <p className="text-sm font-medium">{g.green_fee}</p>}
+                        <div key={i} className="rounded-lg border border-border/50 p-4">
+                          <div className="flex items-start justify-between gap-4">
+                            <div>
+                              <p className="font-medium">{g.name}</p>
+                              {g.why && <p className="text-sm text-muted-foreground italic">{g.why}</p>}
+                              {g.green_fee && <p className="text-sm font-medium">{g.green_fee}</p>}
+                            </div>
+                            {g.url && (
+                              <Button
+                                size="sm"
+                                variant="default"
+                                className="shrink-0"
+                                onClick={() => trackClick(pkg.tier, "golf", g.name, g.url)}
+                              >
+                                Tee Times <ExternalLink className="ml-1 h-3 w-3" />
+                              </Button>
+                            )}
                           </div>
-                          <Button
-                            size="sm"
-                            variant="default"
-                            onClick={() => trackClick(pkg.tier, "golf", g.name, g.url)}
-                          >
-                            Tee Times <ExternalLink className="ml-1 h-3 w-3" />
-                          </Button>
+                          <GolfTrustPanel
+                            drive_time_minutes={g.drive_time_minutes}
+                            distance_miles={g.distance_miles}
+                            public_access_confidence={g.public_access_confidence}
+                            provider={g.provider}
+                            source_url={g.source_url}
+                            as_of={g.as_of}
+                            generatedAt={result._generated_at || itinerary.updated_at}
+                            placeId={g.place_id}
+                            lat={g.lat}
+                            lng={g.lng}
+                          />
                         </div>
                       ))}
                     </CardContent>

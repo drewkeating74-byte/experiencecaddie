@@ -333,7 +333,12 @@ ${artistSearch ? `- IMPORTANT: All 3 must be "${artistSearch}" — different cit
     const poolBronze = Array.isArray(searchResults.bronze_golf_candidates) ? searchResults.bronze_golf_candidates : null;
     const poolSilver = Array.isArray(searchResults.silver_golf_candidates) ? searchResults.silver_golf_candidates : null;
     const poolGold = Array.isArray(searchResults.gold_golf_candidates) ? searchResults.gold_golf_candidates : null;
-    const toGolfEntry = (g: any) => ({ name: g.name, url: g.book_url || g.source_url });
+    const toGolfEntry = (g: any) => ({
+      name: g.name,
+      url: g.book_url || g.source_url,
+      ...(g.drive_time_minutes != null && { drive_mins: g.drive_time_minutes }),
+      ...(g.distance_miles != null && { miles: g.distance_miles }),
+    });
     const golfBronze = poolBronze?.length ? poolBronze.map(toGolfEntry) : golfCourses.filter((g: any) => g.tier_hint === "bronze").map(toGolfEntry);
     const golfSilver = poolSilver?.length ? poolSilver.map(toGolfEntry) : golfCourses.filter((g: any) => g.tier_hint === "silver").map(toGolfEntry);
     const golfGold = poolGold?.length ? poolGold.map(toGolfEntry) : golfCourses.filter((g: any) => g.tier_hint === "gold").map(toGolfEntry);
@@ -356,7 +361,7 @@ ${!hasRealHotels && hotels.length > 0 ? `- HOTELS: (none provided – SEARCH the
 
 Use the URLs above when composing packages. Do not invent different events or links.${!hasRealHotels ? " For hotels, search the web as instructed." : ""}
 ${hasTieredGolf ? `
-GOLF TIER RULE (MANDATORY): For each package, pick golf courses ONLY from that package's tier list above. BRONZE package → use only from BRONZE golf list. SILVER → only from SILVER golf list. GOLD → only from GOLD golf list. Never use the same golf course in multiple packages. Each tier must have different golf.` : ""}`
+GOLF TIER RULE (MANDATORY): For each package, pick golf courses ONLY from that package's tier list above. BRONZE package → use only from BRONZE golf list. SILVER → only from SILVER golf list. GOLD → only from GOLD golf list. Never use the same golf course in multiple packages. Each tier must have different golf. All golf, lodging, and the venue are within 30 miles of each other. When golf entries include drive_mins or miles, you may mention them in the "why" for context.` : ""}`
       : "";
 
     const systemPrompt = `You are Experience Caddie, an AI travel planner specializing in legendary golf + concert weekend getaways. 
@@ -366,7 +371,7 @@ CRITICAL: Be concise. Keep "why" and "assumptions" to 1 short sentence each. Lim
 
     const cityForSearch = itinerary.city;
     const selectedConcertNote = (searchResults.events || []).find((e: any) => e.provider === "user_selected")
-      ? `\nCONCERT ALREADY CHOSEN: The user selected a concert (${(searchResults.events?.[0] as any)?.name} in ${(searchResults.events?.[0] as any)?.venue?.city}). Use this concert in all packages. Focus your search on golf and hotels only. Golf courses must be within 25 miles of the concert city.`
+      ? `\nCONCERT ALREADY CHOSEN: The user selected a concert (${(searchResults.events?.[0] as any)?.name} in ${(searchResults.events?.[0] as any)?.venue?.city}). Use this concert in all packages. Focus your search on golf and hotels only. Lodging, concert venue, and golf must all be within 30 miles of each other.`
       : "";
     const userPrompt = `Search the web for REAL upcoming concerts, public golf courses, and hotels, then create 3 curated weekend packages (Bronze, Silver, Gold tiers) for this golf + concert trip.
 
@@ -382,8 +387,8 @@ ${realDataSection}
 ${!hasRealData ? `
 SEARCH for and use REAL data:
 1. Concerts/events: Search Ticketmaster, SeatGeek, StubHub, or venue sites for upcoming shows in ${cityForSearch} between ${itinerary.start_date} and ${itinerary.end_date}. Venues must be at least 5,000 capacity. Use actual event names, venues, dates, and real ticket purchase URLs.
-2. Golf: Search for public golf courses within 25 miles of ${cityForSearch}. Use GolfNow, TeeOff, or course websites. Include real tee time booking URLs.
-3. Hotels: Search Expedia, Booking.com, or Hotels.com for hotels in ${cityForSearch}. Use real booking URLs.
+2. Golf: Search for public golf courses within 30 miles of ${cityForSearch}. Use GolfNow, TeeOff, or course websites. Include real tee time booking URLs.
+3. Hotels: Search Expedia, Booking.com, or Hotels.com for hotels within 30 miles of ${cityForSearch} (and the venue). Use real booking URLs.
 4. Extras: Suggest real restaurants, bars, or experiences with Google Maps or OpenTable links.` : ""}
 
 For each tier, include:
@@ -506,6 +511,55 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
         });
       }
     }
+
+    // Enrich packages with trust metadata from search_results (match by name)
+    const norm = (s: string) => (s || "").toLowerCase().replace(/\s+/g, " ").trim();
+    const allGolfSources = [
+      ...(poolBronze || []),
+      ...(poolSilver || []),
+      ...(poolGold || []),
+      ...golfCourses,
+    ];
+    const golfByName = new Map<string, any>();
+    for (const g of allGolfSources) {
+      const key = norm(g.name);
+      if (!golfByName.has(key)) golfByName.set(key, g);
+    }
+    for (const g of golfCourses) {
+      const key = norm(g.name);
+      if (!golfByName.has(key)) golfByName.set(key, g);
+    }
+    const eventByName = new Map<string, any>();
+    for (const e of events) {
+      const key = norm(e.name);
+      if (!eventByName.has(key)) eventByName.set(key, e);
+    }
+    const generatedAt = new Date().toISOString();
+    for (const pkg of parsedResult.packages || []) {
+      for (const g of pkg.golf || []) {
+        const src = golfByName.get(norm(g.name));
+        if (src) {
+          if (src.drive_time_minutes != null) g.drive_time_minutes = src.drive_time_minutes;
+          if (src.distance_miles != null) g.distance_miles = src.distance_miles;
+          if (src.public_access_confidence) g.public_access_confidence = src.public_access_confidence;
+          if (src.provider) g.provider = src.provider;
+          if (src.source_url) g.source_url = src.source_url;
+          if (src.as_of) g.as_of = src.as_of;
+          if (src.id) g.place_id = src.id;
+          if (src.lat != null) g.lat = src.lat;
+          if (src.lng != null) g.lng = src.lng;
+        }
+      }
+      for (const e of pkg.events || []) {
+        const src = eventByName.get(norm(e.name));
+        if (src) {
+          if (src.provider) e.provider = src.provider;
+          if (src.venue && typeof src.venue === "object") e.venue_obj = src.venue;
+          if (src.date_time && !e.date_time) e.date_time = src.date_time;
+        }
+      }
+    }
+    parsedResult._generated_at = generatedAt;
 
     // Save result (share_slug already set during "generating" phase)
     const { error: updateErr } = await supabase

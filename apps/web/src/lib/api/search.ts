@@ -59,6 +59,10 @@ export type GolfCourseResult = {
   tier_hint?: TierHint;
   /** Distance in miles from search center (optional) */
   distance_miles?: number;
+  /** Drive time in minutes from search center when routing available (optional) */
+  drive_time_minutes?: number;
+  /** User rating count from provider (optional) */
+  user_rating_count?: number;
 };
 
 export type HotelResult = {
@@ -159,6 +163,7 @@ export function buildFallbackSearchResponse(request: SearchRequest): SearchRespo
         city,
         state,
         public_access: true,
+        public_access_confidence: "likely_public",
         rating: 4.4,
         tee_time_window: teeWindow,
         image_url: "https://images.unsplash.com/photo-1500930280485-71c409756852?w=1200",

@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { GolfTrustPanel, EventTrustPanel } from "@/components/TrustPanel";
 import { fetchSearch, type SearchResponse } from "@/lib/api/search";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -78,23 +79,32 @@ export default function SearchPreview() {
             </CardHeader>
             <CardContent className="space-y-3">
               {data.events.map((event) => (
-                <div key={event.id} className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="font-medium">{event.name}</p>
-                    <p className="text-sm text-muted-foreground">
-                      {event.venue?.name} · {event.date_time}
-                    </p>
-                    {event.venue?.capacity && (
-                      <p className="text-xs text-muted-foreground">Capacity: {event.venue.capacity}</p>
+                <div key={event.id} className="rounded-lg border border-border/50 p-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="font-medium">{event.name}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {event.venue?.name}
+                        {event.venue?.city && ` · ${event.venue.city}${event.venue?.state ? `, ${event.venue.state}` : ""}`}
+                      </p>
+                      {event.venue?.capacity && (
+                        <p className="text-xs text-muted-foreground">Capacity: {event.venue.capacity}</p>
+                      )}
+                    </div>
+                    {event.book_url && (
+                      <Button asChild size="sm" variant="outline" className="shrink-0">
+                        <a href={event.book_url} target="_blank" rel="noreferrer">
+                          Tickets
+                        </a>
+                      </Button>
                     )}
                   </div>
-                  {event.book_url && (
-                    <Button asChild size="sm" variant="outline">
-                      <a href={event.book_url} target="_blank" rel="noreferrer">
-                        Tickets
-                      </a>
-                    </Button>
-                  )}
+                  <EventTrustPanel
+                    venue={event.venue}
+                    date_time={event.date_time}
+                    provider={event.provider}
+                    generatedAt={data.meta?.generated_at}
+                  />
                 </div>
               ))}
             </CardContent>
@@ -106,27 +116,41 @@ export default function SearchPreview() {
             </CardHeader>
             <CardContent className="space-y-3">
               {data.golf_courses.map((course) => (
-                <div key={course.id} className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="font-medium">{course.name}</p>
-                    {course.tee_time_window && (
-                      <p className="text-sm text-muted-foreground">
-                        Tee window: {course.tee_time_window.start}–{course.tee_time_window.end}
-                      </p>
-                    )}
-                    {course.public_access != null && (
-                      <p className="text-xs text-muted-foreground">
-                        Public access: {course.public_access ? "Yes" : "No"}
-                      </p>
+                <div key={course.id} className="rounded-lg border border-border/50 p-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="font-medium">{course.name}</p>
+                      {(course.city || course.state) && (
+                        <p className="text-sm text-muted-foreground">
+                          {[course.city, course.state].filter(Boolean).join(", ")}
+                        </p>
+                      )}
+                      {course.tee_time_window && (
+                        <p className="text-xs text-muted-foreground">
+                          Tee window: {course.tee_time_window.start}–{course.tee_time_window.end}
+                        </p>
+                      )}
+                    </div>
+                    {course.book_url && (
+                      <Button asChild size="sm" variant="outline" className="shrink-0">
+                        <a href={course.book_url} target="_blank" rel="noreferrer">
+                          Tee times
+                        </a>
+                      </Button>
                     )}
                   </div>
-                  {course.book_url && (
-                    <Button asChild size="sm" variant="outline">
-                      <a href={course.book_url} target="_blank" rel="noreferrer">
-                        Tee times
-                      </a>
-                    </Button>
-                  )}
+                  <GolfTrustPanel
+                    drive_time_minutes={course.drive_time_minutes}
+                    distance_miles={course.distance_miles}
+                    public_access_confidence={course.public_access_confidence}
+                    provider={course.provider}
+                    source_url={course.source_url}
+                    as_of={course.as_of}
+                    generatedAt={data.meta?.generated_at}
+                    placeId={course.id}
+                    lat={course.lat}
+                    lng={course.lng}
+                  />
                 </div>
               ))}
             </CardContent>
