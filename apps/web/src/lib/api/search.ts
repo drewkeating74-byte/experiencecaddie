@@ -47,6 +47,7 @@ export type GolfCourseResult = {
   lng?: number;
   image_url?: string;
   source_url?: string;
+  google_maps_uri?: string;
   book_url?: string;
   price_min?: number;
   price_max?: number;

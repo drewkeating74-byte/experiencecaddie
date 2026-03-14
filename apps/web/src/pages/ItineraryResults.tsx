@@ -457,6 +457,7 @@ export default function ItineraryResults() {
                             public_access_confidence={g.public_access_confidence}
                             provider={g.provider}
                             source_url={g.source_url}
+                            maps_url={g.maps_url}
                             as_of={g.as_of}
                             generatedAt={result._generated_at || itinerary.updated_at}
                             placeId={g.place_id}

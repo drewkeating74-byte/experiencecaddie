@@ -145,6 +145,7 @@ export default function SearchPreview() {
                     public_access_confidence={course.public_access_confidence}
                     provider={course.provider}
                     source_url={course.source_url}
+                    maps_url={course.google_maps_uri}
                     as_of={course.as_of}
                     generatedAt={data.meta?.generated_at}
                     placeId={course.id}

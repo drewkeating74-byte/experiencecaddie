@@ -53,6 +53,7 @@ export function GolfTrustPanel({
   public_access_confidence,
   provider,
   source_url,
+  maps_url,
   as_of,
   generatedAt,
   placeId,
@@ -64,6 +65,7 @@ export function GolfTrustPanel({
   public_access_confidence?: "likely_public" | "unknown" | "likely_private";
   provider?: string;
   source_url?: string;
+  maps_url?: string;
   as_of?: string;
   generatedAt?: string;
   placeId?: string;
@@ -71,10 +73,10 @@ export function GolfTrustPanel({
   lng?: number;
 }) {
   const mapUrl =
-    placeId?.startsWith("ChIJ")
-      ? `https://www.google.com/maps/search/?api=1&query_place_id=${placeId}`
-      : source_url?.includes("google.com/maps")
-        ? source_url
+    maps_url
+      ? maps_url
+      : placeId?.replace(/^places\//, "").startsWith("ChIJ")
+        ? `https://www.google.com/maps/search/?api=1&query_place_id=${placeId.replace(/^places\//, "")}`
         : lat != null && lng != null
           ? `https://www.google.com/maps?q=${lat},${lng}`
           : undefined;

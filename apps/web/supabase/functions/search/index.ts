@@ -79,6 +79,7 @@ type GolfCourseResult = {
   lng?: number;
   image_url?: string;
   source_url?: string;
+  google_maps_uri?: string;
   book_url?: string;
   price_min?: number;
   price_max?: number;
@@ -447,7 +448,8 @@ async function enrichGolfCandidates(
       return {
         ...c,
         book_url: bookUrl,
-        source_url: sourceUrl,
+        source_url: details.websiteUri ?? c.source_url,
+        google_maps_uri: details.googleMapsUri ?? c.google_maps_uri,
         rating: details.rating ?? c.rating,
         user_rating_count: details.userRatingCount ?? c.user_rating_count,
       };
@@ -628,6 +630,7 @@ async function searchGolfGooglePlaces(
       lat: p.location?.latitude,
       lng: p.location?.longitude,
       source_url: p.websiteUri ?? p.googleMapsUri,
+      google_maps_uri: p.googleMapsUri,
       book_url: url,
       source: "google_places",
       as_of: asOf,

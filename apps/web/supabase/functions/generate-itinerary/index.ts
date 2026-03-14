@@ -514,6 +514,7 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
 
     // Enrich packages with trust metadata from search_results (match by name)
     const norm = (s: string) => (s || "").toLowerCase().replace(/\s+/g, " ").trim();
+    const MIN_SUBSTRING_LEN = 15; // avoid "Golf" or "Muni" matching wrong courses
     const allGolfSources = [
       ...(poolBronze || []),
       ...(poolSilver || []),
@@ -529,21 +530,41 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
       const key = norm(g.name);
       if (!golfByName.has(key)) golfByName.set(key, g);
     }
+    const findGolfMatch = (llmName: string): any | null => {
+      const n = norm(llmName);
+      const exact = golfByName.get(n);
+      if (exact) return exact;
+      for (const [srcKey, src] of golfByName) {
+        const shorter = n.length <= srcKey.length ? n : srcKey;
+        const longer = n.length > srcKey.length ? n : srcKey;
+        if (shorter.length >= MIN_SUBSTRING_LEN && longer.includes(shorter)) return src;
+      }
+      return null;
+    };
     const eventByName = new Map<string, any>();
     for (const e of events) {
       const key = norm(e.name);
       if (!eventByName.has(key)) eventByName.set(key, e);
     }
     const generatedAt = new Date().toISOString();
+    const buildMapsUrl = (src: any): string | undefined => {
+      if (src.google_maps_uri?.includes("google.com/maps")) return src.google_maps_uri;
+      const id = (src.id || "").replace(/^places\//, "");
+      if (id.startsWith("ChIJ")) return `https://www.google.com/maps/search/?api=1&query_place_id=${id}`;
+      if (src.lat != null && src.lng != null) return `https://www.google.com/maps?q=${src.lat},${src.lng}`;
+      return undefined;
+    };
     for (const pkg of parsedResult.packages || []) {
       for (const g of pkg.golf || []) {
-        const src = golfByName.get(norm(g.name));
+        const src = findGolfMatch(g.name);
         if (src) {
           if (src.drive_time_minutes != null) g.drive_time_minutes = src.drive_time_minutes;
           if (src.distance_miles != null) g.distance_miles = src.distance_miles;
           if (src.public_access_confidence) g.public_access_confidence = src.public_access_confidence;
           if (src.provider) g.provider = src.provider;
           if (src.source_url) g.source_url = src.source_url;
+          const mapsUrl = buildMapsUrl(src);
+          if (mapsUrl) g.maps_url = mapsUrl;
           if (src.as_of) g.as_of = src.as_of;
           if (src.id) g.place_id = src.id;
           if (src.lat != null) g.lat = src.lat;
