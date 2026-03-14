@@ -437,19 +437,10 @@ export default function ItineraryResults() {
                     </CardHeader>
                     <CardContent className="space-y-3">
                       {pkg.extras.map((x: any, i: number) => (
-                        <div key={i} className="flex items-start justify-between gap-4">
-                          <div>
-                            <p className="font-medium">{x.name}</p>
-                            <Badge variant="secondary" className="text-xs">{x.type}</Badge>
-                            {x.why && <p className="mt-1 text-sm text-muted-foreground italic">{x.why}</p>}
-                          </div>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => trackClick(pkg.tier, "experience", x.name, x.url)}
-                          >
-                            {user ? "View" : "Log in to book"} <ExternalLink className="ml-1 h-3 w-3" />
-                          </Button>
+                        <div key={i}>
+                          <p className="font-medium">{x.name}</p>
+                          <Badge variant="secondary" className="text-xs">{x.type}</Badge>
+                          {x.why && <p className="mt-1 text-sm text-muted-foreground italic">{x.why}</p>}
                         </div>
                       ))}
                     </CardContent>

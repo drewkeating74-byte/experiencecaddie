@@ -3,7 +3,6 @@ import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 const db = supabase as any;
 import type { Package } from "@/types/database";
-import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,7 +15,6 @@ export default function PackageDetail() {
   const { id } = useParams<{ id: string }>();
   const [pkg, setPkg] = useState<Package | null>(null);
   const [loading, setLoading] = useState(true);
-  const { user } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -32,29 +30,6 @@ export default function PackageDetail() {
         setLoading(false);
       });
   }, [id]);
-
-  const handleBook = async () => {
-    if (!user) {
-      navigate("/auth?redirect=/packages/" + id);
-      return;
-    }
-    if (!pkg) return;
-
-    const { error } = await db.from("bookings").insert({
-      user_id: user.id,
-      package_id: pkg.id,
-      event_date: pkg.events?.event_date || null,
-      total_price: pkg.price,
-      guests: 1,
-    });
-
-    if (error) {
-      toast.error("Booking failed. Please try again.");
-    } else {
-      toast.success("Booking created! Check your bookings for details.");
-      navigate("/bookings");
-    }
-  };
 
   if (loading) return <div className="container mx-auto px-4 py-16 text-center text-muted-foreground">Loading...</div>;
   if (!pkg) return <div className="container mx-auto px-4 py-16 text-center">Package not found</div>;
@@ -175,6 +150,11 @@ export default function PackageDetail() {
                     <span className="font-medium">{course.guest_policy}</span>
                   </div>
                 )}
+                {course.booking_url && (
+                  <a href={course.booking_url} target="_blank" rel="noopener noreferrer" className="mt-2 inline-flex items-center gap-1 text-sm text-primary hover:underline">
+                    Book tee time <ExternalLink className="h-3 w-3" />
+                  </a>
+                )}
               </CardContent>
             </Card>
           )}
@@ -235,14 +215,6 @@ export default function PackageDetail() {
                   </div>
                 )}
               </div>
-
-              <Button onClick={handleBook} className="w-full rounded-full" size="lg">
-                {user ? "Book Now" : "Sign In to Book"}
-              </Button>
-
-              <p className="text-center text-xs text-muted-foreground">
-                No payment required yet. Reserve your spot!
-              </p>
             </CardContent>
           </Card>
         </div>
