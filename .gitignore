@@ -30,3 +30,4 @@ apps/web/supabase/.temp/
 supabase/.temp/
 .cursor/
 apps/web/.vercel/
+.vercel

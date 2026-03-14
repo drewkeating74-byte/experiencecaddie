@@ -1,5 +1,8 @@
 project_id = "dieuiwbrnlxobmsvipza"
 
+[functions.search]
+verify_jwt = false
+
 [functions.generate-itinerary]
 verify_jwt = false
 

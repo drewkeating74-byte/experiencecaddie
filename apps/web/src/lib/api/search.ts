@@ -70,9 +70,10 @@ export type SearchResponse = {
   meta: { providers: Provider[]; cached: boolean; generated_at: string; request_id: string };
 };
 
-function getBaseUrl(): string {
-  const url = import.meta.env.VITE_API_BASE_URL;
-  return (typeof url === "string" && url.trim() ? url : "http://localhost:4000").replace(/\/$/, "");
+function getSearchUrl(): string {
+  const url = import.meta.env.VITE_SUPABASE_URL;
+  if (!url || typeof url !== "string") return "";
+  return `${url.replace(/\/$/, "")}/functions/v1/search`;
 }
 
 export async function fetchSearch(request: SearchRequest): Promise<SearchResponse> {
@@ -90,8 +91,18 @@ export async function fetchSearch(request: SearchRequest): Promise<SearchRespons
   if (request.tee_time_window?.start) params.set("tee_time_start", request.tee_time_window.start);
   if (request.tee_time_window?.end) params.set("tee_time_end", request.tee_time_window.end);
 
-  const res = await fetch(`${getBaseUrl()}/api/search?${params.toString()}`, {
+  const baseUrl = getSearchUrl();
+  if (!baseUrl) throw new Error("VITE_SUPABASE_URL is not set");
+  const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+  const headers: Record<string, string> = {};
+  if (key) {
+    headers["apikey"] = key;
+    headers["Authorization"] = `Bearer ${key}`;
+  }
+
+  const res = await fetch(`${baseUrl}?${params.toString()}`, {
     signal: AbortSignal.timeout(15000),
+    headers,
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -100,7 +111,7 @@ export async function fetchSearch(request: SearchRequest): Promise<SearchRespons
   return res.json();
 }
 
-/** Fallback mock data when /api/search is unreachable. */
+/** Fallback mock data when the search Edge Function is unreachable. */
 export function buildFallbackSearchResponse(request: SearchRequest): SearchResponse {
   const city = request.destination?.city || "Austin";
   const state = request.destination?.state ?? "TX";
