@@ -324,6 +324,7 @@ ${artistSearch ? `- IMPORTANT: All 3 must be "${artistSearch}" — different cit
     const golfSilver = golfCourses.filter((g: any) => g.tier_hint === "silver").map((g: any) => ({ name: g.name, url: g.book_url || g.source_url }));
     const golfGold = golfCourses.filter((g: any) => g.tier_hint === "gold").map((g: any) => ({ name: g.name, url: g.book_url || g.source_url }));
     const golfUnassigned = golfCourses.filter((g: any) => !g.tier_hint || !["bronze", "silver", "gold"].includes(g.tier_hint)).map((g: any) => ({ name: g.name, url: g.book_url || g.source_url }));
+    const hasRealHotels = hotels.length > 0 && hotels.some((h: any) => h.provider !== "mock");
     const hasRealData = events.length > 0 || golfCourses.length > 0 || hotels.length > 0;
     const hasTieredGolf = golfBronze.length > 0 || golfSilver.length > 0 || golfGold.length > 0;
     const realDataSection = hasRealData
@@ -336,9 +337,10 @@ ${hasTieredGolf ? `- GOLF by tier (CRITICAL – use ONLY from the matching list 
   * SILVER package golf: ${JSON.stringify(golfSilver.length ? golfSilver : golfUnassigned)}
   * GOLD package golf: ${JSON.stringify(golfGold.length ? golfGold : golfUnassigned)}
   ${golfUnassigned.length ? `(If a tier list is empty, use from: ${JSON.stringify(golfUnassigned)})` : ""}` : ""}
-${hotels.length ? `- HOTELS: ${JSON.stringify(hotels.slice(0, 6).map((h: any) => ({ name: h.name, url: h.book_url || h.source_url })))}` : ""}
+${hasRealHotels ? `- HOTELS: ${JSON.stringify(hotels.slice(0, 6).map((h: any) => ({ name: h.name, url: h.book_url || h.source_url })))}` : ""}
+${!hasRealHotels && hotels.length > 0 ? `- HOTELS: (none provided – SEARCH the web for real hotels in ${itinerary.city} on Expedia, Booking.com, or Hotels.com. Use actual hotel names and booking URLs.)` : ""}
 
-Use the URLs above when composing packages. Do not invent different events or links.
+Use the URLs above when composing packages. Do not invent different events or links.${!hasRealHotels ? " For hotels, search the web as instructed." : ""}
 ${hasTieredGolf ? `
 GOLF TIER RULE (MANDATORY): For each package, pick golf courses ONLY from that package's tier list above. BRONZE package → use only from BRONZE golf list. SILVER → only from SILVER golf list. GOLD → only from GOLD golf list. Never use the same golf course in multiple packages. Each tier must have different golf.` : ""}`
       : "";
