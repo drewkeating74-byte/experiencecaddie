@@ -64,6 +64,8 @@ type EventResult = {
   provider: "ticketmaster" | "mock";
 };
 
+type TierHint = "bronze" | "silver" | "gold";
+
 type GolfCourseResult = {
   id: string;
   name: string;
@@ -83,6 +85,10 @@ type GolfCourseResult = {
   source?: string;
   as_of?: string;
   provider: "google_places" | "mock";
+  quality_score?: number;
+  tier_hint?: TierHint;
+  distance_miles?: number;
+  user_rating_count?: number;
 };
 
 type HotelResult = {
@@ -245,6 +251,8 @@ function mockGolf(request: SearchRequest): GolfCourseResult[] {
       source: "mock",
       as_of: asOf,
       provider: "mock",
+      quality_score: 65,
+      tier_hint: "silver",
     },
   ];
 }
@@ -283,6 +291,121 @@ function buildGolfNowSearchUrl(name: string, city: string, state?: string): stri
   return `https://www.golfnow.com/search?q=${encodeURIComponent(q)}`;
 }
 
+function haversineMiles(
+  lat1: number,
+  lng1: number,
+  lat2: number,
+  lng2: number
+): number {
+  const R = 3959;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+function namePremiumScore(name: string): number {
+  const n = (name || "").toLowerCase();
+  if (/resort|country club|private club|national\b/i.test(n) && !/public|municipal/i.test(n)) return 20;
+  if (/golf club|club\b|links\b|plantation\b/i.test(n) && !/municipal|city|public/i.test(n)) return 12;
+  return 0;
+}
+
+function nameValueScore(name: string): number {
+  const n = (name || "").toLowerCase();
+  if (/municipal|muny|city\b|public\b/i.test(n)) return 18;
+  if (/park\b|recreation|community\b/i.test(n)) return 10;
+  return 0;
+}
+
+function computeQualityScore(c: {
+  rating?: number;
+  public_access_confidence?: string;
+  name: string;
+  distance_miles?: number;
+  distance_rank?: number;
+  user_rating_count?: number;
+}): number {
+  let score = 0;
+  const rating = c.rating ?? 0;
+  score += Math.min(30, rating * 6);
+  const premium = namePremiumScore(c.name);
+  score += premium;
+  const value = nameValueScore(c.name);
+  if (value > 0) score += Math.min(15, value);
+  if (c.public_access_confidence === "likely_public") score += 8;
+  if (c.public_access_confidence === "unknown") score += 4;
+  if (c.distance_miles != null && c.distance_miles < 10) score += 10;
+  else if (c.distance_miles != null && c.distance_miles < 20) score += 5;
+  const reviewCount = c.user_rating_count ?? 0;
+  if (reviewCount >= 100) score += 4;
+  else if (reviewCount >= 50) score += 2;
+  return Math.min(100, Math.round(score));
+}
+
+function assignTierHint(c: {
+  name: string;
+  rating?: number;
+  public_access_confidence?: string;
+  quality_score: number;
+  distance_miles?: number;
+  distance_rank: number;
+}): TierHint {
+  const premium = namePremiumScore(c.name);
+  const value = nameValueScore(c.name);
+  const rating = c.rating ?? 0;
+  const isValueCourse = value >= 10 || c.public_access_confidence === "likely_public";
+  const isPremiumCourse = premium >= 12 && rating >= 4.0;
+
+  if (isPremiumCourse && !isValueCourse && rating >= 4.2 && c.quality_score >= 70) return "gold";
+  if (isValueCourse || (c.distance_rank <= 2 && rating < 4.3) || c.quality_score < 55) return "bronze";
+  return "silver";
+}
+
+function applyGolfTiering(
+  courses: GolfCourseResult[],
+  centerLat: number,
+  centerLng: number
+): GolfCourseResult[] {
+  const withDistance = courses.map((c) => {
+    const dist =
+      c.lat != null && c.lng != null
+        ? haversineMiles(centerLat, centerLng, c.lat, c.lng)
+        : undefined;
+    return { ...c, distance_miles: dist };
+  });
+  const sortedByDist = [...withDistance].sort((a, b) => (a.distance_miles ?? 999) - (b.distance_miles ?? 999));
+  const withRank = sortedByDist.map((c, i) => ({ ...c, distance_rank: i }));
+
+  const withScores = withRank.map((c) => {
+    const quality_score = computeQualityScore(c);
+    const tier_hint = assignTierHint({ ...c, quality_score });
+    return { ...c, quality_score, tier_hint };
+  });
+
+  const bronze = withScores.filter((c) => c.tier_hint === "bronze");
+  const silver = withScores.filter((c) => c.tier_hint === "silver");
+  const gold = withScores.filter((c) => c.tier_hint === "gold");
+
+  const result: GolfCourseResult[] = [];
+  const seen = new Set<string>();
+  const maxPerTier = 5;
+  for (let i = 0; i < maxPerTier; i++) {
+    for (const list of [bronze, silver, gold]) {
+      const c = list[i];
+      if (c && !seen.has(c.id)) {
+        seen.add(c.id);
+        result.push(c);
+      }
+    }
+  }
+  const remaining = withScores.filter((c) => !seen.has(c.id));
+  return [...result, ...remaining];
+}
+
 type PlaceNearby = {
   id?: string;
   name?: string;
@@ -293,6 +416,7 @@ type PlaceNearby = {
   websiteUri?: string;
   googleMapsUri?: string;
   rating?: number;
+  userRatingCount?: number;
 };
 
 async function searchGolfGooglePlaces(
@@ -304,7 +428,7 @@ async function searchGolfGooglePlaces(
 ): Promise<GolfCourseResult[]> {
   const body = {
     includedTypes: ["golf_course"],
-    maxResultCount: 10,
+    maxResultCount: 20,
     rankPreference: "DISTANCE",
     locationRestriction: {
       circle: {
@@ -313,7 +437,7 @@ async function searchGolfGooglePlaces(
       },
     },
   };
-  const fieldMask = "places.id,places.displayName,places.formattedAddress,places.addressComponents,places.location,places.websiteUri,places.googleMapsUri,places.rating";
+  const fieldMask = "places.id,places.displayName,places.formattedAddress,places.addressComponents,places.location,places.websiteUri,places.googleMapsUri,places.rating,places.userRatingCount";
   const res = await fetch("https://places.googleapis.com/v1/places:searchNearby", {
     method: "POST",
     headers: {
@@ -507,13 +631,14 @@ Deno.serve(async (req: Request) => {
       try {
         const center = await resolveGolfCenter();
         if (center) {
-          golfCourses = await searchGolfGooglePlaces(
+          let raw = await searchGolfGooglePlaces(
             center.lat,
             center.lng,
-            40000,
+            48000,
             teeWindow,
             googleKey
           );
+          golfCourses = applyGolfTiering(raw, center.lat, center.lng);
           if (golfCourses.length > 0 && !providers.includes("google_places")) {
             providers.push("google_places");
           }

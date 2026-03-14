@@ -161,7 +161,7 @@ ${artistSearch ? `- IMPORTANT: All 3 must be "${artistSearch}" — different cit
         {};
       let events = Array.isArray(rawSearchResults.events) ? rawSearchResults.events.slice(0, 6) : [];
       let golfCourses = Array.isArray(rawSearchResults.golf_courses)
-        ? rawSearchResults.golf_courses.slice(0, 6)
+        ? rawSearchResults.golf_courses.slice(0, 12)
         : [];
       let hotels = Array.isArray(rawSearchResults.hotels) ? rawSearchResults.hotels.slice(0, 6) : [];
 
@@ -318,17 +318,29 @@ ${artistSearch ? `- IMPORTANT: All 3 must be "${artistSearch}" — different cit
       };
     }
     const events = searchResults.events || [];
-    const golfCourses = searchResults.golf_courses || [];
+    const golfCourses = (searchResults.golf_courses || []).slice(0, 12);
     const hotels = searchResults.hotels || [];
+    const golfBronze = golfCourses.filter((g: any) => g.tier_hint === "bronze").map((g: any) => ({ name: g.name, url: g.book_url || g.source_url }));
+    const golfSilver = golfCourses.filter((g: any) => g.tier_hint === "silver").map((g: any) => ({ name: g.name, url: g.book_url || g.source_url }));
+    const golfGold = golfCourses.filter((g: any) => g.tier_hint === "gold").map((g: any) => ({ name: g.name, url: g.book_url || g.source_url }));
+    const golfUnassigned = golfCourses.filter((g: any) => !g.tier_hint || !["bronze", "silver", "gold"].includes(g.tier_hint)).map((g: any) => ({ name: g.name, url: g.book_url || g.source_url }));
     const hasRealData = events.length > 0 || golfCourses.length > 0 || hotels.length > 0;
+    const hasTieredGolf = golfBronze.length > 0 || golfSilver.length > 0 || golfGold.length > 0;
     const realDataSection = hasRealData
       ? `
 REAL DATA PROVIDED (use these exact options in your packages; include their book_url/ticket URLs):
 ${events.length ? `- CONCERTS: ${JSON.stringify(events.slice(0, 6).map((e: any) => ({ name: e.name, venue: e.venue?.name, date: e.date_time, url: e.book_url || e.source_url })))}` : ""}
-${golfCourses.length ? `- GOLF: ${JSON.stringify(golfCourses.slice(0, 6).map((g: any) => ({ name: g.name, url: g.book_url || g.source_url })))}` : ""}
+${golfCourses.length && !hasTieredGolf ? `- GOLF (all): ${JSON.stringify(golfCourses.slice(0, 6).map((g: any) => ({ name: g.name, url: g.book_url || g.source_url })))}` : ""}
+${hasTieredGolf ? `- GOLF by tier (CRITICAL – use ONLY from the matching list per package):
+  * BRONZE package golf: ${JSON.stringify(golfBronze.length ? golfBronze : golfUnassigned)}
+  * SILVER package golf: ${JSON.stringify(golfSilver.length ? golfSilver : golfUnassigned)}
+  * GOLD package golf: ${JSON.stringify(golfGold.length ? golfGold : golfUnassigned)}
+  ${golfUnassigned.length ? `(If a tier list is empty, use from: ${JSON.stringify(golfUnassigned)})` : ""}` : ""}
 ${hotels.length ? `- HOTELS: ${JSON.stringify(hotels.slice(0, 6).map((h: any) => ({ name: h.name, url: h.book_url || h.source_url })))}` : ""}
 
-Use the URLs above when composing packages. Do not invent different events or links.`
+Use the URLs above when composing packages. Do not invent different events or links.
+${hasTieredGolf ? `
+GOLF TIER RULE (MANDATORY): For each package, pick golf courses ONLY from that package's tier list above. BRONZE package → use only from BRONZE golf list. SILVER → only from SILVER golf list. GOLD → only from GOLD golf list. Never use the same golf course in multiple packages. Each tier must have different golf.` : ""}`
       : "";
 
     const systemPrompt = `You are Experience Caddie, an AI travel planner specializing in legendary golf + concert weekend getaways. 

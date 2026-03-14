@@ -32,6 +32,8 @@ export type EventResult = {
   provider: Provider;
 };
 
+export type TierHint = "bronze" | "silver" | "gold";
+
 export type GolfCourseResult = {
   id: string;
   name: string;
@@ -51,6 +53,12 @@ export type GolfCourseResult = {
   source?: string;
   as_of?: string;
   provider: Provider;
+  /** 0–100 quality score from tiering logic (optional) */
+  quality_score?: number;
+  /** Suggested package tier (bronze/silver/gold) for varied packages */
+  tier_hint?: TierHint;
+  /** Distance in miles from search center (optional) */
+  distance_miles?: number;
 };
 
 export type HotelResult = {

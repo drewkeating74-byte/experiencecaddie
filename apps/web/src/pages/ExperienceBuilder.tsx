@@ -107,7 +107,7 @@ export default function ExperienceBuilder() {
         event_details: savedParams.eventDetails,
         search_results: {
           events: searchResult.events?.slice(0, 6) || [],
-          golf_courses: searchResult.golf_courses?.slice(0, 6) || [],
+          golf_courses: searchResult.golf_courses?.slice(0, 12) || [],
           hotels: searchResult.hotels?.slice(0, 6) || [],
         },
         selected_concert: concert,
@@ -293,7 +293,7 @@ export default function ExperienceBuilder() {
       }
       const search_results = {
         events: searchResult.events?.slice(0, 6) || [],
-        golf_courses: searchResult.golf_courses?.slice(0, 6) || [],
+        golf_courses: searchResult.golf_courses?.slice(0, 12) || [],
         hotels: searchResult.hotels?.slice(0, 6) || [],
       };
       const payload = {
