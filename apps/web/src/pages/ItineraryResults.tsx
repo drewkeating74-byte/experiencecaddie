@@ -87,7 +87,6 @@ export default function ItineraryResults() {
 
   const trackClick = async (tier: string, vendor: string, label: string, url: string) => {
     if (!user) {
-      toast.error("Log in to book");
       navigate(`/auth?redirect=${encodeURIComponent(window.location.pathname)}`);
       return;
     }
@@ -362,10 +361,10 @@ export default function ItineraryResults() {
                             {h.url && (
                               <Button
                                 size="sm"
-                                variant="outline"
+                                variant="default"
                                 onClick={() => trackClick(pkg.tier, "hotel", h.name, h.url)}
                               >
-                                {user ? "Book" : "Log in to book"} <ExternalLink className="ml-1 h-3 w-3" />
+                                Book <ExternalLink className="ml-1 h-3 w-3" />
                               </Button>
                             )}
                           </div>
@@ -397,10 +396,10 @@ export default function ItineraryResults() {
                           </div>
                           <Button
                             size="sm"
-                            variant="outline"
+                            variant="default"
                             onClick={() => trackClick(pkg.tier, "ticket", e.name, e.url)}
                           >
-                            {user ? "Tickets" : "Log in to book"} <ExternalLink className="ml-1 h-3 w-3" />
+                            Tickets <ExternalLink className="ml-1 h-3 w-3" />
                           </Button>
                         </div>
                       ))}
@@ -430,10 +429,10 @@ export default function ItineraryResults() {
                           </div>
                           <Button
                             size="sm"
-                            variant="outline"
+                            variant="default"
                             onClick={() => trackClick(pkg.tier, "golf", g.name, g.url)}
                           >
-                            {user ? "Tee Times" : "Log in to book"} <ExternalLink className="ml-1 h-3 w-3" />
+                            Tee Times <ExternalLink className="ml-1 h-3 w-3" />
                           </Button>
                         </div>
                       ))}
