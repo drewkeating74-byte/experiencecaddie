@@ -1,5 +1,5 @@
 /**
- * Search Edge Function — Ticketmaster events + mock golf/hotels.
+ * Search Edge Function — Ticketmaster events + Google Places golf + mock hotels.
  */
 function json(body: unknown, status: number, headers?: Record<string, string>) {
   return new Response(JSON.stringify(body), {
@@ -70,14 +70,19 @@ type GolfCourseResult = {
   city: string;
   state?: string;
   public_access?: boolean;
+  public_access_confidence?: "likely_public" | "unknown" | "likely_private";
   rating?: number;
   tee_time_window?: { start: string; end: string };
+  lat?: number;
+  lng?: number;
   image_url?: string;
   source_url?: string;
   book_url?: string;
   price_min?: number;
   price_max?: number;
-  provider: "mock";
+  source?: string;
+  as_of?: string;
+  provider: "google_places" | "mock";
 };
 
 type HotelResult = {
@@ -100,7 +105,7 @@ type SearchResponse = {
   events: EventResult[];
   golf_courses: GolfCourseResult[];
   hotels: HotelResult[];
-  meta: { providers: ("ticketmaster" | "mock")[]; cached: boolean; generated_at: string; request_id: string };
+  meta: { providers: ("ticketmaster" | "google_places" | "mock")[]; cached: boolean; generated_at: string; request_id: string };
 };
 
 function addMonths(date: Date, months: number): Date {
@@ -221,6 +226,7 @@ function mockGolf(request: SearchRequest): GolfCourseResult[] {
   const city = request.destination?.city || "Austin";
   const state = request.destination?.state ?? "TX";
   const teeWindow = request.tee_time_window ?? { start: "07:00", end: "11:00" };
+  const asOf = new Date().toISOString();
   return [
     {
       id: "golf_mock_1",
@@ -228,6 +234,7 @@ function mockGolf(request: SearchRequest): GolfCourseResult[] {
       city,
       state,
       public_access: true,
+      public_access_confidence: "likely_public",
       rating: 4.4,
       tee_time_window: teeWindow,
       image_url: "https://images.unsplash.com/photo-1500930280485-71c409756852?w=1200",
@@ -235,9 +242,122 @@ function mockGolf(request: SearchRequest): GolfCourseResult[] {
       book_url: "https://www.golfnow.com/",
       price_min: 80,
       price_max: 180,
+      source: "mock",
+      as_of: asOf,
       provider: "mock",
     },
   ];
+}
+
+type GeoResult = { lat: number; lng: number } | null;
+
+async function geocodeCity(city: string, state?: string): Promise<GeoResult> {
+  const apiKey = Deno.env.get("GOOGLE_PLACES_API_KEY");
+  if (!apiKey) return null;
+  const address = state ? `${city}, ${state}, USA` : `${city}, USA`;
+  const url = new URL("https://maps.googleapis.com/maps/api/geocode/json");
+  url.searchParams.set("address", address);
+  url.searchParams.set("key", apiKey);
+  try {
+    const res = await fetch(url.toString(), { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { results?: Array<{ geometry?: { location?: { lat: number; lng: number } } }> };
+    const loc = data.results?.[0]?.geometry?.location;
+    if (!loc || typeof loc.lat !== "number" || typeof loc.lng !== "number") return null;
+    return { lat: loc.lat, lng: loc.lng };
+  } catch (err) {
+    console.error("Geocoding error:", err);
+    return null;
+  }
+}
+
+function publicAccessConfidence(name: string): "likely_public" | "unknown" | "likely_private" {
+  const n = (name || "").toLowerCase();
+  if (/country club|private|members only/i.test(n)) return "likely_private";
+  if (/municipal|public|city\b/i.test(n)) return "likely_public";
+  return "unknown";
+}
+
+function buildGolfNowSearchUrl(name: string, city: string, state?: string): string {
+  const q = state ? `${name} ${city} ${state}` : `${name} ${city}`;
+  return `https://www.golfnow.com/search?q=${encodeURIComponent(q)}`;
+}
+
+type PlaceNearby = {
+  id?: string;
+  name?: string;
+  displayName?: { text?: string };
+  formattedAddress?: string;
+  addressComponents?: Array<{ longText?: string; shortText?: string; types?: string[] }>;
+  location?: { latitude?: number; longitude?: number };
+  websiteUri?: string;
+  googleMapsUri?: string;
+  rating?: number;
+};
+
+async function searchGolfGooglePlaces(
+  lat: number,
+  lng: number,
+  radiusMeters: number,
+  teeWindow: { start: string; end: string },
+  apiKey: string
+): Promise<GolfCourseResult[]> {
+  const body = {
+    includedTypes: ["golf_course"],
+    maxResultCount: 10,
+    rankPreference: "DISTANCE",
+    locationRestriction: {
+      circle: {
+        center: { latitude: lat, longitude: lng },
+        radius: radiusMeters,
+      },
+    },
+  };
+  const fieldMask = "places.id,places.displayName,places.formattedAddress,places.addressComponents,places.location,places.websiteUri,places.googleMapsUri,places.rating";
+  const res = await fetch("https://places.googleapis.com/v1/places:searchNearby", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Goog-Api-Key": apiKey,
+      "X-Goog-FieldMask": fieldMask,
+    },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Places API error ${res.status}: ${text.slice(0, 200)}`);
+  }
+  const data = (await res.json()) as { places?: PlaceNearby[] };
+  const places = data.places ?? [];
+  const asOf = new Date().toISOString();
+  return places.map((p) => {
+    const name = p.displayName?.text ?? p.name ?? "Golf Course";
+    const id = p.id ?? `golf_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const cityComp = p.addressComponents?.find((c) => c.types?.includes("locality"));
+    const stateComp = p.addressComponents?.find((c) => c.types?.includes("administrative_area_level_1"));
+    const city = cityComp?.longText ?? cityComp?.shortText ?? "";
+    const state = stateComp?.shortText ?? stateComp?.longText;
+    const url = p.websiteUri ?? p.googleMapsUri ?? buildGolfNowSearchUrl(name, city || "USA", state);
+    const confidence = publicAccessConfidence(name);
+    return {
+      id,
+      name,
+      city: city || "Unknown",
+      state,
+      public_access: confidence === "likely_public",
+      public_access_confidence: confidence,
+      rating: typeof p.rating === "number" ? p.rating : undefined,
+      tee_time_window: teeWindow,
+      lat: p.location?.latitude,
+      lng: p.location?.longitude,
+      source_url: p.websiteUri ?? p.googleMapsUri,
+      book_url: url,
+      source: "google_places",
+      as_of: asOf,
+      provider: "google_places",
+    };
+  });
 }
 
 function mockHotels(request: SearchRequest): HotelResult[] {
@@ -263,9 +383,16 @@ function mockHotels(request: SearchRequest): HotelResult[] {
 
 function parseRequest(url: URL): SearchRequest {
   const getString = (v: string | null) => (typeof v === "string" && v.trim() ? v : undefined);
+  const getNum = (v: string | null) => {
+    if (typeof v !== "string" || !v.trim()) return undefined;
+    const n = parseFloat(v);
+    return isNaN(n) ? undefined : n;
+  };
   const artist = getString(url.searchParams.get("artist")) ?? getString(url.searchParams.get("keyword"));
   const city = getString(url.searchParams.get("city"));
   const state = getString(url.searchParams.get("state"));
+  const lat = getNum(url.searchParams.get("lat"));
+  const lng = getNum(url.searchParams.get("lng"));
   const startDate =
     getString(url.searchParams.get("start_date")) ?? getString(url.searchParams.get("startDate"));
   const endDate =
@@ -281,7 +408,7 @@ function parseRequest(url: URL): SearchRequest {
 
   return {
     artist: artist ?? undefined,
-    destination: { city, state },
+    destination: { city, state, lat, lng },
     dates: {
       start_date: startDate ?? today,
       end_date: endDate ?? sixMo,
@@ -355,10 +482,61 @@ Deno.serve(async (req: Request) => {
       providers.push("mock");
     }
 
-    const golfCourses = mockGolf({
-      ...payload,
-      destination: { ...payload.destination, city: effectiveCity },
-    });
+    let golfCourses: GolfCourseResult[];
+    const teeWindow = payload.tee_time_window ?? { start: "07:00", end: "11:00" };
+    const googleKey = Deno.env.get("GOOGLE_PLACES_API_KEY");
+    const hasCity = effectiveCity && effectiveCity !== "flexible" && effectiveCity !== "Various";
+
+    const resolveGolfCenter = async (): Promise<{ lat: number; lng: number } | null> => {
+      if (payload.destination?.lat != null && payload.destination?.lng != null) {
+        return { lat: payload.destination.lat, lng: payload.destination.lng };
+      }
+      if (events.length > 0) {
+        const v = events[0]?.venue;
+        if (v && typeof v.lat === "number" && typeof v.lng === "number") {
+          return { lat: v.lat, lng: v.lng };
+        }
+      }
+      if (hasCity) {
+        return await geocodeCity(effectiveCity, payload.destination?.state ?? undefined);
+      }
+      return null;
+    };
+
+    if (googleKey) {
+      try {
+        const center = await resolveGolfCenter();
+        if (center) {
+          golfCourses = await searchGolfGooglePlaces(
+            center.lat,
+            center.lng,
+            40000,
+            teeWindow,
+            googleKey
+          );
+          if (golfCourses.length > 0 && !providers.includes("google_places")) {
+            providers.push("google_places");
+          }
+        } else {
+          golfCourses = mockGolf({
+            ...payload,
+            destination: { ...payload.destination, city: effectiveCity },
+          });
+        }
+      } catch (err) {
+        console.error("Google Places golf search error:", err);
+        golfCourses = mockGolf({
+          ...payload,
+          destination: { ...payload.destination, city: effectiveCity },
+        });
+      }
+    } else {
+      golfCourses = mockGolf({
+        ...payload,
+        destination: { ...payload.destination, city: effectiveCity },
+      });
+    }
+
     const hotels = mockHotels({
       ...payload,
       destination: { ...payload.destination, city: effectiveCity },

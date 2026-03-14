@@ -7,6 +7,7 @@ export type Provider =
   | "expedia"
   | "booking"
   | "hotels"
+  | "google_places"
   | "mock";
 
 export type SearchRequest = {
@@ -37,13 +38,18 @@ export type GolfCourseResult = {
   city: string;
   state?: string;
   public_access?: boolean;
+  public_access_confidence?: "likely_public" | "unknown" | "likely_private";
   rating?: number;
   tee_time_window?: { start: string; end: string };
+  lat?: number;
+  lng?: number;
   image_url?: string;
   source_url?: string;
   book_url?: string;
   price_min?: number;
   price_max?: number;
+  source?: string;
+  as_of?: string;
   provider: Provider;
 };
 

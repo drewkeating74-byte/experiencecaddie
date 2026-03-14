@@ -2,6 +2,8 @@ import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import type { User, Session } from "@supabase/supabase-js";
 
+const AUTH_TIMEOUT_MS = 5000;
+
 export function useAuth() {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
@@ -9,29 +11,41 @@ export function useAuth() {
   const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
+    let mounted = true;
+
+    const finishLoading = () => {
+      if (mounted) setLoading(false);
+    };
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
+      (_event, session) => {
+        if (!mounted) return;
         setSession(session);
         setUser(session?.user ?? null);
+        setIsAdmin(false);
+        finishLoading();
 
         if (session?.user) {
-          const { data } = await supabase
+          supabase
             .from("user_roles")
             .select("role")
             .eq("user_id", session.user.id)
             .eq("role", "admin")
-            .maybeSingle();
-          setIsAdmin(!!data);
-        } else {
-          setIsAdmin(false);
+            .maybeSingle()
+            .then(({ data }) => mounted && setIsAdmin(!!data))
+            .catch(() => {});
         }
-        setLoading(false);
       }
     );
 
+    const timeoutId = setTimeout(finishLoading, AUTH_TIMEOUT_MS);
+
     supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!mounted) return;
       setSession(session);
       setUser(session?.user ?? null);
+      finishLoading();
+      clearTimeout(timeoutId);
       if (session?.user) {
         supabase
           .from("user_roles")
@@ -39,16 +53,40 @@ export function useAuth() {
           .eq("user_id", session.user.id)
           .eq("role", "admin")
           .maybeSingle()
-          .then(({ data }) => setIsAdmin(!!data));
+          .then(({ data }) => mounted && setIsAdmin(!!data))
+          .catch(() => {});
       }
-      setLoading(false);
+    }).catch(() => {
+      finishLoading();
+      clearTimeout(timeoutId);
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      mounted = false;
+      clearTimeout(timeoutId);
+      subscription.unsubscribe();
+    };
   }, []);
 
   const signOut = async () => {
-    await supabase.auth.signOut();
+    setSession(null);
+    setUser(null);
+    setIsAdmin(false);
+    try {
+      await Promise.race([
+        supabase.auth.signOut({ scope: "local" }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 3000)),
+      ]);
+    } catch {
+      const url = import.meta.env.VITE_SUPABASE_URL ?? "";
+      const projectRef = url.includes("supabase.co") ? new URL(url).hostname.split(".")[0] : null;
+      if (projectRef) {
+        try {
+          const key = `${projectRef}-auth-token`;
+          localStorage.removeItem(key);
+        } catch {}
+      }
+    }
   };
 
   return { user, session, loading, isAdmin, signOut };

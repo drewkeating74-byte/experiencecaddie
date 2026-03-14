@@ -49,11 +49,14 @@ Set in: Vercel → Project → Settings → Environment Variables (Production, P
 | Secret | Used by | Purpose |
 |--------|---------|---------|
 | `TICKETMASTER_API_KEY` | search | Real concert data (mock if missing) |
+| `GOOGLE_PLACES_API_KEY` | search | Geocoding + Places API for real golf discovery (mock if missing) |
 | `PERPLEXITY_API_KEY` | generate-itinerary | AI itinerary generation (required) |
 | `RESEND_API_KEY` | send-share-email | Share emails via Resend |
 | `FROM_EMAIL` | send-share-email | Sender email for share emails |
 
 Set in: Supabase Dashboard → Project Settings → Edge Functions → Secrets.
+
+**Google Places setup:** Enable Geocoding API and Places API (New) in Google Cloud Console. Create an API key and restrict it to those APIs. Add billing and set a budget alert.
 
 ---
 
@@ -117,9 +120,10 @@ If any step fails, see Section 8.
 
 - **Check:** Supabase Edge Functions → `search` → Logs (for errors).
 - **Likely causes:**
-  - `TICKETMASTER_API_KEY` missing or wrong → you’ll get mock data only.
+  - `TICKETMASTER_API_KEY` missing or wrong → mock events only.
+  - `GOOGLE_PLACES_API_KEY` missing or wrong → mock golf only. → you’ll get mock data only.
   - Supabase project down or URL wrong → check `VITE_SUPABASE_URL` in Vercel.
-- **Fix:** Ensure `TICKETMASTER_API_KEY` is set in Supabase secrets and that `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` are correct in Vercel. Redeploy the frontend after changing env vars.
+- **Fix:** Ensure `TICKETMASTER_API_KEY` and `GOOGLE_PLACES_API_KEY` are set in Supabase secrets. For golf: enable Geocoding API and Places API (New) in Google Cloud; add billing and budget alerts. Redeploy the frontend after changing env vars.
 
 ### Itinerary generation fails
 
