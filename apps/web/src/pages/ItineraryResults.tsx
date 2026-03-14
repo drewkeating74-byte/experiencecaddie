@@ -331,46 +331,49 @@ export default function ItineraryResults() {
                   </div>
                 )}
 
-                {/* Lodging */}
-                {(pkg.lodging?.length > 0 || pkg.hotels?.length > 0) && (
-                  <Card>
-                    <CardHeader className="pb-3">
-                      <CardTitle className="flex items-center gap-2 font-serif text-lg">
-                        <Hotel className="h-5 w-5 text-primary" /> Lodging
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-3">
-                      {(pkg.lodging || pkg.hotels || []).map((h: any, i: number) => {
-                        const isBookable = ["hotel", "vacation_rental", "golf_resort"].includes(h.type);
-                        return (
-                        <div key={i} className="flex items-start justify-between gap-4">
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <p className="font-medium">{h.name}</p>
-                              {h.type && (
-                                <Badge variant="secondary" className="text-xs">
-                                  {h.type === "vacation_rental" ? "Rental" : h.type === "golf_resort" ? "Golf Resort" : "Hotel"}
-                                </Badge>
-                              )}
+                {/* Lodging — only actual accommodations (hotels, rentals, golf resorts) */}
+                {(() => {
+                  const lodgingItems = (pkg.lodging || pkg.hotels || []).filter(
+                    (h: any) => !["restaurant", "bar", "experience", "attraction"].includes(h.type)
+                  );
+                  return lodgingItems.length > 0 ? (
+                    <Card>
+                      <CardHeader className="pb-3">
+                        <CardTitle className="flex items-center gap-2 font-serif text-lg">
+                          <Hotel className="h-5 w-5 text-primary" /> Lodging
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-3">
+                        {all.map((h: any, i: number) => (
+                          <div key={i} className="flex items-start justify-between gap-4">
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <p className="font-medium">{h.name}</p>
+                                {h.type && (
+                                  <Badge variant="secondary" className="text-xs">
+                                    {h.type === "vacation_rental" ? "Rental" : h.type === "golf_resort" ? "Golf Resort" : "Hotel"}
+                                  </Badge>
+                                )}
+                              </div>
+                              {h.area && <p className="text-sm text-muted-foreground">{h.area}</p>}
+                              {h.why && <p className="text-sm text-muted-foreground italic">{h.why}</p>}
+                              {h.price_per_night && <p className="text-sm font-medium">{h.price_per_night}/night</p>}
                             </div>
-                            {h.area && <p className="text-sm text-muted-foreground">{h.area}</p>}
-                            {h.why && <p className="text-sm text-muted-foreground italic">{h.why}</p>}
-                            {h.price_per_night && <p className="text-sm font-medium">{h.price_per_night}/night</p>}
+                            {h.url && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => trackClick(pkg.tier, "hotel", h.name, h.url)}
+                              >
+                                {user ? "Book" : "Log in to book"} <ExternalLink className="ml-1 h-3 w-3" />
+                              </Button>
+                            )}
                           </div>
-                          {isBookable && h.url && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => trackClick(pkg.tier, "hotel", h.name, h.url)}
-                            >
-                              {user ? "Book" : "Log in to book"} <ExternalLink className="ml-1 h-3 w-3" />
-                            </Button>
-                          )}
-                        </div>
-                      );})}
-                    </CardContent>
-                  </Card>
-                )}
+                        ))}
+                      </CardContent>
+                    </Card>
+                  ) : null;
+                })()}
 
                 {/* Events */}
                 {pkg.events?.length > 0 && (
@@ -431,25 +434,31 @@ export default function ItineraryResults() {
                   </Card>
                 )}
 
-                {/* Extras */}
-                {pkg.extras?.length > 0 && (
-                  <Card>
-                    <CardHeader className="pb-3">
-                      <CardTitle className="flex items-center gap-2 font-serif text-lg">
-                        <Utensils className="h-5 w-5 text-primary" /> Extras
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-3">
-                      {pkg.extras.map((x: any, i: number) => (
-                        <div key={i}>
-                          <p className="font-medium">{x.name}</p>
-                          <Badge variant="secondary" className="text-xs">{x.type}</Badge>
-                          {x.why && <p className="mt-1 text-sm text-muted-foreground italic">{x.why}</p>}
-                        </div>
-                      ))}
-                    </CardContent>
-                  </Card>
-                )}
+                {/* Extras — restaurants, bars, experiences; no book buttons */}
+                {(() => {
+                  const misplaced = ((pkg.lodging || pkg.hotels || []).filter(
+                    (h: any) => ["restaurant", "bar", "experience", "attraction"].includes(h.type)
+                  ) as any[]).map((h) => ({ name: h.name, type: h.type, why: h.why }));
+                  const extrasItems = [...(pkg.extras || []), ...misplaced];
+                  return extrasItems.length > 0 && (
+                    <Card>
+                      <CardHeader className="pb-3">
+                        <CardTitle className="flex items-center gap-2 font-serif text-lg">
+                          <Utensils className="h-5 w-5 text-primary" /> Extras
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-3">
+                        {extrasItems.map((x: any, i: number) => (
+                          <div key={i}>
+                            <p className="font-medium">{x.name}</p>
+                            <Badge variant="secondary" className="text-xs">{x.type}</Badge>
+                            {x.why && <p className="mt-1 text-sm text-muted-foreground italic">{x.why}</p>}
+                          </div>
+                        ))}
+                      </CardContent>
+                    </Card>
+                  );
+                })()}
 
                 {/* Day-by-Day Itinerary */}
                 {pkg.itinerary?.length > 0 && (
