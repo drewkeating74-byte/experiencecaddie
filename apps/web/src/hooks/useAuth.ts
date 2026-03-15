@@ -20,6 +20,15 @@ export function useAuth() {
       if (mounted) setLoading(false);
     };
 
+    const showOAuthSuccessToast = (provider: string) => {
+      try {
+        const label = provider === "google" ? "Google" : provider === "apple" ? "Apple" : provider;
+        toast.success(`Signed in with ${label}`, { duration: 5000 });
+      } finally {
+        sessionStorage.removeItem(OAUTH_PROVIDER_KEY);
+      }
+    };
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (_event, session) => {
         if (!mounted) return;
@@ -29,6 +38,8 @@ export function useAuth() {
         finishLoading();
 
         if (session?.user) {
+          const provider = sessionStorage.getItem(OAUTH_PROVIDER_KEY);
+          if (provider) showOAuthSuccessToast(provider);
           supabase
             .from("user_roles")
             .select("role")
