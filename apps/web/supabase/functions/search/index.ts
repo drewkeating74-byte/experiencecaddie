@@ -178,9 +178,11 @@ async function searchTicketmaster(params: {
   return data._embedded?.events ?? [];
 }
 
-/** Build a Ticketmaster search URL (reliable; avoids event-level 404s). */
-function buildTicketmasterSearchUrl(name: string, city: string, state?: string): string {
-  const parts = [name, city];
+/** Build a Ticketmaster search URL (reliable; avoids event-level 404s). Includes venue so results match the package. */
+function buildTicketmasterSearchUrl(name: string, city: string, state?: string, venue?: string): string {
+  const parts = [name];
+  if (venue?.trim()) parts.push(venue.trim());
+  parts.push(city);
   if (state?.trim()) parts.push(state.trim());
   const q = parts.filter(Boolean).join(" ").trim() || "concerts";
   return `https://www.ticketmaster.com/search?q=${encodeURIComponent(q)}`;
@@ -202,7 +204,8 @@ function mapEventToResult(
   const lng = venue?.location?.longitude ? parseFloat(venue.location.longitude) : undefined;
   const city = venue?.city?.name ?? fallbackCity;
   const state = venue?.state?.stateCode ?? venue?.state?.name ?? fallbackState;
-  const ticketUrl = buildTicketmasterSearchUrl(eventName, city, state);
+  const venueName = venue?.name?.trim();
+  const ticketUrl = buildTicketmasterSearchUrl(eventName, city, state, venueName);
 
   return {
     id: event.id ?? `tm_${Date.now()}_${Math.random().toString(36).slice(2)}`,

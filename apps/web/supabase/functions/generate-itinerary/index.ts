@@ -169,17 +169,18 @@ ${artistSearch ? `- IMPORTANT: All 3 must be "${artistSearch}" — different cit
       let goldGolfCandidates = Array.isArray(rawSearchResults.gold_golf_candidates) ? rawSearchResults.gold_golf_candidates : null;
       let hotels = Array.isArray(rawSearchResults.hotels) ? rawSearchResults.hotels.slice(0, 6) : [];
 
-      function buildTicketmasterSearchUrl(name: string, city: string): string {
-        const q = [name, city].filter(Boolean).join(" ").trim() || "concerts";
+      function buildTicketmasterSearchUrl(name: string, city: string, venue?: string): string {
+        const parts = [name];
+        if (venue?.trim()) parts.push(venue.trim());
+        parts.push(city);
+        const q = parts.filter(Boolean).join(" ").trim() || "concerts";
         return `https://www.ticketmaster.com/search?q=${encodeURIComponent(q)}`;
       }
 
-      // When user selected a concert, use it as the sole event
+      // When user selected a concert, use it as the sole event. Always use our Ticketmaster search URL
+      // so the user lands on Ticketmaster (artist + venue + city) instead of SeatGeek/StubHub/etc. from Perplexity.
       if (selectedConcert?.artist && selectedConcert?.city) {
-        let concertUrl = selectedConcert.url || undefined;
-        if (concertUrl && typeof concertUrl === "string" && concertUrl.includes("ticketmaster.com")) {
-          concertUrl = buildTicketmasterSearchUrl(selectedConcert.artist, selectedConcert.city);
-        }
+        const concertUrl = buildTicketmasterSearchUrl(selectedConcert.artist, selectedConcert.city, selectedConcert.venue);
         events = [{
           id: "selected_concert",
           name: selectedConcert.artist,
