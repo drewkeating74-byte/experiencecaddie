@@ -30,9 +30,9 @@ const TIER_STYLES: Record<string, { bg: string; border: string; badge: string }>
 };
 
 const TIER_DESCRIPTORS: Record<string, string> = {
-  BRONZE: "Best value with practical picks",
-  SILVER: "Balanced quality and convenience",
-  GOLD: "Premium overall experience",
+  BRONZE: "Best value with practical picks and solid options for your dates.",
+  SILVER: "A balanced mix of quality and convenience across your trip.",
+  GOLD: "Premium picks and a top-tier experience from start to finish.",
 };
 
 export default function ItineraryResults() {
@@ -310,7 +310,7 @@ export default function ItineraryResults() {
           return (
             <TabsContent key={pkg.tier} value={pkg.tier}>
               <div className={`rounded-xl border-2 ${style.border} ${style.bg} p-6 space-y-6`}>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <Button
                     variant="ghost"
                     size="sm"
@@ -322,10 +322,10 @@ export default function ItineraryResults() {
                     {savedTiers.has(pkg.tier) ? <BookmarkCheck className="h-4 w-4 text-primary" /> : <Bookmark className="h-4 w-4" />}
                   </Button>
                   <Badge className={style.badge}>{pkg.tier}</Badge>
+                  {TIER_DESCRIPTORS[pkg.tier] && (
+                    <span className="text-sm text-muted-foreground">{TIER_DESCRIPTORS[pkg.tier]}</span>
+                  )}
                 </div>
-                {TIER_DESCRIPTORS[pkg.tier] && (
-                  <p className="text-sm text-muted-foreground mt-0.5">{TIER_DESCRIPTORS[pkg.tier]}</p>
-                )}
 
                 <div className="flex flex-wrap items-center justify-between gap-2 py-1 text-xs text-muted-foreground border-b border-border/50">
                   <span>Updated {formatLastUpdated(itinerary.updated_at)}</span>
