@@ -161,20 +161,38 @@ export default function ItineraryResults() {
     try {
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-      const profile = user ? (await supabase.from("profiles").select("first_name, last_name").eq("user_id", user.id).maybeSingle()).data : null;
-      const senderName = profile ? [profile.first_name, profile.last_name].filter(Boolean).join(" ") : undefined;
+      if (!supabaseUrl || !supabaseKey) {
+        toast.error("App configuration error. Please try again later.");
+        return;
+      }
+      let senderName: string | undefined;
+      if (user) {
+        try {
+          const { data: profile } = await supabase.from("profiles").select("first_name, last_name").eq("user_id", user.id).maybeSingle();
+          senderName = profile ? [profile.first_name, profile.last_name].filter(Boolean).join(" ") : undefined;
+        } catch {
+          senderName = undefined;
+        }
+      }
       const res = await fetch(`${supabaseUrl}/functions/v1/send-share-email`, {
         method: "POST",
         headers: { "Content-Type": "application/json", apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` },
         body: JSON.stringify({ share_url: getShareUrl(), recipient_emails: emails, sender_name: senderName }),
       });
-      const data = await res.json();
+      let data: { error?: string } = {};
+      try {
+        data = await res.json();
+      } catch {
+        if (!res.ok) throw new Error("Server error. Please try again.");
+      }
       if (!res.ok) throw new Error(data?.error || "Failed to send");
       toast.success(`Sent to ${emails.length} recipient(s)`);
       setShareEmailOpen(false);
       setShareEmails("");
     } catch (e: any) {
-      toast.error(e?.message || "Failed to send email");
+      const msg = e?.message || "Failed to send email";
+      const isNetworkError = msg === "Failed to fetch" || msg === "Load failed" || msg?.includes("NetworkError");
+      toast.error(isNetworkError ? "Could not reach the server. Check your connection and try again." : msg);
     } finally {
       setSendingEmail(false);
     }

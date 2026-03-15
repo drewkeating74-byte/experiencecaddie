@@ -526,6 +526,32 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
     // Enrich packages with trust metadata from search_results (match by name)
     const norm = (s: string) => (s || "").toLowerCase().replace(/\s+/g, " ").trim();
     const MIN_SUBSTRING_LEN = 15; // avoid "Golf" or "Muni" matching wrong courses
+
+    // Replace generic hotel URLs with a Booking.com search for this property + city + dates
+    const isGenericHotelUrl = (url: string): boolean => {
+      if (!url || typeof url !== "string") return true;
+      const u = url.trim().toLowerCase();
+      if (!u.startsWith("http")) return true;
+      try {
+        const parsed = new URL(u);
+        const host = parsed.hostname.replace(/^www\./, "");
+        if (!["booking.com", "expedia.com", "hotels.com", "hotel.com"].some((d) => host === d || host.endsWith("." + d))) return false;
+        const path = (parsed.pathname || "/").replace(/\/$/, "") || "/";
+        const looksLikeProperty = /\/hotel\//.test(path) || /\/Hotel-/.test(path) || /\/details\//.test(path) || (parsed.searchParams && (parsed.searchParams.get("hotelId") || parsed.searchParams.get("propertyId") || parsed.searchParams.get("propertyid")));
+        return !looksLikeProperty;
+      } catch {
+        return true;
+      }
+    };
+    const buildHotelSearchUrl = (name: string, city: string, state?: string, startDate?: string, endDate?: string): string => {
+      const parts = [name, city];
+      if (state?.trim()) parts.push(state.trim());
+      const ss = parts.filter(Boolean).join(" ").trim() || "hotels";
+      const params = new URLSearchParams({ ss });
+      if (startDate && /^\d{4}-\d{2}-\d{2}$/.test(startDate)) params.set("checkin", startDate);
+      if (endDate && /^\d{4}-\d{2}-\d{2}$/.test(endDate)) params.set("checkout", endDate);
+      return `https://www.booking.com/searchresults.html?${params.toString()}`;
+    };
     const allGolfSources = [
       ...(poolBronze || []),
       ...(poolSilver || []),
@@ -593,6 +619,14 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
           if (trustedUrl) e.url = trustedUrl;
         }
         console.log("[TM_LINK_DEBUG] generate-itinerary enrich event", { name: e.name, url_before: urlBefore, url_after: e.url, matched: !!src });
+      }
+      for (const h of pkg.lodging || []) {
+        const url = typeof h.url === "string" ? h.url.trim() : "";
+        if (isGenericHotelUrl(url)) {
+          const city = itinerary?.city || "";
+          const state = itinerary?.state ?? (searchResults?.destination as any)?.state;
+          h.url = buildHotelSearchUrl(h.name || "Hotel", city, state, itinerary?.start_date, itinerary?.end_date);
+        }
       }
     }
     parsedResult._generated_at = generatedAt;
