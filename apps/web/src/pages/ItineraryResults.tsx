@@ -104,7 +104,7 @@ export default function ItineraryResults() {
       return;
     }
     supabase.functions.invoke("track-click", {
-      body: { itinerary_id: id, package_tier: tier, vendor, label, target_url: url },
+      body: { itinerary_id: itinerary?.id ?? id, package_tier: tier, vendor, label, target_url: url },
     });
     window.open(url, "_blank", "noopener,noreferrer");
   };
