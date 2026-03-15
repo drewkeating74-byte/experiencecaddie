@@ -430,7 +430,7 @@ export default function ItineraryResults() {
                                   }
                                 }}
                               >
-                                {e.provider === "ticketmaster" ? "Find Tickets" : "Tickets"} <ExternalLink className="ml-1 h-3 w-3" />
+                                {(e.provider === "ticketmaster" || (e.url && String(e.url).includes("ticketmaster.com"))) ? "Find Tickets" : "Tickets"} <ExternalLink className="ml-1 h-3 w-3" />
                               </Button>
                             )}
                           </div>

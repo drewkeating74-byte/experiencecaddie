@@ -169,15 +169,24 @@ ${artistSearch ? `- IMPORTANT: All 3 must be "${artistSearch}" — different cit
       let goldGolfCandidates = Array.isArray(rawSearchResults.gold_golf_candidates) ? rawSearchResults.gold_golf_candidates : null;
       let hotels = Array.isArray(rawSearchResults.hotels) ? rawSearchResults.hotels.slice(0, 6) : [];
 
+      function buildTicketmasterSearchUrl(name: string, city: string): string {
+        const q = [name, city].filter(Boolean).join(" ").trim() || "concerts";
+        return `https://www.ticketmaster.com/search?q=${encodeURIComponent(q)}`;
+      }
+
       // When user selected a concert, use it as the sole event
       if (selectedConcert?.artist && selectedConcert?.city) {
+        let concertUrl = selectedConcert.url || undefined;
+        if (concertUrl && typeof concertUrl === "string" && concertUrl.includes("ticketmaster.com")) {
+          concertUrl = buildTicketmasterSearchUrl(selectedConcert.artist, selectedConcert.city);
+        }
         events = [{
           id: "selected_concert",
           name: selectedConcert.artist,
           date_time: selectedConcert.date ? `${selectedConcert.date}T20:00:00` : `${p.start_date}T20:00:00`,
           venue: { name: selectedConcert.venue || "Venue", city: selectedConcert.city },
-          book_url: selectedConcert.url || undefined,
-          source_url: selectedConcert.url || undefined,
+          book_url: concertUrl,
+          source_url: concertUrl,
           provider: "user_selected",
         }];
       }
