@@ -17,7 +17,8 @@ export default function Auth() {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const redirect = searchParams.get("redirect") || "/";
+  const rawRedirect = searchParams.get("redirect") || "/";
+  const redirect = rawRedirect.startsWith("/") ? rawRedirect : `/${rawRedirect}`;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

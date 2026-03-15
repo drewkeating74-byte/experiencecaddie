@@ -147,6 +147,19 @@ If any step fails, see Section 8.
 - **Check:** Vercel env vars (`VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`).
 - **Fix:** Set/update these in Vercel, then redeploy. Env vars are applied at build time.
 
+### Google (or Apple) login does not work
+
+- **Symptom:** Clicking "Continue with Google" redirects to an error page, or returns to the site without signing in.
+- **Check:** Supabase Dashboard → Authentication → Providers → Google (or Apple). Ensure the provider is enabled.
+- **Fix (Google):**
+  1. In [Google Cloud Console](https://console.cloud.google.com/), create or select a project → APIs & Services → Credentials.
+  2. Create OAuth 2.0 Client ID (Application type: Web application).
+  3. Add **Authorized redirect URIs** exactly as Supabase shows (e.g. `https://<project-ref>.supabase.co/auth/v1/callback`).
+  4. Copy the Client ID and Client Secret into Supabase → Auth → Providers → Google.
+  5. In Supabase → Auth → URL Configuration, add your site URL (e.g. `https://experiencecaddie.vercel.app`) and any redirect URLs (e.g. `https://experiencecaddie.vercel.app/**`) under **Redirect URLs**.
+  6. If using a `?redirect=` param, ensure it starts with `/` (e.g. `/itinerary/xyz`). The auth page uses `window.location.origin + redirect`, so a missing leading slash breaks the URL.
+- **Fix (Apple):** Enable Sign in with Apple in your Apple Developer account, configure the service ID and redirect URI in Supabase, and add the same redirect URLs in Supabase URL Configuration.
+
 ---
 
 **For more detail:** See `docs/ARCHITECTURE.md` and `docs/SEARCH_EDGE_FUNCTION_SETUP.md`.

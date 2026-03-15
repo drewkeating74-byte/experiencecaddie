@@ -178,6 +178,13 @@ async function searchTicketmaster(params: {
   return data._embedded?.events ?? [];
 }
 
+function buildEventTicketUrl(event: TMEvent): string | undefined {
+  if (event.id) {
+    return `https://www.ticketmaster.com/event/${event.id}`;
+  }
+  return event.url;
+}
+
 function mapEventToResult(
   event: TMEvent,
   fallbackCity: string,
@@ -192,6 +199,7 @@ function mapEventToResult(
   const priceRange = event.priceRanges?.[0];
   const lat = venue?.location?.latitude ? parseFloat(venue.location.latitude) : undefined;
   const lng = venue?.location?.longitude ? parseFloat(venue.location.longitude) : undefined;
+  const ticketUrl = buildEventTicketUrl(event);
 
   return {
     id: event.id ?? `tm_${Date.now()}_${Math.random().toString(36).slice(2)}`,
@@ -206,8 +214,8 @@ function mapEventToResult(
       capacity: undefined,
     },
     image_url: event.images?.sort((a, b) => (b.width ?? 0) - (a.width ?? 0))[0]?.url,
-    source_url: event.url,
-    book_url: event.url,
+    source_url: ticketUrl,
+    book_url: ticketUrl,
     price_min: priceRange?.min,
     price_max: priceRange?.max,
     provider: "ticketmaster",
