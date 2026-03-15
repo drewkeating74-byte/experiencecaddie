@@ -23,7 +23,7 @@ export function useAuth() {
     const showOAuthSuccessToast = (provider: string) => {
       try {
         const label = provider === "google" ? "Google" : provider === "apple" ? "Apple" : provider;
-        toast.success(`Signed in with ${label}`, { duration: 5000 });
+        toast.success(`Signed in with ${label}`, { duration: 8000, position: "top-center" });
       } finally {
         sessionStorage.removeItem(OAUTH_PROVIDER_KEY);
       }
