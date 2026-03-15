@@ -29,6 +29,12 @@ const TIER_STYLES: Record<string, { bg: string; border: string; badge: string }>
   GOLD: { bg: "bg-yellow-500/10", border: "border-yellow-500/40", badge: "bg-yellow-500 text-black" },
 };
 
+const TIER_DESCRIPTORS: Record<string, string> = {
+  BRONZE: "Best value with practical picks",
+  SILVER: "Balanced quality and convenience",
+  GOLD: "Premium overall experience",
+};
+
 export default function ItineraryResults() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -317,6 +323,9 @@ export default function ItineraryResults() {
                   </Button>
                   <Badge className={style.badge}>{pkg.tier}</Badge>
                 </div>
+                {TIER_DESCRIPTORS[pkg.tier] && (
+                  <p className="text-sm text-muted-foreground mt-0.5">{TIER_DESCRIPTORS[pkg.tier]}</p>
+                )}
 
                 <div className="flex flex-wrap items-center justify-between gap-2 py-1 text-xs text-muted-foreground border-b border-border/50">
                   <span>Updated {formatLastUpdated(itinerary.updated_at)}</span>
