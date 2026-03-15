@@ -178,11 +178,12 @@ async function searchTicketmaster(params: {
   return data._embedded?.events ?? [];
 }
 
-function buildEventTicketUrl(event: TMEvent): string | undefined {
-  if (event.id) {
-    return `https://www.ticketmaster.com/event/${event.id}`;
-  }
-  return event.url;
+/** Build a Ticketmaster search URL (reliable; avoids event-level 404s). */
+function buildTicketmasterSearchUrl(name: string, city: string, state?: string): string {
+  const parts = [name, city];
+  if (state?.trim()) parts.push(state.trim());
+  const q = parts.filter(Boolean).join(" ").trim() || "concerts";
+  return `https://www.ticketmaster.com/search?q=${encodeURIComponent(q)}`;
 }
 
 function mapEventToResult(
@@ -199,7 +200,9 @@ function mapEventToResult(
   const priceRange = event.priceRanges?.[0];
   const lat = venue?.location?.latitude ? parseFloat(venue.location.latitude) : undefined;
   const lng = venue?.location?.longitude ? parseFloat(venue.location.longitude) : undefined;
-  const ticketUrl = buildEventTicketUrl(event);
+  const city = venue?.city?.name ?? fallbackCity;
+  const state = venue?.state?.stateCode ?? venue?.state?.name ?? fallbackState;
+  const ticketUrl = buildTicketmasterSearchUrl(eventName, city, state);
 
   return {
     id: event.id ?? `tm_${Date.now()}_${Math.random().toString(36).slice(2)}`,
@@ -207,8 +210,8 @@ function mapEventToResult(
     date_time: dateTime,
     venue: {
       name: venue?.name ?? "Venue",
-      city: venue?.city?.name ?? fallbackCity,
-      state: venue?.state?.stateCode ?? venue?.state?.name ?? fallbackState,
+      city,
+      state,
       lat,
       lng,
       capacity: undefined,

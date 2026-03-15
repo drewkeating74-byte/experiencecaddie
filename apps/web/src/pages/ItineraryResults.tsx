@@ -86,6 +86,18 @@ export default function ItineraryResults() {
       .catch(() => { toast.error("Failed to load itinerary"); setLoading(false); });
   }, [id]);
 
+  // Temporary: log saved result_json when ?tm_debug=1 for Ticketmaster URL inspection
+  useEffect(() => {
+    if (!itinerary?.result_json || !window.location.search.includes("tm_debug=1")) return;
+    const result = itinerary.result_json as any;
+    const eventsByPkg = (result?.packages || []).map((p: any) => ({
+      tier: p.tier,
+      events: (p.events || []).map((e: any) => ({ name: e.name, venue: e.venue, date_time: e.date_time, url: e.url })),
+    }));
+    console.log("[TM_LINK_DEBUG] Saved result_json (from DB)", { itinerary_id: itinerary.id, packages_events: eventsByPkg });
+    console.log("[TM_LINK_DEBUG] Full result_json", result);
+  }, [itinerary?.id, itinerary?.result_json]);
+
   const trackClick = async (tier: string, vendor: string, label: string, url: string) => {
     if (!user) {
       navigate(`/auth?redirect=${encodeURIComponent(window.location.pathname)}`);
@@ -388,7 +400,7 @@ export default function ItineraryResults() {
                     </CardHeader>
                     <CardContent className="space-y-3">
                       {eventItems.map((e: any, i: number) => (
-                        <div key={i} className="rounded-lg border border-border/50 p-4">
+                        <div key={`${pkg.tier}-event-${i}-${String(e.name || "").slice(0, 50)}-${e.date_time || ""}`} className="rounded-lg border border-border/50 p-4">
                           <div className="flex items-start justify-between gap-4">
                             <div>
                               <p className="font-medium">{e.name}</p>
@@ -401,9 +413,24 @@ export default function ItineraryResults() {
                                 size="sm"
                                 variant="default"
                                 className="shrink-0"
-                                onClick={() => trackClick(pkg.tier, "ticket", e.name, e.url)}
+                                data-event-url={e.url}
+                                onClick={(ev) => {
+                                  const url = (ev.currentTarget as HTMLButtonElement).getAttribute("data-event-url");
+                                  if (url) {
+                                    console.log("[TM_LINK_DEBUG] Tickets click", {
+                                      event_name: e.name,
+                                      venue: e.venue,
+                                      venue_city: typeof e.venue_obj === "object" ? e.venue_obj?.city : undefined,
+                                      date_time: e.date_time,
+                                      url_opened: url,
+                                      itinerary_id: id,
+                                      package_tier: pkg.tier,
+                                    });
+                                    trackClick(pkg.tier, "ticket", e.name, url);
+                                  }
+                                }}
                               >
-                                Tickets <ExternalLink className="ml-1 h-3 w-3" />
+                                {e.provider === "ticketmaster" ? "Find Tickets" : "Tickets"} <ExternalLink className="ml-1 h-3 w-3" />
                               </Button>
                             )}
                           </div>

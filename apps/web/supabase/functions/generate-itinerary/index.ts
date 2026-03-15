@@ -160,6 +160,7 @@ ${artistSearch ? `- IMPORTANT: All 3 must be "${artistSearch}" — different cit
         body?.searchResults ||
         {};
       let events = Array.isArray(rawSearchResults.events) ? rawSearchResults.events.slice(0, 6) : [];
+      console.log("[TM_LINK_DEBUG] generate-itinerary input events", events.map((e: any) => ({ name: e.name, book_url: e.book_url, source_url: e.source_url })));
       let golfCourses = Array.isArray(rawSearchResults.golf_courses)
         ? rawSearchResults.golf_courses.slice(0, 12)
         : [];
@@ -573,14 +574,23 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
       }
       for (const e of pkg.events || []) {
         const src = eventByName.get(norm(e.name));
+        const urlBefore = e.url;
         if (src) {
           if (src.provider) e.provider = src.provider;
           if (src.venue && typeof src.venue === "object") e.venue_obj = src.venue;
           if (src.date_time && !e.date_time) e.date_time = src.date_time;
+          const trustedUrl = src.book_url || src.source_url;
+          if (trustedUrl) e.url = trustedUrl;
         }
+        console.log("[TM_LINK_DEBUG] generate-itinerary enrich event", { name: e.name, url_before: urlBefore, url_after: e.url, matched: !!src });
       }
     }
     parsedResult._generated_at = generatedAt;
+    for (const pkg of parsedResult.packages || []) {
+      for (const e of pkg.events || []) {
+        console.log("[TM_LINK_DEBUG] generate-itinerary final saved event", { pkg_tier: pkg.tier, name: e.name, url: e.url });
+      }
+    }
 
     // Save result (share_slug already set during "generating" phase)
     const { error: updateErr } = await supabase
