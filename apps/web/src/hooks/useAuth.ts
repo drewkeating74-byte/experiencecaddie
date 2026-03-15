@@ -1,6 +1,9 @@
 import { useState, useEffect } from "react";
+import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import type { User, Session } from "@supabase/supabase-js";
+
+const OAUTH_PROVIDER_KEY = "oauth_provider";
 
 const AUTH_TIMEOUT_MS = 5000;
 
@@ -47,6 +50,8 @@ export function useAuth() {
       finishLoading();
       clearTimeout(timeoutId);
       if (session?.user) {
+        const provider = sessionStorage.getItem(OAUTH_PROVIDER_KEY);
+        if (provider) showOAuthSuccessToast(provider);
         supabase
           .from("user_roles")
           .select("role")

@@ -70,7 +70,10 @@ export default function Auth() {
                 options: { redirectTo: `${window.location.origin}${redirect}` },
               });
               if (error) toast.error(error.message);
-              else if (data?.url) window.location.href = data.url;
+              else if (data?.url) {
+                sessionStorage.setItem("oauth_provider", "google");
+                window.location.href = data.url;
+              }
             }}
           >
             <svg className="mr-2 h-4 w-4" viewBox="0 0 24 24">
@@ -92,7 +95,10 @@ export default function Auth() {
                 options: { redirectTo: `${window.location.origin}${redirect}` },
               });
               if (error) toast.error(error.message);
-              else if (data?.url) window.location.href = data.url;
+              else if (data?.url) {
+                sessionStorage.setItem("oauth_provider", "apple");
+                window.location.href = data.url;
+              }
             }}
           >
             <svg className="mr-2 h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
