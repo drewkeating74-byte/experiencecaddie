@@ -53,6 +53,7 @@ Set in: Vercel → Project → Settings → Environment Variables (Production, P
 | `PERPLEXITY_API_KEY` | generate-itinerary | AI itinerary generation (required) |
 | `RESEND_API_KEY` | send-share-email | Share emails via Resend |
 | `FROM_EMAIL` | send-share-email | Sender email for share emails |
+| `AWIN_PUBLISHER_ID` or `AWIN_BOOKING_PUBLISHER_ID` | generate-itinerary | Your AWIN publisher ID for Booking.com affiliate links (optional; if set, lodging “Book” links are wrapped so clicks are tracked) |
 
 Set in: Supabase Dashboard → Project Settings → Edge Functions → Secrets.
 

@@ -109,6 +109,7 @@ export default function ItineraryResults() {
       navigate(`/auth?redirect=${encodeURIComponent(window.location.pathname)}`);
       return;
     }
+    if (vendor === "hotel") console.log("[HOTEL_LINK_DEBUG] frontend click", { tier, label, url_opened: url });
     supabase.functions.invoke("track-click", {
       body: { itinerary_id: itinerary?.id ?? id, package_tier: tier, vendor, label, target_url: url },
     });
@@ -310,6 +311,9 @@ export default function ItineraryResults() {
               Estimated total: ${summary.estimated_total_range_usd[0]?.toLocaleString()} – ${summary.estimated_total_range_usd[1]?.toLocaleString()}
             </p>
           )}
+          <p className="mt-2 text-xs text-muted-foreground max-w-xl mx-auto">
+            Ticket and hotel availability may vary—confirm on the linked sites before booking.
+          </p>
         </div>
       )}
 

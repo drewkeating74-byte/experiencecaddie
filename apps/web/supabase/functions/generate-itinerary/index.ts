@@ -368,9 +368,11 @@ ${hasTieredGolf ? `- GOLF by tier (CRITICAL – use ONLY from the matching list 
   * GOLD package golf: ${JSON.stringify(golfGold.length ? golfGold : golfUnassigned)}
   ${golfUnassigned.length ? `(If a tier list is empty, use from: ${JSON.stringify(golfUnassigned)})` : ""}` : ""}
 ${hasRealHotels ? `- HOTELS: ${JSON.stringify(hotels.slice(0, 6).map((h: any) => ({ name: h.name, url: h.book_url || h.source_url })))}` : ""}
-${!hasRealHotels && hotels.length > 0 ? `- HOTELS: (none provided – SEARCH the web for real hotels in ${itinerary.city} on Expedia, Booking.com, or Hotels.com. Use actual hotel names and booking URLs.)` : ""}
+${!hasRealHotels && hotels.length > 0 ? `- HOTELS: (none provided – SEARCH the web for real hotels in ${itinerary.city} on Expedia, Booking.com, or Hotels.com. Use actual property names as listed on those sites (e.g. "Hotel Van Zandt", "W Austin") and real booking URLs. Do not use vague names like "convenient option" or "boutique hotel near venue".)` : ""}
 
 Use the URLs above when composing packages. Do not invent different events or links.${!hasRealHotels ? " For hotels, search the web as instructed." : ""}
+${events.length > 0 ? `
+CONCERT RULE (MANDATORY): For each package, use ONLY concerts from the CONCERTS list above. Do not add or substitute any event not in that list—these are verified events with active ticket listings. Spread the listed concerts across tiers (e.g. different events per tier) so each package has real options.` : ""}
 ${hasTieredGolf ? `
 GOLF TIER RULE (MANDATORY): For each package, pick golf courses ONLY from that package's tier list above. BRONZE package → use only from BRONZE golf list. SILVER → only from SILVER golf list. GOLD → only from GOLD golf list. Never use the same golf course in multiple packages. Each tier must have different golf. All golf, lodging, and the venue are within 30 miles of each other. When golf entries include drive_mins or miles, you may mention them in the "why" for context.` : ""}`
       : "";
@@ -397,9 +399,9 @@ ${selectedConcertNote}
 ${realDataSection}
 ${!hasRealData ? `
 SEARCH for and use REAL data:
-1. Concerts/events: Search Ticketmaster, SeatGeek, StubHub, or venue sites for upcoming shows in ${cityForSearch} between ${itinerary.start_date} and ${itinerary.end_date}. Venues must be at least 5,000 capacity. Use actual event names, venues, dates, and real ticket purchase URLs.
+1. Concerts/events: Search Ticketmaster first for upcoming shows in ${cityForSearch} between ${itinerary.start_date} and ${itinerary.end_date}. Prefer events that appear on Ticketmaster.com so the "Find Tickets" link works. Venues must be at least 5,000 capacity. Use actual event names, venues, dates, and real ticket purchase URLs.
 2. Golf: Search for public golf courses within 30 miles of ${cityForSearch}. Use GolfNow, TeeOff, or course websites. Include real tee time booking URLs.
-3. Hotels: Search Expedia, Booking.com, or Hotels.com for hotels within 30 miles of ${cityForSearch} (and the venue). Use real booking URLs.
+3. Hotels: Search Expedia, Booking.com, or Hotels.com for hotels within 30 miles of ${cityForSearch} (and the venue). Prefer well-known chains or major properties (e.g. Marriott, Hilton, Hyatt, IHG, or established names widely listed on Booking.com) and hotels in main tourist/business districts near the venue—they are more likely to have availability. Use real property names and real booking URLs. Do not use vague names like "convenient option" or "hotel near venue".
 4. Extras: Suggest real restaurants, bars, or experiences with Google Maps or OpenTable links.` : ""}
 
 For each tier, include:
@@ -409,6 +411,15 @@ For each tier, include:
 - 2-4 extras (restaurants, bars, experiences) with real links
 - A day-by-day itinerary (covering each day of the trip)
 - Estimated total cost range in USD based on typical prices
+
+LODGING RULES (mandatory):
+- For each lodging, "name" MUST be the real, official property name as it appears on Booking.com or Expedia (e.g. "Hotel Van Zandt", "The Driskill", "W Austin"). Do NOT use vague descriptions or placeholder names.
+- Prefer properties that are likely to have availability: well-known chains (Marriott, Hilton, Hyatt, IHG, etc.) or established names widely listed on Booking.com, and hotels in main tourist or business districts near the venue. Avoid very small boutiques or single-property inns unless they are clearly widely bookable.
+- FORBIDDEN lodging names: "Convenient option", "Hotel near venue", "Mid-range hotel", "Budget option", "Luxury downtown hotel", or any phrase that describes the stay instead of naming the property. If you cannot find a real property name, use a specific search result (e.g. "South Congress Hotel" not "Boutique hotel in South Austin").
+- "area" must be a real neighborhood or area (e.g. "Downtown Austin", "East Nashville"). Keep "why" to one short sentence.
+- In each package, include at least one lodging that is a well-known chain or large property (e.g. Marriott, Hilton, Hyatt, IHG) so users have an option likely to show availability for the dates.
+
+In "assumptions", include one short line that ticket and hotel availability are subject to change and users should confirm on the linked site.
 
 Return ONLY valid JSON matching this exact structure (no markdown, no explanation). Keep assumptions to 2 short items max:
 {
@@ -423,7 +434,7 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
       "tier": "BRONZE" | "SILVER" | "GOLD",
       "estimated_total_usd": [min, max],
       "lodging": [
-        { "name": "string", "type": "hotel" | "vacation_rental" | "golf_resort", "area": "string", "price_per_night": "string", "url": "string", "why": "string" }
+        { "name": "string - official property name only (e.g. Hotel Van Zandt)", "type": "hotel" | "vacation_rental" | "golf_resort", "area": "string - neighborhood or area", "price_per_night": "string", "url": "string", "why": "string" }
       ],
       "events": [
         { "name": "string", "venue": "string", "date_time": "string", "url": "string", "price_range": "string" }
@@ -527,30 +538,151 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
     const norm = (s: string) => (s || "").toLowerCase().replace(/\s+/g, " ").trim();
     const MIN_SUBSTRING_LEN = 15; // avoid "Golf" or "Muni" matching wrong courses
 
-    // Replace generic hotel URLs with a Booking.com search for this property + city + dates
-    const isGenericHotelUrl = (url: string): boolean => {
+    // Always replace OTA hotel URLs with our Booking.com search link so users get a consistent, working experience
+    const shouldReplaceHotelUrl = (url: string): boolean => {
       if (!url || typeof url !== "string") return true;
       const u = url.trim().toLowerCase();
       if (!u.startsWith("http")) return true;
       try {
         const parsed = new URL(u);
         const host = parsed.hostname.replace(/^www\./, "");
-        if (!["booking.com", "expedia.com", "hotels.com", "hotel.com"].some((d) => host === d || host.endsWith("." + d))) return false;
-        const path = (parsed.pathname || "/").replace(/\/$/, "") || "/";
-        const looksLikeProperty = /\/hotel\//.test(path) || /\/Hotel-/.test(path) || /\/details\//.test(path) || (parsed.searchParams && (parsed.searchParams.get("hotelId") || parsed.searchParams.get("propertyId") || parsed.searchParams.get("propertyid")));
-        return !looksLikeProperty;
+        const isOta = ["booking.com", "expedia.com", "hotels.com", "hotel.com"].some((d) => host === d || host.endsWith("." + d));
+        if (isOta) return true; // always replace OTA links with our search URL (LLM links often 404 or go to generic page)
+        return false; // keep non-OTA URLs (e.g. a hotel's own site)
       } catch {
         return true;
       }
     };
+    const BOOKING_COM_AWIN_MERCHANT_ID = "6776"; // Booking.com North America on AWIN
+    const awinPublisherId = (Deno.env.get("AWIN_PUBLISHER_ID") || Deno.env.get("AWIN_BOOKING_PUBLISHER_ID") || "").trim();
+
+    // Normalize LLM hotel name for Booking.com search: strip fluff, limit length, detect vague names
+    const HOTEL_NAME_FLUFF = /\b(luxury|boutique|downtown|historic|convenient|mid-range|midrange|budget-friendly|premium|upscale|affordable|central|charming|cozy|elegant|modern|traditional)\b/gi;
+    const HOTEL_NAME_SUFFIX = /\s*(?:&\s*suites?|&\s*spa|hotel\s*&\s*suites?|-\s*.*)$/i;
+    const VAGUE_PATTERNS = /^(option|hotel\s*near|near\s*(venue|airport|downtown)|hotels?\s*in|stays?|accommodation|lodging)$/i;
+    const MAX_SEARCH_NAME_WORDS = 5;
+    const MAX_SEARCH_NAME_LEN = 50;
+
+    const normalizeHotelNameForSearch = (name: string): { searchName: string; isLowConfidence: boolean } => {
+      if (!name || typeof name !== "string") return { searchName: "", isLowConfidence: true };
+      let s = name
+        .replace(/["']/g, " ")
+        .replace(HOTEL_NAME_FLUFF, " ")
+        .replace(HOTEL_NAME_SUFFIX, "")
+        .replace(/\s+/g, " ")
+        .trim();
+      const words = s.split(/\s+/).filter(Boolean);
+      s = words.slice(0, MAX_SEARCH_NAME_WORDS).join(" ").slice(0, MAX_SEARCH_NAME_LEN).trim();
+      const isLowConfidence = s.length < 2 || VAGUE_PATTERNS.test(s) || words.length <= 1 && s.length < 10;
+      return { searchName: s, isLowConfidence };
+    };
+
+    // Hotel dates: use actual trip dates when span ≤ 14 days; when flexible (wide window), derive from package event date.
+    const MAX_HOTEL_STAY_DAYS = 14;
+    const DEFAULT_HOTEL_NIGHTS = 4;
+    const NIGHTS_AFTER_EVENT = 2; // checkout = event date + 2 days
+    const NIGHTS_BEFORE_EVENT = 1; // checkin = event date - 1 day
+    const toDate = (s: string): Date | null => {
+      if (!s || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+      const d = new Date(s + "T12:00:00Z");
+      return isNaN(d.getTime()) ? null : d;
+    };
+    const addDays = (s: string, days: number): string => {
+      const d = toDate(s);
+      if (!d) return s;
+      d.setUTCDate(d.getUTCDate() + days);
+      return d.toISOString().slice(0, 10);
+    };
+    const parseEventDate = (dateTime: string): string | null => {
+      if (!dateTime || typeof dateTime !== "string") return null;
+      const part = dateTime.slice(0, 10);
+      return /^\d{4}-\d{2}-\d{2}$/.test(part) ? part : null;
+    };
+    const getEarliestEventDate = (events: any[]): string | null => {
+      let earliest: string | null = null;
+      for (const e of events || []) {
+        const d = parseEventDate(e?.date_time);
+        if (d && (!earliest || d < earliest)) earliest = d;
+      }
+      return earliest;
+    };
+    const getHotelDateRange = (itinerary: any, pkg: any): { checkin: string; checkout: string } | null => {
+      const start = itinerary?.start_date && toDate(itinerary.start_date);
+      const end = itinerary?.end_date && toDate(itinerary.end_date);
+      if (!start) return null;
+      const checkin = itinerary.start_date;
+      if (end && end > start) {
+        const nights = Math.round((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000));
+        if (nights <= MAX_HOTEL_STAY_DAYS) return { checkin, checkout: itinerary.end_date };
+      }
+      const eventDate = getEarliestEventDate(pkg?.events || []);
+      if (eventDate) {
+        const checkinFromEvent = addDays(eventDate, -NIGHTS_BEFORE_EVENT);
+        const checkoutFromEvent = addDays(eventDate, NIGHTS_AFTER_EVENT);
+        return { checkin: checkinFromEvent, checkout: checkoutFromEvent };
+      }
+      return { checkin, checkout: addDays(checkin, DEFAULT_HOTEL_NIGHTS) };
+    };
+
     const buildHotelSearchUrl = (name: string, city: string, state?: string, startDate?: string, endDate?: string): string => {
-      const parts = [name, city];
-      if (state?.trim()) parts.push(state.trim());
-      const ss = parts.filter(Boolean).join(" ").trim() || "hotels";
-      const params = new URLSearchParams({ ss });
-      if (startDate && /^\d{4}-\d{2}-\d{2}$/.test(startDate)) params.set("checkin", startDate);
-      if (endDate && /^\d{4}-\d{2}-\d{2}$/.test(endDate)) params.set("checkout", endDate);
-      return `https://www.booking.com/searchresults.html?${params.toString()}`;
+      const cleanCity = (city || "").trim().toLowerCase();
+      const validCity = cleanCity && cleanCity !== "flexible" && cleanCity !== "various";
+      const statePart = (state || "").trim() ? ` ${(state || "").trim()}` : "";
+
+      const { searchName, isLowConfidence } = normalizeHotelNameForSearch(name || "");
+      let ss: string;
+      if (isLowConfidence || !searchName) {
+        ss = validCity ? `${cleanCity}${statePart}`.trim() : "hotels";
+      } else {
+        const nameLower = searchName.toLowerCase().trim();
+        // If the hotel name already contains the city phrase (e.g. "Kansas City"), do not append city again
+        const alreadyHasCity = validCity && nameLower.includes(cleanCity);
+        ss = validCity
+          ? (alreadyHasCity ? searchName.trim() : `${searchName.trim()} ${cleanCity}${statePart}`.trim())
+          : searchName || "hotels";
+      }
+      ss = ss.slice(0, 200);
+
+      const params = new URLSearchParams();
+      params.set("ss", ss);
+      if (startDate && endDate && /^\d{4}-\d{2}-\d{2}$/.test(startDate) && /^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
+        params.set("checkin", startDate);
+        params.set("checkout", endDate);
+      }
+      params.set("group_adults", "2");
+      params.set("no_rooms", "1");
+      params.set("group_children", "0");
+      const bookingUrl = `https://www.booking.com/searchresults.html?${params.toString()}`;
+      if (awinPublisherId) {
+        const awinUrl = `https://www.awin1.com/cread.php?awinmid=${BOOKING_COM_AWIN_MERCHANT_ID}&awinaffid=${encodeURIComponent(awinPublisherId)}&ued=${encodeURIComponent(bookingUrl)}`;
+        console.log("[HOTEL_LINK_DEBUG] buildHotelSearchUrl", { raw_booking_url: bookingUrl, awin_wrapping: true });
+        return awinUrl;
+      }
+      console.log("[HOTEL_LINK_DEBUG] buildHotelSearchUrl", { raw_booking_url: bookingUrl, awin_wrapping: false });
+      return bookingUrl;
+    };
+
+    // Strip any leading/trailing quotes (ASCII + Unicode) and whitespace so the saved value is never wrapped in quotes
+    const stripWrappingQuotes = (s: string): string => {
+      if (!s || typeof s !== "string") return s || "";
+      let u = s.trim();
+      // Strip from start
+      u = u.replace(/^[\s"'\u201C\u201D\u201E\u201F\u2033\u2036]+/, "");
+      // Strip from end
+      u = u.replace(/[\s"'\u201C\u201D\u201E\u201F\u2033\u2036]+$/, "");
+      return u.trim();
+    };
+    const sanitizeLodgingUrl = (url: string, fallbackCity: string, fallbackState?: string): string => {
+      if (!url || typeof url !== "string") return url || "";
+      const u = stripWrappingQuotes(url);
+      const looksInvalid = !u.startsWith("http") || /[\s"'\u201C\u201D\u201E\u201F\u2033\u2036]$/.test(u) || /["'\u201C\u201D]/.test(u);
+      if (looksInvalid && fallbackCity) {
+        const city = (fallbackCity || "").trim().toLowerCase();
+        const statePart = (fallbackState || "").trim() ? ` ${(fallbackState || "").trim()}` : "";
+        const ss = (city && city !== "flexible" && city !== "various") ? `${city}${statePart}`.trim() : "hotels";
+        return `https://www.booking.com/searchresults.html?ss=${encodeURIComponent(ss)}`;
+      }
+      return u;
     };
     const allGolfSources = [
       ...(poolBronze || []),
@@ -620,19 +752,39 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
         }
         console.log("[TM_LINK_DEBUG] generate-itinerary enrich event", { name: e.name, url_before: urlBefore, url_after: e.url, matched: !!src });
       }
+      const hotelDateRange = getHotelDateRange(itinerary, pkg);
       for (const h of pkg.lodging || []) {
         const url = typeof h.url === "string" ? h.url.trim() : "";
-        if (isGenericHotelUrl(url)) {
-          const city = itinerary?.city || "";
-          const state = itinerary?.state ?? (searchResults?.destination as any)?.state;
-          h.url = buildHotelSearchUrl(h.name || "Hotel", city, state, itinerary?.start_date, itinerary?.end_date);
+        const originalUrl = url;
+        const replaced = shouldReplaceHotelUrl(url);
+        const city = itinerary?.city || "";
+        const state = itinerary?.state ?? (searchResults?.destination as any)?.state;
+        if (replaced) {
+          const { isLowConfidence } = normalizeHotelNameForSearch(h.name || "");
+          if (isLowConfidence && (h.area || city)) {
+            h.name = `Hotels in ${(h.area || city).trim()}`;
+          }
+          h.url = buildHotelSearchUrl(h.name || "Hotel", city, state, hotelDateRange?.checkin, hotelDateRange?.checkout);
         }
+        h.url = sanitizeLodgingUrl(h.url || "", city, state);
+        console.log("[HOTEL_LINK_DEBUG] lodging", {
+          pkg_tier: pkg.tier,
+          name: h.name,
+          original_url: originalUrl || "(empty)",
+          replacement_fired: replaced,
+          final_saved_url: h.url,
+          final_is_awin: (h.url || "").includes("awin1.com"),
+        });
       }
     }
     parsedResult._generated_at = generatedAt;
     for (const pkg of parsedResult.packages || []) {
       for (const e of pkg.events || []) {
         console.log("[TM_LINK_DEBUG] generate-itinerary final saved event", { pkg_tier: pkg.tier, name: e.name, url: e.url });
+      }
+      // Ensure no lodging URL is saved with wrapping quotes (safety net before DB write)
+      for (const h of pkg.lodging || []) {
+        if (typeof h.url === "string") h.url = stripWrappingQuotes(h.url);
       }
     }
 
