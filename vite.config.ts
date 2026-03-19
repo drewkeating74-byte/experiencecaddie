@@ -3,9 +3,7 @@ import react from "@vitejs/plugin-react-swc";
 import path from "path";
 import { componentTagger } from "lovable-tagger";
 
-// https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
-  root: path.resolve(__dirname, "apps/web"),
   server: {
     host: "::",
     port: 8080,
@@ -17,6 +15,11 @@ export default defineConfig(({ mode }) => ({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "apps/web/src"),
+      "src": path.resolve(__dirname, "apps/web/src"),
     },
+  },
+  publicDir: path.resolve(__dirname, "apps/web/public"),
+  css: {
+    postcss: path.resolve(__dirname, "apps/web"),
   },
 }));

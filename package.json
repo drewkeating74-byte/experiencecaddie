@@ -4,10 +4,10 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "start": "vite preview",
-    "preview": "vite preview",
+    "dev": "vite --config apps/web/vite.config.ts apps/web",
+    "build": "vite build --config apps/web/vite.config.ts apps/web",
+    "start": "vite preview --config apps/web/vite.config.ts apps/web",
+    "preview": "vite preview --config apps/web/vite.config.ts apps/web",
     "test": "npm run test --prefix apps/web"
   },
   "dependencies": {
