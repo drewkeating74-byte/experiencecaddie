@@ -679,6 +679,23 @@ export default function ExperienceBuilder() {
             <p className="mt-1 text-muted-foreground">
               Everything here is optional — we'll work with whatever you give us.
             </p>
+            {selectedEntry === "artist" && eventInput.trim() && (
+              <p className="mt-2 text-sm text-muted-foreground">
+                Looking for: <span className="font-medium text-foreground">{eventInput.trim()}</span>
+              </p>
+            )}
+            {selectedEntry === "find_concert" && (
+              <p className="mt-2 text-sm text-muted-foreground">
+                Mode: <span className="font-medium text-foreground">Discover shows</span>
+                {selectedGenres.length > 0 ? ` • Genres: ${selectedGenres.join(", ")}` : ""}
+              </p>
+            )}
+            {selectedEntry === "surprise" && (
+              <p className="mt-2 text-sm text-muted-foreground">
+                Mode: <span className="font-medium text-foreground">Surprise me</span>
+                {selectedGenres.length > 0 ? ` • Genres: ${selectedGenres.join(", ")}` : ""}
+              </p>
+            )}
           </div>
 
           {/* Location */}
