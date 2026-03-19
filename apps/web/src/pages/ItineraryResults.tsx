@@ -137,12 +137,12 @@ export default function ItineraryResults() {
       });
       toast.success("Removed from My Trips");
     } else {
-      await supabase
-        .from("user_saved_packages")
+      await (supabase
+        .from("user_saved_packages" as any)
         .upsert(
           { user_id: user.id, itinerary_id: itinerary.id, package_tier: tier },
           { onConflict: "user_id,itinerary_id,package_tier" }
-        );
+        ) as any);
       setSavedTiers((prev) => new Set(prev).add(tier));
       toast.success("Saved to My Trips");
     }

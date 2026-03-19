@@ -368,7 +368,7 @@ export default function ExperienceBuilder() {
         searchResult = (hasArtist || hasCity) ? await fetchSearch(searchRequest) : buildFallbackSearchResponse({ ...searchRequest, destination: { ...searchRequest.destination, city: "Austin" } });
       } catch (err) {
         if (import.meta.env.DEV) console.warn("Search API unreachable, using fallback:", err);
-        searchResult = buildFallbackSearchResponse({ ...searchRequest, destination: { city: finalCity === "flexible" ? "Austin" : finalCity, state: searchRequest.destination?.state } });
+        searchResult = buildFallbackSearchResponse({ ...searchRequest, destination: { city: finalCity === "flexible" ? "Austin" : finalCity, state: (searchRequest.destination as any)?.state } });
       }
       const search_results = {
         events: searchResult.events?.slice(0, 6) || [],
