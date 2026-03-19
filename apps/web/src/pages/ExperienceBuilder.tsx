@@ -322,12 +322,12 @@ export default function ExperienceBuilder() {
         if (!discRes.ok || errMsg) {
           throw new Error((errMsg as string) || `Concert discovery failed (${discRes.status})`);
         }
-        const opts = discData.concert_options || [];
+        const opts = (discData.concert_options || []) as any[];
         if (!opts.length) {
           setDiscoveryStep("no_results");
           return;
         }
-        setConcertOptions(opts);
+        setConcertOptions(opts as any);
         setSavedParams({ finalCity, finalStart, finalEnd, budget, groupSize, eventDetails });
         setDiscoveryStep("pick");
       } catch (err: any) {
