@@ -322,12 +322,12 @@ export default function ExperienceBuilder() {
         if (!discRes.ok || errMsg) {
           throw new Error((errMsg as string) || `Concert discovery failed (${discRes.status})`);
         }
-        const opts = discData.concert_options || [];
+        const opts = (discData.concert_options || []) as any[];
         if (!opts.length) {
           setDiscoveryStep("no_results");
           return;
         }
-        setConcertOptions(opts);
+        setConcertOptions(opts as any);
         setSavedParams({ finalCity, finalStart, finalEnd, budget, groupSize, eventDetails });
         setDiscoveryStep("pick");
       } catch (err: any) {
@@ -368,7 +368,7 @@ export default function ExperienceBuilder() {
         searchResult = (hasArtist || hasCity) ? await fetchSearch(searchRequest) : buildFallbackSearchResponse({ ...searchRequest, destination: { ...searchRequest.destination, city: "Austin" } });
       } catch (err) {
         if (import.meta.env.DEV) console.warn("Search API unreachable, using fallback:", err);
-        searchResult = buildFallbackSearchResponse({ ...searchRequest, destination: { city: finalCity === "flexible" ? "Austin" : finalCity, state: searchRequest.destination?.state } });
+        searchResult = buildFallbackSearchResponse({ ...searchRequest, destination: { city: finalCity === "flexible" ? "Austin" : finalCity, state: (searchRequest.destination as any)?.state } });
       }
       const search_results = {
         events: searchResult.events?.slice(0, 6) || [],

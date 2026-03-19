@@ -54,12 +54,12 @@ export default function ItineraryResults() {
   // Load which package tiers user has saved
   useEffect(() => {
     if (!user?.id || !itinerary?.id) return;
-    supabase
-      .from("user_saved_packages")
+    (supabase
+      .from("user_saved_packages" as any)
       .select("package_tier")
       .eq("user_id", user.id)
-      .eq("itinerary_id", itinerary.id)
-      .then(({ data }) => setSavedTiers(new Set((data || []).map((r: any) => r.package_tier))));
+      .eq("itinerary_id", itinerary.id) as any)
+      .then(({ data }: any) => setSavedTiers(new Set((data || []).map((r: any) => r.package_tier))));
   }, [user?.id, itinerary?.id]);
 
   useEffect(() => {
@@ -125,12 +125,12 @@ export default function ItineraryResults() {
     }
     const isSaved = savedTiers.has(tier);
     if (isSaved) {
-      await supabase
-        .from("user_saved_packages")
+      await (supabase
+        .from("user_saved_packages" as any)
         .delete()
         .eq("user_id", user.id)
         .eq("itinerary_id", itinerary.id)
-        .eq("package_tier", tier);
+        .eq("package_tier", tier) as any);
       setSavedTiers((prev) => {
         const next = new Set(prev);
         next.delete(tier);
@@ -138,12 +138,12 @@ export default function ItineraryResults() {
       });
       toast.success("Removed from My Trips");
     } else {
-      await supabase
-        .from("user_saved_packages")
+      await (supabase
+        .from("user_saved_packages" as any)
         .upsert(
           { user_id: user.id, itinerary_id: itinerary.id, package_tier: tier },
           { onConflict: "user_id,itinerary_id,package_tier" }
-        );
+        ) as any);
       setSavedTiers((prev) => new Set(prev).add(tier));
       toast.success("Saved to My Trips");
     }
