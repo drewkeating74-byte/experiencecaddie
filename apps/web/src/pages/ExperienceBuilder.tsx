@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -65,7 +65,83 @@ export default function ExperienceBuilder() {
   const [savedParams, setSavedParams] = useState<{ finalCity: string; finalStart: string; finalEnd: string; budget: BudgetTier; groupSize: number; eventDetails: string } | null>(null);
 
   const { user } = useAuth();
+  const location = useLocation();
   const navigate = useNavigate();
+
+  // Prefill "New Trip" context when returning from an itinerary page.
+  // This avoids forcing users to go back through the entire start flow.
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+
+    const cityParam = params.get("city") ?? "";
+    const startParam = params.get("start_date") ?? "";
+    const endParam = params.get("end_date") ?? "";
+    const budgetParam = params.get("budget_tier") ?? "mid";
+    const groupSizeParamRaw = params.get("group_size") ?? "2";
+    const eventDetailsParam = params.get("event_details") ?? "";
+
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+    const validBudgets = ["low", "mid", "high"] as const;
+
+    // Gate: require dates + event_details (for intent), but city can be missing or "flexible".
+    const hasCore =
+      dateRegex.test(startParam) &&
+      dateRegex.test(endParam) &&
+      eventDetailsParam.trim().length > 0;
+
+    if (!hasCore) return;
+
+    const cityNormalized = cityParam.trim();
+    const isFlexibleCity = !cityNormalized || cityNormalized.toLowerCase() === "flexible";
+
+    // Restore to the trip fine-tuning screen with the most relevant intent preserved.
+    setStep("details");
+
+    setFlexibleLocation(!isFlexibleCity);
+    if (!isFlexibleCity) setCity(cityNormalized);
+
+    setFlexibleDates(false);
+    setStartDate(startParam);
+    setEndDate(endParam);
+
+    if ((validBudgets as readonly string[]).includes(budgetParam)) {
+      setBudget(budgetParam as BudgetTier);
+    }
+
+    const groupSizeParsed = Number(groupSizeParamRaw);
+    const groupSizeValid = Number.isFinite(groupSizeParsed) && groupSizeParsed >= 1 && groupSizeParsed <= 20;
+    if (groupSizeValid) setGroupSize(groupSizeParsed);
+
+    const parseGenresFromEventDetails = (ed: string): string[] => {
+      // Expected patterns:
+      // - "discover for me — genres: Country, Rock"
+      // - "surprise me — concert — genres: EDM, Pop"
+      const match = ed.match(/genres:\s*(.+)$/i);
+      const raw = match?.[1]?.trim();
+      if (!raw || raw.toLowerCase() === "any") return [];
+      return raw.split(",").map((s) => s.trim()).filter(Boolean);
+    };
+
+    const lower = eventDetailsParam.toLowerCase();
+    if (lower.startsWith("discover for me")) {
+      setSelectedEntry("find_concert");
+      setSelectedGenres(parseGenresFromEventDetails(eventDetailsParam));
+      setEventInput("");
+      return;
+    }
+
+    if (lower.startsWith("surprise me")) {
+      setSelectedEntry("surprise");
+      setSelectedGenres(parseGenresFromEventDetails(eventDetailsParam));
+      setEventInput("");
+      return;
+    }
+
+    // Default: artist flow uses raw user input as event_details.
+    setSelectedEntry("artist");
+    setEventInput(eventDetailsParam);
+    setSelectedGenres([]);
+  }, [location.search]);
 
   const getEventDetails = () => {
     if (selectedEntry === "artist") return eventInput;

@@ -255,11 +255,21 @@ export default function ItineraryResults() {
   const summary = result.summary;
   const packages = result.packages || [];
 
+  const newTripParams = new URLSearchParams();
+  if (itinerary?.city) newTripParams.set("city", itinerary.city);
+  if (itinerary?.start_date) newTripParams.set("start_date", itinerary.start_date);
+  if (itinerary?.end_date) newTripParams.set("end_date", itinerary.end_date);
+  if (itinerary?.budget_tier) newTripParams.set("budget_tier", itinerary.budget_tier);
+  if (itinerary?.group_size != null) newTripParams.set("group_size", String(itinerary.group_size));
+  if (itinerary?.event_details) newTripParams.set("event_details", String(itinerary.event_details));
+
+  const newTripHref = newTripParams.toString() ? `/experience?${newTripParams.toString()}` : "/experience";
+
   return (
     <div className="container mx-auto max-w-5xl px-4 py-8">
       <div className="mb-6 flex items-center justify-between">
         <Button variant="ghost" asChild>
-          <Link to="/experience"><ArrowLeft className="mr-2 h-4 w-4" /> New Trip</Link>
+          <Link to={newTripHref}><ArrowLeft className="mr-2 h-4 w-4" /> New Trip</Link>
         </Button>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={copyShareLink}>
