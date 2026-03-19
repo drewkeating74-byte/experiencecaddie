@@ -688,16 +688,26 @@ export default function ExperienceBuilder() {
               </div>
             )}
             {selectedEntry === "find_concert" && (
-              <p className="mt-2 text-sm text-muted-foreground">
-                Mode: <span className="font-medium text-foreground">Discover shows</span>
-                {selectedGenres.length > 0 ? ` • Genres: ${selectedGenres.join(", ")}` : ""}
-              </p>
+              <div className="mt-3 rounded-lg border border-accent/30 bg-accent/10 px-3 py-2">
+                <p className="text-sm">
+                  <span className="text-muted-foreground">Mode:</span>{" "}
+                  <span className="font-semibold text-foreground">Discover shows</span>
+                  {selectedGenres.length > 0 ? (
+                    <span className="text-muted-foreground">{` • Genres: ${selectedGenres.join(", ")}`}</span>
+                  ) : null}
+                </p>
+              </div>
             )}
             {selectedEntry === "surprise" && (
-              <p className="mt-2 text-sm text-muted-foreground">
-                Mode: <span className="font-medium text-foreground">Surprise me</span>
-                {selectedGenres.length > 0 ? ` • Genres: ${selectedGenres.join(", ")}` : ""}
-              </p>
+              <div className="mt-3 rounded-lg border border-accent/30 bg-accent/10 px-3 py-2">
+                <p className="text-sm">
+                  <span className="text-muted-foreground">Mode:</span>{" "}
+                  <span className="font-semibold text-foreground">Surprise me</span>
+                  {selectedGenres.length > 0 ? (
+                    <span className="text-muted-foreground">{` • Genres: ${selectedGenres.join(", ")}`}</span>
+                  ) : null}
+                </p>
+              </div>
             )}
           </div>
 

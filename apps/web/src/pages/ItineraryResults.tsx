@@ -24,9 +24,10 @@ import { useAuth } from "@/hooks/useAuth";
 const MAX_EMAILS = 10;
 
 const TIER_STYLES: Record<string, { bg: string; border: string; badge: string }> = {
-  BRONZE: { bg: "bg-amber-900/8", border: "border-amber-700/35", badge: "bg-amber-700 text-white" },
-  SILVER: { bg: "bg-slate-200/20", border: "border-slate-400/55", badge: "bg-slate-600 text-white" },
-  GOLD: { bg: "bg-yellow-500/14", border: "border-yellow-500/55", badge: "bg-yellow-500 text-black" },
+  // Stronger tier distinction via background fills (not just borders)
+  BRONZE: { bg: "bg-gradient-to-br from-amber-900/20 to-amber-900/5", border: "border-amber-700/40", badge: "bg-amber-700 text-white" },
+  SILVER: { bg: "bg-gradient-to-br from-slate-300/30 to-slate-200/10", border: "border-slate-400/60", badge: "bg-slate-700 text-white" },
+  GOLD: { bg: "bg-gradient-to-br from-yellow-500/25 to-yellow-500/8", border: "border-yellow-500/60", badge: "bg-yellow-500 text-black" },
 };
 
 const TIER_DESCRIPTORS: Record<string, string> = {
