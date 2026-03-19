@@ -680,9 +680,12 @@ export default function ExperienceBuilder() {
               Everything here is optional — we'll work with whatever you give us.
             </p>
             {selectedEntry === "artist" && eventInput.trim() && (
-              <p className="mt-2 text-sm text-muted-foreground">
-                Looking for: <span className="font-medium text-foreground">{eventInput.trim()}</span>
-              </p>
+              <div className="mt-3 rounded-lg border border-accent/30 bg-accent/10 px-3 py-2">
+                <p className="text-sm">
+                  <span className="text-muted-foreground">Looking for:</span>{" "}
+                  <span className="font-semibold text-foreground">{eventInput.trim()}</span>
+                </p>
+              </div>
             )}
             {selectedEntry === "find_concert" && (
               <p className="mt-2 text-sm text-muted-foreground">

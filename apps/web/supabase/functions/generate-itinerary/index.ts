@@ -79,6 +79,7 @@ serve(async (req) => {
 
 Requirements:
 - Venue capacity must be at least 5,000 people (arenas, amphitheaters, large venues only)
+- Concert MUST be in the United States (US-only). Do NOT return international dates/cities.
 - Concert must be in a city that has quality public golf within 25 miles (we add golf in the next step)
 - Use Ticketmaster, SeatGeek, StubHub, or official venue sites. Return real ticket URLs.
 - Dates between ${p.start_date} and ${p.end_date}

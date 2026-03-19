@@ -24,9 +24,9 @@ import { useAuth } from "@/hooks/useAuth";
 const MAX_EMAILS = 10;
 
 const TIER_STYLES: Record<string, { bg: string; border: string; badge: string }> = {
-  BRONZE: { bg: "bg-amber-900/5", border: "border-amber-700/30", badge: "bg-amber-700 text-white" },
-  SILVER: { bg: "bg-slate-300/10", border: "border-slate-400/40", badge: "bg-slate-500 text-white" },
-  GOLD: { bg: "bg-yellow-500/10", border: "border-yellow-500/40", badge: "bg-yellow-500 text-black" },
+  BRONZE: { bg: "bg-amber-900/8", border: "border-amber-700/35", badge: "bg-amber-700 text-white" },
+  SILVER: { bg: "bg-slate-200/20", border: "border-slate-400/55", badge: "bg-slate-600 text-white" },
+  GOLD: { bg: "bg-yellow-500/14", border: "border-yellow-500/55", badge: "bg-yellow-500 text-black" },
 };
 
 const TIER_DESCRIPTORS: Record<string, string> = {
