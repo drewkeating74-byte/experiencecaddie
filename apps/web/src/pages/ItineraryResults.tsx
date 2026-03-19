@@ -124,12 +124,12 @@ export default function ItineraryResults() {
     }
     const isSaved = savedTiers.has(tier);
     if (isSaved) {
-      await supabase
-        .from("user_saved_packages")
+      await (supabase
+        .from("user_saved_packages" as any)
         .delete()
         .eq("user_id", user.id)
         .eq("itinerary_id", itinerary.id)
-        .eq("package_tier", tier);
+        .eq("package_tier", tier) as any);
       setSavedTiers((prev) => {
         const next = new Set(prev);
         next.delete(tier);
