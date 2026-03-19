@@ -40,12 +40,12 @@ export function useAuth() {
         if (session?.user) {
           const provider = sessionStorage.getItem(OAUTH_PROVIDER_KEY);
           if (provider) showOAuthSuccessToast(provider);
-          supabase
+          Promise.resolve(supabase
             .from("user_roles")
             .select("role")
             .eq("user_id", session.user.id)
             .eq("role", "admin")
-            .maybeSingle()
+            .maybeSingle())
             .then(({ data }: any) => mounted && setIsAdmin(!!data))
             .catch(() => {});
         }
