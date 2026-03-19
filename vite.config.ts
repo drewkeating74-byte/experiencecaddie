@@ -14,7 +14,12 @@ export default defineConfig(({ mode }) => ({
   plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "./src"),
+      "@": path.resolve(__dirname, "apps/web/src"),
+      "src": path.resolve(__dirname, "apps/web/src"),
     },
+  },
+  publicDir: path.resolve(__dirname, "apps/web/public"),
+  css: {
+    postcss: path.resolve(__dirname, "apps/web"),
   },
 }));
