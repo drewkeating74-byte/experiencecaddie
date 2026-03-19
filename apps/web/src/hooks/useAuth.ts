@@ -46,7 +46,7 @@ export function useAuth() {
             .eq("user_id", session.user.id)
             .eq("role", "admin")
             .maybeSingle()
-            .then(({ data }) => mounted && setIsAdmin(!!data))
+            .then(({ data }: any) => mounted && setIsAdmin(!!data))
             .catch(() => {});
         }
       }
