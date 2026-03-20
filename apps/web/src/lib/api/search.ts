@@ -183,16 +183,16 @@ export function buildFallbackSearchResponse(request: SearchRequest): SearchRespo
   const endDate = request.dates.end_date;
   const teeWindow = request.tee_time_window ?? { start: "07:00", end: "11:00" };
 
-  const ticketUrl = "https://www.ticketmaster.com/";
+  const ticketUrl = "https://www.google.com/search?q=concerts+tickets";
   const concertLink: ConcertOutboundLink = {
     url: ticketUrl,
-    provider: "Ticketmaster",
+    provider: "Google",
     category: "concert",
     link_type: "provider_search",
-    label: "Find tickets",
+    label: "Search tickets",
     is_verified: false,
     confidence: "medium",
-    disclaimer: "Opens Ticketmaster search results for this event",
+    disclaimer: "Opens ticket search results across multiple vendors; availability is not confirmed in Experience Caddie",
   };
   return {
     destination: { city, state, start_date: startDate, end_date: endDate },
@@ -248,14 +248,14 @@ export function buildFallbackSearchResponse(request: SearchRequest): SearchRespo
         stars: 4,
         rating: 4.6,
         image_url: "https://images.unsplash.com/photo-1566073771259-6a8506099945?w=1200",
-        source_url: "https://www.booking.com/",
-        book_url: "https://www.booking.com/",
+        source_url: "https://www.google.com/travel/hotels?q=hotels",
+        book_url: "https://www.google.com/travel/hotels?q=hotels",
         book_link: {
-          url: "https://www.booking.com/",
-          provider: "Booking.com",
+          url: "https://www.google.com/travel/hotels?q=hotels",
+          provider: "Google Hotels",
           category: "hotel",
           link_type: "provider_search",
-          label: "Check rates",
+          label: "Search hotels",
           is_verified: false,
           confidence: "medium",
           disclaimer: "Opens hotel search results; availability and rates are not confirmed in Experience Caddie",

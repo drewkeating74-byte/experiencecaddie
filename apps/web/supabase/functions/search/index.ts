@@ -332,16 +332,16 @@ function mapEventToResult(
 function mockEvents(request: SearchRequest, startDate: string, endDate: string): EventResult[] {
   const city = request.destination?.city || "Austin";
   const state = request.destination?.state ?? "TX";
-  const ticketUrl = "https://www.ticketmaster.com/";
+  const ticketUrl = "https://www.google.com/search?q=concerts+tickets";
   const book_link: ConcertOutboundLink = {
     url: ticketUrl,
-    provider: "Ticketmaster",
+    provider: "Google",
     category: "concert",
     link_type: "provider_search",
-    label: "Find tickets",
+    label: "Search tickets",
     is_verified: false,
     confidence: "medium",
-    disclaimer: "Opens Ticketmaster search results for this event",
+    disclaimer: "Opens ticket search results across multiple vendors; availability is not confirmed in Experience Caddie",
   };
   return [
     {
@@ -416,8 +416,9 @@ async function geocodeCity(city: string, state?: string): Promise<GeoResult> {
 
 function publicAccessConfidence(name: string): "likely_public" | "unknown" | "likely_private" {
   const n = (name || "").toLowerCase();
-  if (/country club|private club|private\b|members only|members'? club|invitation only|invite only|invitational|athletic club|golf & country|golf and country/i.test(n)) return "likely_private";
   if (/municipal|muny|public\b|city\b|park\b|recreation|community\b/i.test(n)) return "likely_public";
+  if (/country club|private club|private\b|members only|members'? club|invitation only|invite only|invitational|athletic club|golf & country|golf and country|exclusive|membership/i.test(n)) return "likely_private";
+  if (/golf club|club\b/i.test(n) && !/municipal|muny|public|city|park|recreation|community/i.test(n)) return "likely_private";
   return "unknown";
 }
 
@@ -779,13 +780,13 @@ async function searchGolfGooglePlaces(
 function mockHotels(request: SearchRequest): HotelResult[] {
   const city = request.destination?.city || "Austin";
   const state = request.destination?.state ?? "TX";
-  const bookUrl = "https://www.booking.com/";
+  const bookUrl = "https://www.google.com/travel/hotels?q=hotels";
   const bookLink: HotelOutboundLink = {
     url: bookUrl,
-    provider: "Booking.com",
+    provider: "Google Hotels",
     category: "hotel",
     link_type: "provider_search",
-    label: "Check rates",
+    label: "Search hotels",
     is_verified: false,
     confidence: "medium",
     disclaimer: "Opens hotel search results; availability and rates are not confirmed in Experience Caddie",

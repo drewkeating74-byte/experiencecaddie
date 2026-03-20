@@ -17,6 +17,8 @@ import {
 const PROVIDER_LABELS: Record<string, string> = {
   ticketmaster: "Ticketmaster",
   google_places: "Google Places",
+  "Google Hotels": "Google Hotels",
+  "Google": "Google",
 };
 
 const PUBLIC_ACCESS_LABELS: Record<string, { label: string; variant: "default" | "secondary" | "outline" }> = {

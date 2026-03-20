@@ -208,22 +208,22 @@ ${artistSearch ? `- IMPORTANT: All 3 must be "${artistSearch}" — different cit
           { id: "fallback_golf_1", name: "Mock Golf Club", city: fallbackCity, state: "TX", public_access: true, rating: 4.4, tee_time_window: { start: "07:00", end: "11:00" }, book_url: "https://www.golfnow.com/", source_url: "https://www.golfnow.com/", book_link: fallbackGolfLink, price_min: 80, price_max: 180, provider: "mock" },
         ];
         hotels = [
-          { id: "fallback_hotel_1", name: "Mock Boutique Hotel", city: fallbackCity, state: "TX", stars: 4, rating: 4.6, book_url: "https://www.booking.com/", source_url: "https://www.booking.com/", price_min: 160, price_max: 320, provider: "mock" },
+          { id: "fallback_hotel_1", name: "Mock Boutique Hotel", city: fallbackCity, state: "TX", stars: 4, rating: 4.6, book_url: "https://www.google.com/travel/hotels?q=hotels", source_url: "https://www.google.com/travel/hotels?q=hotels", price_min: 160, price_max: 320, provider: "mock" },
         ];
       }
       if (!events.length) {
         const city = fallbackCity;
         const state = "TX";
-        const fallbackConcertUrl = "https://www.ticketmaster.com/";
+        const fallbackConcertUrl = "https://www.google.com/search?q=concerts+tickets";
         const fallbackConcertLink = {
           url: fallbackConcertUrl,
-          provider: "Ticketmaster",
+          provider: "Google",
           category: "concert" as const,
           link_type: "provider_search" as const,
-          label: "Find tickets",
+          label: "Search tickets",
           is_verified: false,
           confidence: "medium" as const,
-          disclaimer: "Opens Ticketmaster search results for this event",
+          disclaimer: "Opens ticket search results across multiple vendors; availability is not confirmed in Experience Caddie",
         };
         events = [
           {
@@ -264,8 +264,8 @@ ${artistSearch ? `- IMPORTANT: All 3 must be "${artistSearch}" — different cit
             state,
             stars: 4,
             rating: 4.6,
-            book_url: "https://www.booking.com/",
-            source_url: "https://www.booking.com/",
+            book_url: "https://www.google.com/travel/hotels?q=hotels",
+            source_url: "https://www.google.com/travel/hotels?q=hotels",
             price_min: 160,
             price_max: 320,
             provider: "mock",
@@ -351,13 +351,13 @@ ${artistSearch ? `- IMPORTANT: All 3 must be "${artistSearch}" — different cit
       const city = (itinerary.city === "flexible" ? "Austin" : itinerary.city || "Austin").slice(0, 50);
       searchResults = {
         events: [
-          { id: "fallback_evt_1", name: "Sample Concert", date_time: `${itinerary.start_date}T20:00:00-05:00`, venue: { name: "Mock Arena", city, state: "TX", capacity: 12000 }, book_url: "https://www.ticketmaster.com/", source_url: "https://www.ticketmaster.com/", price_min: 75, price_max: 250, provider: "mock" },
+          { id: "fallback_evt_1", name: "Sample Concert", date_time: `${itinerary.start_date}T20:00:00-05:00`, venue: { name: "Mock Arena", city, state: "TX", capacity: 12000 }, book_url: "https://www.google.com/search?q=concerts+tickets", source_url: "https://www.google.com/search?q=concerts+tickets", price_min: 75, price_max: 250, provider: "mock" },
         ],
         golf_courses: [
           { id: "fallback_golf_1", name: "Mock Golf Club", city, state: "TX", public_access: true, rating: 4.4, tee_time_window: { start: "07:00", end: "11:00" }, book_url: "https://www.golfnow.com/", source_url: "https://www.golfnow.com/", book_link: fallbackGolfLink, price_min: 80, price_max: 180, provider: "mock" },
         ],
         hotels: [
-          { id: "fallback_hotel_1", name: "Mock Boutique Hotel", city, state: "TX", stars: 4, rating: 4.6, book_url: "https://www.booking.com/", source_url: "https://www.booking.com/", price_min: 160, price_max: 320, provider: "mock" },
+          { id: "fallback_hotel_1", name: "Mock Boutique Hotel", city, state: "TX", stars: 4, rating: 4.6, book_url: "https://www.google.com/travel/hotels?q=hotels", source_url: "https://www.google.com/travel/hotels?q=hotels", price_min: 160, price_max: 320, provider: "mock" },
         ],
       };
     }
@@ -561,7 +561,54 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
     const norm = (s: string) => (s || "").toLowerCase().replace(/\s+/g, " ").trim();
     const MIN_SUBSTRING_LEN = 15; // avoid "Golf" or "Muni" matching wrong courses
 
-    // Always replace OTA hotel URLs with our Booking.com search link so users get a consistent, working experience
+    // Post-filter: remove golf courses from LLM output that match private patterns (LLM sometimes adds these from its own web search)
+    const isLikelyPrivateGolf = (name: string): boolean => {
+      const n = (name || "").toLowerCase();
+      if (/municipal|muny|public\b|city\b|park\b|recreation|community\b/i.test(n)) return false;
+      if (/country club|private club|private\b|members only|members'? club|invitation only|invite only|invitational|athletic club|golf & country|golf and country|exclusive|membership/i.test(n)) return true;
+      if (/golf club|club\b/i.test(n)) return true;
+      return false;
+    };
+    for (const pkg of parsedResult.packages || []) {
+      if (Array.isArray(pkg.golf)) {
+        pkg.golf = pkg.golf.filter((g: any) => !isLikelyPrivateGolf(g?.name || ""));
+      }
+    }
+
+    // Concert URLs: replace Ticketmaster search/SeatGeek/StubHub links with Google search (aggregates vendors; avoids "no results" on Ticketmaster). Keep direct event URLs (/event/).
+    const shouldReplaceConcertUrl = (url: string): boolean => {
+      if (!url || typeof url !== "string") return true;
+      const u = url.trim().toLowerCase();
+      if (!u.startsWith("http")) return true;
+      try {
+        const parsed = new URL(u);
+        const host = parsed.hostname.replace(/^www\./, "");
+        const path = parsed.pathname || "";
+        if ((host === "ticketmaster.com" || host.endsWith(".ticketmaster.com")) && /\/event\//i.test(path)) return false; // keep direct event links
+        const isTicketSite = ["ticketmaster.com", "livenation.com", "seatgeek.com", "stubhub.com", "vividseats.com"].some((d) => host === d || host.endsWith("." + d));
+        return isTicketSite;
+      } catch {
+        return true;
+      }
+    };
+    const extractArtistForSearch = (name: string): string => {
+      if (!name || typeof name !== "string") return "concerts";
+      const n = name.trim();
+      const beforeDash = n.split(/\s+-\s+/)[0]?.trim();
+      const beforeAt = n.split(/\s+at\s+/i)[0]?.trim();
+      return (beforeDash?.length && beforeDash.length <= (beforeAt?.length ?? 999)) ? beforeDash : (beforeAt || n) || "concerts";
+    };
+    const buildConcertSearchUrl = (eventName: string, city: string): string => {
+      const artist = extractArtistForSearch(eventName || "");
+      const cityPart = (city || "").trim().toLowerCase();
+      const validCity = cityPart && cityPart !== "flexible" && cityPart !== "various";
+      const q = validCity ? `${artist} tickets ${cityPart}`.trim() : `${artist} tickets`.trim();
+      const url = `https://www.google.com/search?q=${encodeURIComponent(q)}`;
+      console.log("[CONCERT_LINK_DEBUG] buildConcertSearchUrl", { eventName, artist, city, q, url });
+      return url;
+    };
+
+    // Always replace OTA hotel URLs with our hotel search link so users get a consistent, working experience
     const shouldReplaceHotelUrl = (url: string): boolean => {
       if (!url || typeof url !== "string") return true;
       const u = url.trim().toLowerCase();
@@ -576,10 +623,7 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
         return true;
       }
     };
-    const BOOKING_COM_AWIN_MERCHANT_ID = "6776"; // Booking.com North America on AWIN
-    const awinPublisherId = (Deno.env.get("AWIN_PUBLISHER_ID") || Deno.env.get("AWIN_BOOKING_PUBLISHER_ID") || "").trim();
-
-    // Normalize LLM hotel name for Booking.com search: strip fluff, limit length, detect vague names
+    // Normalize LLM hotel name for hotel search: strip fluff, limit length, detect vague names
     const HOTEL_NAME_FLUFF = /\b(luxury|boutique|downtown|historic|convenient|mid-range|midrange|budget-friendly|premium|upscale|affordable|central|charming|cozy|elegant|modern|traditional)\b/gi;
     const HOTEL_NAME_SUFFIX = /\s*(?:&\s*suites?|&\s*spa|hotel\s*&\s*suites?|-\s*.*)$/i;
     const VAGUE_PATTERNS = /^(option|hotel\s*near|near\s*(venue|airport|downtown)|hotels?\s*in|stays?|accommodation|lodging)$/i;
@@ -647,42 +691,26 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
       return { checkin, checkout: addDays(checkin, DEFAULT_HOTEL_NIGHTS) };
     };
 
-    const buildHotelSearchUrl = (name: string, city: string, state?: string, startDate?: string, endDate?: string): string => {
+    // Use Google Hotels search — reliable, shows real results across Booking.com, Expedia, etc. Booking.com direct search URLs often land on generic/dead-end pages.
+    const buildHotelSearchUrl = (name: string, city: string, state?: string, _startDate?: string, _endDate?: string): string => {
       const cleanCity = (city || "").trim().toLowerCase();
       const validCity = cleanCity && cleanCity !== "flexible" && cleanCity !== "various";
       const statePart = (state || "").trim() ? ` ${(state || "").trim()}` : "";
 
       const { searchName, isLowConfidence } = normalizeHotelNameForSearch(name || "");
-      let ss: string;
+      let q: string;
       if (isLowConfidence || !searchName) {
-        ss = validCity ? `${cleanCity}${statePart}`.trim() : "hotels";
+        q = validCity ? `hotels in ${cleanCity}${statePart}`.trim() : "hotels";
       } else {
         const nameLower = searchName.toLowerCase().trim();
-        // If the hotel name already contains the city phrase (e.g. "Kansas City"), do not append city again
         const alreadyHasCity = validCity && nameLower.includes(cleanCity);
-        ss = validCity
-          ? (alreadyHasCity ? searchName.trim() : `${searchName.trim()} ${cleanCity}${statePart}`.trim())
-          : searchName || "hotels";
+        const locPart = validCity ? (alreadyHasCity ? "" : ` ${cleanCity}${statePart}`.trim()) : "";
+        q = `${searchName.trim()}${locPart}`.trim() || "hotels";
       }
-      ss = ss.slice(0, 200);
-
-      const params = new URLSearchParams();
-      params.set("ss", ss);
-      if (startDate && endDate && /^\d{4}-\d{2}-\d{2}$/.test(startDate) && /^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
-        params.set("checkin", startDate);
-        params.set("checkout", endDate);
-      }
-      params.set("group_adults", "2");
-      params.set("no_rooms", "1");
-      params.set("group_children", "0");
-      const bookingUrl = `https://www.booking.com/searchresults.html?${params.toString()}`;
-      if (awinPublisherId) {
-        const awinUrl = `https://www.awin1.com/cread.php?awinmid=${BOOKING_COM_AWIN_MERCHANT_ID}&awinaffid=${encodeURIComponent(awinPublisherId)}&ued=${encodeURIComponent(bookingUrl)}`;
-        console.log("[HOTEL_LINK_DEBUG] buildHotelSearchUrl", { raw_booking_url: bookingUrl, awin_wrapping: true });
-        return awinUrl;
-      }
-      console.log("[HOTEL_LINK_DEBUG] buildHotelSearchUrl", { raw_booking_url: bookingUrl, awin_wrapping: false });
-      return bookingUrl;
+      q = q.slice(0, 150);
+      const url = `https://www.google.com/travel/hotels?q=${encodeURIComponent(q)}`;
+      console.log("[HOTEL_LINK_DEBUG] buildHotelSearchUrl", { query: q, url });
+      return url;
     };
 
     // Strip any leading/trailing quotes (ASCII + Unicode) and whitespace so the saved value is never wrapped in quotes
@@ -702,8 +730,8 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
       if (looksInvalid && fallbackCity) {
         const city = (fallbackCity || "").trim().toLowerCase();
         const statePart = (fallbackState || "").trim() ? ` ${(fallbackState || "").trim()}` : "";
-        const ss = (city && city !== "flexible" && city !== "various") ? `${city}${statePart}`.trim() : "hotels";
-        return `https://www.booking.com/searchresults.html?ss=${encodeURIComponent(ss)}`;
+        const q = (city && city !== "flexible" && city !== "various") ? `hotels in ${city}${statePart}`.trim() : "hotels";
+        return `https://www.google.com/travel/hotels?q=${encodeURIComponent(q)}`;
       }
       return u;
     };
@@ -766,6 +794,7 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
           if (src.lng != null) g.lng = src.lng;
         }
       }
+      const pkgCity = itinerary?.city || "";
       for (const e of pkg.events || []) {
         const src = eventByName.get(norm(e.name));
         const urlBefore = e.url;
@@ -773,11 +802,29 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
           if (src.provider) e.provider = src.provider;
           if (src.venue && typeof src.venue === "object") e.venue_obj = src.venue;
           if (src.date_time && !e.date_time) e.date_time = src.date_time;
-          const trustedUrl = src.book_url || src.source_url;
-          if (trustedUrl) e.url = trustedUrl;
-          if (src.book_link) e.link = src.book_link;
+          if (!shouldReplaceConcertUrl(src.book_url || src.source_url || "")) {
+            const trustedUrl = src.book_url || src.source_url;
+            if (trustedUrl) e.url = trustedUrl;
+            if (src.book_link) e.link = src.book_link;
+          }
         }
-        console.log("[TM_LINK_DEBUG] generate-itinerary enrich event", { name: e.name, url_before: urlBefore, url_after: e.url, matched: !!src });
+        let replacedConcert = false;
+        if (shouldReplaceConcertUrl(e.url || "")) {
+          replacedConcert = true;
+          const city = (e.venue_obj?.city ?? (typeof e.venue === "string" ? e.venue : (e.venue as any)?.city) ?? pkgCity) || pkgCity;
+          e.url = buildConcertSearchUrl(e.name || "", city);
+          e.link = {
+            url: e.url,
+            provider: "Google",
+            category: "concert",
+            link_type: "provider_search",
+            label: "Search tickets",
+            is_verified: false,
+            confidence: "medium",
+            disclaimer: "Opens ticket search results across multiple vendors; availability is not confirmed in Experience Caddie",
+          };
+        }
+        console.log("[TM_LINK_DEBUG] generate-itinerary enrich event", { name: e.name, url_before: urlBefore, url_after: e.url, matched: !!src, replaced: replacedConcert });
       }
       const hotelDateRange = getHotelDateRange(itinerary, pkg);
       for (const h of pkg.lodging || []) {
@@ -799,10 +846,10 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
         if (replaced) {
           h.link = {
             url: finalUrl,
-            provider: finalUrl.includes("awin1.com") ? "Booking.com" : (finalUrl.includes("booking.com") ? "Booking.com" : "External"),
+            provider: finalUrl.includes("awin1.com") ? "Booking.com" : (finalUrl.includes("google.com/travel/hotels") ? "Google Hotels" : (finalUrl.includes("booking.com") ? "Booking.com" : "External")),
             category: "hotel",
             link_type: "provider_search",
-            label: "Check rates",
+            label: "Search hotels",
             is_verified: false,
             confidence: "medium",
             disclaimer: "Opens hotel search results; availability and rates are not confirmed in Experience Caddie",
