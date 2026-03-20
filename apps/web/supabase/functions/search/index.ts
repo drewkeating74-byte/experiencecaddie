@@ -136,7 +136,7 @@ function buildGolfOutboundLink(url: string, providerHint?: string): GolfOutbound
       disclaimer: "Opens external golf search results; tee time availability is not confirmed in Experience Caddie",
     };
   }
-  const label = isGolfNow || isTeeOff ? "Tee times" : "View course";
+  const label = "Tee times";
   return {
     url,
     provider,
@@ -416,8 +416,8 @@ async function geocodeCity(city: string, state?: string): Promise<GeoResult> {
 
 function publicAccessConfidence(name: string): "likely_public" | "unknown" | "likely_private" {
   const n = (name || "").toLowerCase();
-  if (/country club|private club|private\b|members only|members'? club|invitation only|invite only|invitational/i.test(n)) return "likely_private";
-  if (/municipal|muny|public\b|city\b/i.test(n)) return "likely_public";
+  if (/country club|private club|private\b|members only|members'? club|invitation only|invite only|invitational|athletic club|golf & country|golf and country/i.test(n)) return "likely_private";
+  if (/municipal|muny|public\b|city\b|park\b|recreation|community\b/i.test(n)) return "likely_public";
   return "unknown";
 }
 
@@ -619,7 +619,7 @@ function applyGolfTiering(
   centerLat: number,
   centerLng: number
 ): GolfCourseResult[] {
-  const publicOnly = courses.filter((c) => c.public_access_confidence !== "likely_private");
+  const publicOnly = courses.filter((c) => c.public_access_confidence === "likely_public");
   const withDistance = publicOnly.map((c) => {
     const dist = c.distance_miles ?? (c.lat != null && c.lng != null
       ? haversineMiles(centerLat, centerLng, c.lat, c.lng)
@@ -785,7 +785,7 @@ function mockHotels(request: SearchRequest): HotelResult[] {
     provider: "Booking.com",
     category: "hotel",
     link_type: "provider_search",
-    label: "Search hotels",
+    label: "Check rates",
     is_verified: false,
     confidence: "medium",
     disclaimer: "Opens hotel search results; availability and rates are not confirmed in Experience Caddie",

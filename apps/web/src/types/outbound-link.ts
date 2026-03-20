@@ -73,7 +73,7 @@ export function normalizeOutboundLink(
       provider: category === "concert" ? "Ticketmaster" : category === "hotel" ? "Booking.com" : "GolfNow",
       category,
       link_type: "manual_fallback",
-      label: category === "concert" ? "Find tickets" : category === "hotel" ? "Search hotels" : "Tee times",
+      label: category === "concert" ? "Find tickets" : category === "hotel" ? "Check rates" : "Tee times",
       is_verified: false,
       confidence: "low",
     };
@@ -97,7 +97,7 @@ export function normalizeOutboundLink(
       };
     }
     if (category === "hotel") {
-      const label = linkType === "direct_listing" ? "Check rates" : linkType === "provider_search" ? "Search hotels" : "View options";
+      const label = "Check rates";
       const disclaimer = linkType === "provider_search"
         ? "Opens hotel search results; availability and rates are not confirmed in Experience Caddie"
         : linkType === "manual_fallback"
@@ -116,13 +116,11 @@ export function normalizeOutboundLink(
     }
     if (category === "golf") {
       const label =
-        linkType === "direct_listing"
-          ? provider === "GolfNow" || provider === "TeeOff"
-            ? "Tee times"
-            : "View course"
-          : linkType === "provider_search"
+        linkType === "provider_search"
           ? "Search tee times"
-          : "View options";
+          : linkType === "manual_fallback"
+          ? "View options"
+          : "Tee times";
       const disclaimer =
         linkType === "provider_search"
           ? "Opens external golf search results; tee time availability is not confirmed in Experience Caddie"
@@ -155,7 +153,7 @@ export function normalizeOutboundLink(
     provider: partial.provider ?? inferProviderFromUrl(url, categoryResolved),
     category: categoryResolved,
     link_type: partial.link_type ?? inferLinkTypeFromUrl(url, categoryResolved),
-    label: partial.label ?? (categoryResolved === "concert" ? "Find tickets" : categoryResolved === "hotel" ? "Search hotels" : categoryResolved === "golf" ? "Tee times" : "View options"),
+    label: partial.label ?? (categoryResolved === "concert" ? "Find tickets" : categoryResolved === "hotel" ? "Check rates" : categoryResolved === "golf" ? "Tee times" : "View options"),
     is_verified: partial.is_verified ?? false,
     confidence: partial.confidence ?? "medium",
     source_name: partial.source_name,

@@ -423,7 +423,7 @@ ${realDataSection}
 ${!hasRealData ? `
 SEARCH for and use REAL data:
 1. Concerts/events: Search Ticketmaster first for upcoming shows in ${cityForSearch} between ${itinerary.start_date} and ${itinerary.end_date}. Prefer events that appear on Ticketmaster.com so the "Find Tickets" link works. Venues must be at least 5,000 capacity. Use actual event names, venues, dates, and real ticket purchase URLs.
-2. Golf: Search for public golf courses within 30 miles of ${cityForSearch}. Use GolfNow, TeeOff, or course websites. Include real tee time booking URLs.
+2. Golf: Search for PUBLIC golf courses only (no private clubs or members-only) within 30 miles of ${cityForSearch}. Use GolfNow, TeeOff, or municipal/city course websites. Include real tee time booking URLs. Do NOT include country clubs or private clubs.
 3. Hotels: Search Expedia, Booking.com, or Hotels.com for hotels within 30 miles of ${cityForSearch} (and the venue). Prefer well-known chains or major properties (e.g. Marriott, Hilton, Hyatt, IHG, or established names widely listed on Booking.com) and hotels in main tourist/business districts near the venue—they are more likely to have availability. Use real property names and real booking URLs. Do not use vague names like "convenient option" or "hotel near venue".
 4. Extras: Suggest real restaurants, bars, or experiences with Google Maps or OpenTable links.` : ""}
 
@@ -802,7 +802,7 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
             provider: finalUrl.includes("awin1.com") ? "Booking.com" : (finalUrl.includes("booking.com") ? "Booking.com" : "External"),
             category: "hotel",
             link_type: "provider_search",
-            label: "Search hotels",
+            label: "Check rates",
             is_verified: false,
             confidence: "medium",
             disclaimer: "Opens hotel search results; availability and rates are not confirmed in Experience Caddie",

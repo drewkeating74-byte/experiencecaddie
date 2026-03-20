@@ -456,9 +456,6 @@ export default function ItineraryResults() {
                                   ) : (
                                     buttonEl
                                   )}
-                                  {hotelLink.link_type === "provider_search" && (
-                                    <span className="text-xs text-muted-foreground">{hotelLink.provider} search</span>
-                                  )}
                                 </div>
                               )}
                             </div>
@@ -519,9 +516,6 @@ export default function ItineraryResults() {
                                     </Tooltip>
                                   ) : (
                                     buttonEl
-                                  )}
-                                  {concertLink.link_type === "provider_search" && (
-                                    <span className="text-xs text-muted-foreground">{concertLink.provider} search</span>
                                   )}
                                 </div>
                               );
@@ -588,9 +582,6 @@ export default function ItineraryResults() {
                                   </Tooltip>
                                 ) : (
                                   buttonEl
-                                )}
-                                {golfLink.link_type === "provider_search" && (
-                                  <span className="text-xs text-muted-foreground">{golfLink.provider} search</span>
                                 )}
                               </div>
                             )}

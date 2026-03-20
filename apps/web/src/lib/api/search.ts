@@ -255,7 +255,7 @@ export function buildFallbackSearchResponse(request: SearchRequest): SearchRespo
           provider: "Booking.com",
           category: "hotel",
           link_type: "provider_search",
-          label: "Search hotels",
+          label: "Check rates",
           is_verified: false,
           confidence: "medium",
           disclaimer: "Opens hotel search results; availability and rates are not confirmed in Experience Caddie",
