@@ -105,34 +105,43 @@ export type Database = {
       }
       click_events: {
         Row: {
+          category: string | null
           created_at: string
           id: string
           ip_hash: string | null
           itinerary_id: string
           label: string | null
+          link_type: string | null
           package_tier: string
+          provider: string | null
           target_url: string
           user_agent: string | null
           vendor: Database["public"]["Enums"]["vendor_type"]
         }
         Insert: {
+          category?: string | null
           created_at?: string
           id?: string
           ip_hash?: string | null
           itinerary_id: string
           label?: string | null
+          link_type?: string | null
           package_tier: string
+          provider?: string | null
           target_url: string
           user_agent?: string | null
           vendor: Database["public"]["Enums"]["vendor_type"]
         }
         Update: {
+          category?: string | null
           created_at?: string
           id?: string
           ip_hash?: string | null
           itinerary_id?: string
           label?: string | null
+          link_type?: string | null
           package_tier?: string
+          provider?: string | null
           target_url?: string
           user_agent?: string | null
           vendor?: Database["public"]["Enums"]["vendor_type"]

@@ -51,6 +51,17 @@ type SearchRequest = {
   tee_time_window?: { start: string; end: string };
 };
 
+type ConcertOutboundLink = {
+  url: string;
+  provider: string;
+  category: "concert";
+  link_type: "direct_event" | "provider_search" | "manual_fallback";
+  label: string;
+  is_verified: boolean;
+  confidence: "high" | "medium" | "low";
+  disclaimer?: string;
+};
+
 type EventResult = {
   id: string;
   name: string;
@@ -59,12 +70,24 @@ type EventResult = {
   image_url?: string;
   source_url?: string;
   book_url?: string;
+  book_link?: ConcertOutboundLink;
   price_min?: number;
   price_max?: number;
   provider: "ticketmaster" | "mock";
 };
 
 type TierHint = "bronze" | "silver" | "gold";
+
+type GolfOutboundLink = {
+  url: string;
+  provider: string;
+  category: "golf";
+  link_type: "direct_listing" | "provider_search" | "manual_fallback";
+  label: string;
+  is_verified: boolean;
+  confidence: "high" | "medium" | "low";
+  disclaimer?: string;
+};
 
 type GolfCourseResult = {
   id: string;
@@ -81,6 +104,7 @@ type GolfCourseResult = {
   source_url?: string;
   google_maps_uri?: string;
   book_url?: string;
+  book_link?: GolfOutboundLink;
   price_min?: number;
   price_max?: number;
   source?: string;
@@ -93,6 +117,48 @@ type GolfCourseResult = {
   user_rating_count?: number;
 };
 
+function buildGolfOutboundLink(url: string, providerHint?: string): GolfOutboundLink {
+  const u = url.toLowerCase();
+  const isSearch = u.includes("golfnow.com/search") || u.includes("teeoff.com/search") || (u.includes("/search") && u.includes("q="));
+  const isGolfNow = u.includes("golfnow.com");
+  const isTeeOff = u.includes("teeoff.com");
+  const isGoogleMaps = u.includes("google.com/maps") || u.includes("maps.google") || u.includes("place_id");
+  const provider = providerHint ?? (isGolfNow ? "GolfNow" : isTeeOff ? "TeeOff" : isGoogleMaps ? "Google Maps" : "External");
+  if (isSearch) {
+    return {
+      url,
+      provider: isGolfNow ? "GolfNow" : isTeeOff ? "TeeOff" : provider,
+      category: "golf",
+      link_type: "provider_search",
+      label: "Search tee times",
+      is_verified: false,
+      confidence: "medium",
+      disclaimer: "Opens external golf search results; tee time availability is not confirmed in Experience Caddie",
+    };
+  }
+  const label = isGolfNow || isTeeOff ? "Tee times" : "View course";
+  return {
+    url,
+    provider,
+    category: "golf",
+    link_type: "direct_listing",
+    label,
+    is_verified: false,
+    confidence: "medium",
+  };
+}
+
+type HotelOutboundLink = {
+  url: string;
+  provider: string;
+  category: "hotel";
+  link_type: "direct_listing" | "provider_search" | "manual_fallback";
+  label: string;
+  is_verified: boolean;
+  confidence: "high" | "medium" | "low";
+  disclaimer?: string;
+};
+
 type HotelResult = {
   id: string;
   name: string;
@@ -103,6 +169,7 @@ type HotelResult = {
   image_url?: string;
   source_url?: string;
   book_url?: string;
+  book_link?: HotelOutboundLink;
   price_min?: number;
   price_max?: number;
   provider: "mock";
@@ -178,14 +245,24 @@ async function searchTicketmaster(params: {
   return data._embedded?.events ?? [];
 }
 
-/** Build a Ticketmaster search URL (reliable; avoids event-level 404s). Includes venue so results match the package. */
-function buildTicketmasterSearchUrl(name: string, city: string, state?: string, venue?: string): string {
-  const parts = [name];
-  if (venue?.trim()) parts.push(venue.trim());
-  parts.push(city);
-  if (state?.trim()) parts.push(state.trim());
-  const q = parts.filter(Boolean).join(" ").trim() || "concerts";
+/** Build a Ticketmaster search URL (reliable; avoids event-level 404s). Uses artist name only for better results. */
+function buildTicketmasterSearchUrl(searchTerm: string): string {
+  const q = (searchTerm || "").trim() || "concerts";
   return `https://www.ticketmaster.com/search?q=${encodeURIComponent(q)}`;
+}
+
+/** Returns true if the URL looks like a valid Ticketmaster event page. */
+function isUsableTicketmasterEventUrl(url: string | undefined): boolean {
+  if (!url || typeof url !== "string") return false;
+  const u = url.trim();
+  if (!u.startsWith("https://")) return false;
+  try {
+    const parsed = new URL(u);
+    const host = parsed.hostname.replace(/^www\./, "");
+    return host === "ticketmaster.com" || host.endsWith(".ticketmaster.com");
+  } catch {
+    return false;
+  }
 }
 
 function mapEventToResult(
@@ -196,6 +273,7 @@ function mapEventToResult(
   const venue = event._embedded?.venues?.[0];
   const attraction = event._embedded?.attractions?.[0];
   const eventName = event.name ?? attraction?.name ?? "Concert";
+  const artistName = attraction?.name ?? event.name ?? "Concert";
   const localDate = event.dates?.start?.localDate ?? "";
   const localTime = event.dates?.start?.localTime ?? "20:00:00";
   const dateTime = localDate ? `${localDate}T${localTime}` : "";
@@ -204,8 +282,30 @@ function mapEventToResult(
   const lng = venue?.location?.longitude ? parseFloat(venue.location.longitude) : undefined;
   const city = venue?.city?.name ?? fallbackCity;
   const state = venue?.state?.stateCode ?? venue?.state?.name ?? fallbackState;
-  const venueName = venue?.name?.trim();
-  const ticketUrl = buildTicketmasterSearchUrl(eventName, city, state, venueName);
+  const useDirectUrl = isUsableTicketmasterEventUrl(event.url);
+  const ticketUrl = useDirectUrl ? event.url!.trim() : buildTicketmasterSearchUrl(artistName);
+
+  const book_link: ConcertOutboundLink = useDirectUrl
+    ? {
+        url: ticketUrl,
+        provider: "Ticketmaster",
+        category: "concert",
+        link_type: "direct_event",
+        label: "Tickets",
+        is_verified: false,
+        confidence: "low",
+        disclaimer: undefined,
+      }
+    : {
+        url: ticketUrl,
+        provider: "Ticketmaster",
+        category: "concert",
+        link_type: "provider_search",
+        label: "Find tickets",
+        is_verified: false,
+        confidence: "medium",
+        disclaimer: "Opens Ticketmaster search results for this event",
+      };
 
   return {
     id: event.id ?? `tm_${Date.now()}_${Math.random().toString(36).slice(2)}`,
@@ -222,6 +322,7 @@ function mapEventToResult(
     image_url: event.images?.sort((a, b) => (b.width ?? 0) - (a.width ?? 0))[0]?.url,
     source_url: ticketUrl,
     book_url: ticketUrl,
+    book_link,
     price_min: priceRange?.min,
     price_max: priceRange?.max,
     provider: "ticketmaster",
@@ -231,6 +332,17 @@ function mapEventToResult(
 function mockEvents(request: SearchRequest, startDate: string, endDate: string): EventResult[] {
   const city = request.destination?.city || "Austin";
   const state = request.destination?.state ?? "TX";
+  const ticketUrl = "https://www.ticketmaster.com/";
+  const book_link: ConcertOutboundLink = {
+    url: ticketUrl,
+    provider: "Ticketmaster",
+    category: "concert",
+    link_type: "provider_search",
+    label: "Find tickets",
+    is_verified: false,
+    confidence: "medium",
+    disclaimer: "Opens Ticketmaster search results for this event",
+  };
   return [
     {
       id: "event_mock_1",
@@ -238,8 +350,9 @@ function mockEvents(request: SearchRequest, startDate: string, endDate: string):
       date_time: `${startDate}T20:00:00Z`,
       venue: { name: "Mock Arena", city, state, capacity: 12000 },
       image_url: "https://images.unsplash.com/flagged/photo-1578703916946-53d0d7e6bbd0?w=1200",
-      source_url: "https://www.ticketmaster.com/",
-      book_url: "https://www.ticketmaster.com/",
+      source_url: ticketUrl,
+      book_url: ticketUrl,
+      book_link,
       price_min: 75,
       price_max: 250,
       provider: "mock",
@@ -252,6 +365,8 @@ function mockGolf(request: SearchRequest): GolfCourseResult[] {
   const state = request.destination?.state ?? "TX";
   const teeWindow = request.tee_time_window ?? { start: "07:00", end: "11:00" };
   const asOf = new Date().toISOString();
+  const bookUrl = "https://www.golfnow.com/";
+  const bookLink = buildGolfOutboundLink(bookUrl);
   return [
     {
       id: "golf_mock_1",
@@ -263,8 +378,9 @@ function mockGolf(request: SearchRequest): GolfCourseResult[] {
       rating: 4.4,
       tee_time_window: teeWindow,
       image_url: "https://images.unsplash.com/photo-1500930280485-71c409756852?w=1200",
-      source_url: "https://www.golfnow.com/",
-      book_url: "https://www.golfnow.com/",
+      source_url: bookUrl,
+      book_url: bookUrl,
+      book_link: bookLink,
       price_min: 80,
       price_max: 180,
       source: "mock",
@@ -459,9 +575,11 @@ async function enrichGolfCandidates(
       if (details.businessStatus === "CLOSED_PERMANENTLY") return null;
       const bookUrl = details.websiteUri ?? details.googleMapsUri ?? c.book_url;
       const sourceUrl = details.websiteUri ?? details.googleMapsUri ?? c.source_url;
+      const book_link = buildGolfOutboundLink(bookUrl ?? "");
       return {
         ...c,
         book_url: bookUrl,
+        book_link,
         source_url: details.websiteUri ?? c.source_url,
         google_maps_uri: details.googleMapsUri ?? c.google_maps_uri,
         rating: details.rating ?? c.rating,
@@ -632,6 +750,7 @@ async function searchGolfGooglePlaces(
       const secMatch = routing.duration.match(/^(\d+)s?$/);
       if (secMatch) drive_time_minutes = Math.round(parseInt(secMatch[1], 10) / 6) / 10;
     }
+    const book_link = buildGolfOutboundLink(url);
     return {
       id,
       name,
@@ -646,6 +765,7 @@ async function searchGolfGooglePlaces(
       source_url: p.websiteUri ?? p.googleMapsUri,
       google_maps_uri: p.googleMapsUri,
       book_url: url,
+      book_link,
       source: "google_places",
       as_of: asOf,
       provider: "google_places",
@@ -659,6 +779,17 @@ async function searchGolfGooglePlaces(
 function mockHotels(request: SearchRequest): HotelResult[] {
   const city = request.destination?.city || "Austin";
   const state = request.destination?.state ?? "TX";
+  const bookUrl = "https://www.booking.com/";
+  const bookLink: HotelOutboundLink = {
+    url: bookUrl,
+    provider: "Booking.com",
+    category: "hotel",
+    link_type: "provider_search",
+    label: "Search hotels",
+    is_verified: false,
+    confidence: "medium",
+    disclaimer: "Opens hotel search results; availability and rates are not confirmed in Experience Caddie",
+  };
   return [
     {
       id: "hotel_mock_1",
@@ -668,8 +799,9 @@ function mockHotels(request: SearchRequest): HotelResult[] {
       stars: 4,
       rating: 4.6,
       image_url: "https://images.unsplash.com/photo-1566073771259-6a8506099945?w=1200",
-      source_url: "https://www.booking.com/",
-      book_url: "https://www.booking.com/",
+      source_url: bookUrl,
+      book_url: bookUrl,
+      book_link: bookLink,
       price_min: 160,
       price_max: 320,
       provider: "mock",

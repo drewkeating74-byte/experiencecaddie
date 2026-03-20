@@ -170,18 +170,24 @@ ${artistSearch ? `- IMPORTANT: All 3 must be "${artistSearch}" — different cit
       let goldGolfCandidates = Array.isArray(rawSearchResults.gold_golf_candidates) ? rawSearchResults.gold_golf_candidates : null;
       let hotels = Array.isArray(rawSearchResults.hotels) ? rawSearchResults.hotels.slice(0, 6) : [];
 
-      function buildTicketmasterSearchUrl(name: string, city: string, venue?: string): string {
-        const parts = [name];
-        if (venue?.trim()) parts.push(venue.trim());
-        parts.push(city);
-        const q = parts.filter(Boolean).join(" ").trim() || "concerts";
+      function buildTicketmasterSearchUrl(searchTerm: string): string {
+        const q = (searchTerm || "").trim() || "concerts";
         return `https://www.ticketmaster.com/search?q=${encodeURIComponent(q)}`;
       }
 
-      // When user selected a concert, use it as the sole event. Always use our Ticketmaster search URL
-      // so the user lands on Ticketmaster (artist + venue + city) instead of SeatGeek/StubHub/etc. from Perplexity.
+      // When user selected a concert, use Ticketmaster artist search URL only (reliable; avoids 404s from Perplexity/SeatGeek/event-specific URLs).
       if (selectedConcert?.artist && selectedConcert?.city) {
-        const concertUrl = buildTicketmasterSearchUrl(selectedConcert.artist, selectedConcert.city, selectedConcert.venue);
+        const concertUrl = buildTicketmasterSearchUrl(selectedConcert.artist);
+        const concertLink = {
+          url: concertUrl,
+          provider: "Ticketmaster",
+          category: "concert" as const,
+          link_type: "provider_search" as const,
+          label: "Find tickets",
+          is_verified: false,
+          confidence: "medium" as const,
+          disclaimer: "Opens Ticketmaster search results for this event",
+        };
         events = [{
           id: "selected_concert",
           name: selectedConcert.artist,
@@ -189,15 +195,17 @@ ${artistSearch ? `- IMPORTANT: All 3 must be "${artistSearch}" — different cit
           venue: { name: selectedConcert.venue || "Venue", city: selectedConcert.city },
           book_url: concertUrl,
           source_url: concertUrl,
+          book_link: concertLink,
           provider: "user_selected",
         }];
       }
 
       // Fallback mock when frontend doesn't pass search_results
       const fallbackCity = (effectiveCity || selectedConcert?.city || (p.city !== "flexible" ? p.city : null) || "Austin").slice(0, 50);
+      const fallbackGolfLink = { url: "https://www.golfnow.com/", provider: "GolfNow", category: "golf" as const, link_type: "provider_search" as const, label: "Search tee times", is_verified: false, confidence: "medium" as const, disclaimer: "Opens external golf search results; tee time availability is not confirmed in Experience Caddie" };
       if (!golfCourses.length && !hotels.length) {
         golfCourses = [
-          { id: "fallback_golf_1", name: "Mock Golf Club", city: fallbackCity, state: "TX", public_access: true, rating: 4.4, tee_time_window: { start: "07:00", end: "11:00" }, book_url: "https://www.golfnow.com/", source_url: "https://www.golfnow.com/", price_min: 80, price_max: 180, provider: "mock" },
+          { id: "fallback_golf_1", name: "Mock Golf Club", city: fallbackCity, state: "TX", public_access: true, rating: 4.4, tee_time_window: { start: "07:00", end: "11:00" }, book_url: "https://www.golfnow.com/", source_url: "https://www.golfnow.com/", book_link: fallbackGolfLink, price_min: 80, price_max: 180, provider: "mock" },
         ];
         hotels = [
           { id: "fallback_hotel_1", name: "Mock Boutique Hotel", city: fallbackCity, state: "TX", stars: 4, rating: 4.6, book_url: "https://www.booking.com/", source_url: "https://www.booking.com/", price_min: 160, price_max: 320, provider: "mock" },
@@ -206,14 +214,26 @@ ${artistSearch ? `- IMPORTANT: All 3 must be "${artistSearch}" — different cit
       if (!events.length) {
         const city = fallbackCity;
         const state = "TX";
+        const fallbackConcertUrl = "https://www.ticketmaster.com/";
+        const fallbackConcertLink = {
+          url: fallbackConcertUrl,
+          provider: "Ticketmaster",
+          category: "concert" as const,
+          link_type: "provider_search" as const,
+          label: "Find tickets",
+          is_verified: false,
+          confidence: "medium" as const,
+          disclaimer: "Opens Ticketmaster search results for this event",
+        };
         events = [
           {
             id: "fallback_evt_1",
             name: "Sample Concert",
             date_time: `${p.start_date}T20:00:00-05:00`,
             venue: { name: "Mock Arena", city, state, capacity: 12000 },
-            book_url: "https://www.ticketmaster.com/",
-            source_url: "https://www.ticketmaster.com/",
+            book_url: fallbackConcertUrl,
+            source_url: fallbackConcertUrl,
+            book_link: fallbackConcertLink,
             price_min: 75,
             price_max: 250,
             provider: "mock",
@@ -230,6 +250,7 @@ ${artistSearch ? `- IMPORTANT: All 3 must be "${artistSearch}" — different cit
             tee_time_window: { start: "07:00", end: "11:00" },
             book_url: "https://www.golfnow.com/",
             source_url: "https://www.golfnow.com/",
+            book_link: fallbackGolfLink,
             price_min: 80,
             price_max: 180,
             provider: "mock",
@@ -325,6 +346,7 @@ ${artistSearch ? `- IMPORTANT: All 3 must be "${artistSearch}" — different cit
       .join(", ");
 
     let searchResults = itinerary.search_results || { events: [], golf_courses: [], hotels: [] };
+    const fallbackGolfLink = { url: "https://www.golfnow.com/", provider: "GolfNow", category: "golf" as const, link_type: "provider_search" as const, label: "Search tee times", is_verified: false, confidence: "medium" as const, disclaimer: "Opens external golf search results; tee time availability is not confirmed in Experience Caddie" };
     if (!searchResults.events?.length && !searchResults.golf_courses?.length && !searchResults.hotels?.length) {
       const city = (itinerary.city === "flexible" ? "Austin" : itinerary.city || "Austin").slice(0, 50);
       searchResults = {
@@ -332,7 +354,7 @@ ${artistSearch ? `- IMPORTANT: All 3 must be "${artistSearch}" — different cit
           { id: "fallback_evt_1", name: "Sample Concert", date_time: `${itinerary.start_date}T20:00:00-05:00`, venue: { name: "Mock Arena", city, state: "TX", capacity: 12000 }, book_url: "https://www.ticketmaster.com/", source_url: "https://www.ticketmaster.com/", price_min: 75, price_max: 250, provider: "mock" },
         ],
         golf_courses: [
-          { id: "fallback_golf_1", name: "Mock Golf Club", city, state: "TX", public_access: true, rating: 4.4, tee_time_window: { start: "07:00", end: "11:00" }, book_url: "https://www.golfnow.com/", source_url: "https://www.golfnow.com/", price_min: 80, price_max: 180, provider: "mock" },
+          { id: "fallback_golf_1", name: "Mock Golf Club", city, state: "TX", public_access: true, rating: 4.4, tee_time_window: { start: "07:00", end: "11:00" }, book_url: "https://www.golfnow.com/", source_url: "https://www.golfnow.com/", book_link: fallbackGolfLink, price_min: 80, price_max: 180, provider: "mock" },
         ],
         hotels: [
           { id: "fallback_hotel_1", name: "Mock Boutique Hotel", city, state: "TX", stars: 4, rating: 4.6, book_url: "https://www.booking.com/", source_url: "https://www.booking.com/", price_min: 160, price_max: 320, provider: "mock" },
@@ -733,6 +755,9 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
           if (src.public_access_confidence) g.public_access_confidence = src.public_access_confidence;
           if (src.provider) g.provider = src.provider;
           if (src.source_url) g.source_url = src.source_url;
+          const trustedUrl = src.book_url || src.source_url;
+          if (trustedUrl) g.url = trustedUrl;
+          if (src.book_link) g.link = src.book_link;
           const mapsUrl = buildMapsUrl(src);
           if (mapsUrl) g.maps_url = mapsUrl;
           if (src.as_of) g.as_of = src.as_of;
@@ -750,6 +775,7 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
           if (src.date_time && !e.date_time) e.date_time = src.date_time;
           const trustedUrl = src.book_url || src.source_url;
           if (trustedUrl) e.url = trustedUrl;
+          if (src.book_link) e.link = src.book_link;
         }
         console.log("[TM_LINK_DEBUG] generate-itinerary enrich event", { name: e.name, url_before: urlBefore, url_after: e.url, matched: !!src });
       }
@@ -768,6 +794,31 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
           h.url = buildHotelSearchUrl(h.name || "Hotel", city, state, hotelDateRange?.checkin, hotelDateRange?.checkout);
         }
         h.url = sanitizeLodgingUrl(h.url || "", city, state);
+        // Structured outbound link (Phase 3 hotel trust model)
+        const finalUrl = h.url || "";
+        if (replaced) {
+          h.link = {
+            url: finalUrl,
+            provider: finalUrl.includes("awin1.com") ? "Booking.com" : (finalUrl.includes("booking.com") ? "Booking.com" : "External"),
+            category: "hotel",
+            link_type: "provider_search",
+            label: "Search hotels",
+            is_verified: false,
+            confidence: "medium",
+            disclaimer: "Opens hotel search results; availability and rates are not confirmed in Experience Caddie",
+          };
+        } else {
+          const provider = finalUrl.includes("booking.com") ? "Booking.com" : finalUrl.includes("expedia.com") ? "Expedia" : finalUrl.includes("hotels.com") ? "Hotels.com" : "External";
+          h.link = {
+            url: finalUrl,
+            provider,
+            category: "hotel",
+            link_type: "direct_listing",
+            label: "Check rates",
+            is_verified: false,
+            confidence: "low",
+          };
+        }
         console.log("[HOTEL_LINK_DEBUG] lodging", {
           pkg_tier: pkg.tier,
           name: h.name,
@@ -786,6 +837,7 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
       // Ensure no lodging URL is saved with wrapping quotes (safety net before DB write)
       for (const h of pkg.lodging || []) {
         if (typeof h.url === "string") h.url = stripWrappingQuotes(h.url);
+        if (h.link && typeof h.link.url === "string") h.link.url = stripWrappingQuotes(h.link.url);
       }
     }
 

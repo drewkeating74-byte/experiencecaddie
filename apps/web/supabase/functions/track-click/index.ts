@@ -49,6 +49,9 @@ serve(async (req) => {
     const vendor = typeof body?.vendor === "string" ? body.vendor.trim() : "";
     const label = typeof body?.label === "string" ? body.label.trim().slice(0, MAX_STRING_LENGTH) : null;
     const target_url = typeof body?.target_url === "string" ? body.target_url.trim().slice(0, 2048) : "";
+    const provider = typeof body?.provider === "string" ? body.provider.trim().slice(0, 100) : null;
+    const category = typeof body?.category === "string" ? body.category.trim().slice(0, 50) : null;
+    const link_type = typeof body?.link_type === "string" ? body.link_type.trim().slice(0, 50) : null;
 
     // Validate required fields
     if (!itinerary_id || !UUID_REGEX.test(itinerary_id)) {
@@ -96,6 +99,9 @@ serve(async (req) => {
       label: label || null,
       target_url: parsedUrl.href,
       user_agent: typeof userAgent === "string" ? userAgent.slice(0, 512) : null,
+      ...(provider && { provider }),
+      ...(category && { category }),
+      ...(link_type && { link_type }),
     });
 
     return new Response(JSON.stringify({ success: true, redirect: parsedUrl.href }), {

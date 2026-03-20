@@ -10,6 +10,7 @@ import { Music, Search, Sparkles, ArrowRight, ArrowLeft, Loader2, Wand2, MapPin,
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { fetchSearch, buildFallbackSearchResponse } from "@/lib/api/search";
+import { normalizeOutboundLink } from "@/types/outbound-link";
 
 
 
@@ -520,11 +521,14 @@ export default function ExperienceBuilder() {
                       {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : "Build my trip"}
                     </Button>
                   </div>
-                  {opt.url && (
-                    <a href={opt.url} target="_blank" rel="noopener noreferrer" className="text-xs text-primary mt-2 inline-block hover:underline">
-                      Get tickets →
-                    </a>
-                  )}
+                  {(opt.url || (opt as { link?: { url?: string } }).link?.url) && (() => {
+                    const link = normalizeOutboundLink((opt as { link?: { url: string }; url?: string }).link || opt.url, "concert");
+                    return (
+                      <a href={link.url} target="_blank" rel="noopener noreferrer" className="text-xs text-primary mt-2 inline-block hover:underline">
+                        {link.label} →
+                      </a>
+                    );
+                  })()}
                 </CardContent>
               </Card>
             ))}

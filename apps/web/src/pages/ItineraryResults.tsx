@@ -18,8 +18,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Hotel, Music, Utensils, ExternalLink, Copy, ArrowLeft, Loader2, Mail, Bookmark, BookmarkCheck, RefreshCw } from "lucide-react";
 import { GolfTrustPanel, EventTrustPanel } from "@/components/TrustPanel";
+import { normalizeOutboundLink } from "@/types/outbound-link";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 const MAX_EMAILS = 10;
 
@@ -105,14 +107,27 @@ export default function ItineraryResults() {
     console.log("[TM_LINK_DEBUG] Full result_json", result);
   }, [itinerary?.id, itinerary?.result_json]);
 
-  const trackClick = async (tier: string, vendor: string, label: string, url: string) => {
+  const trackClick = async (
+    tier: string,
+    vendor: string,
+    label: string,
+    url: string,
+    meta?: { provider?: string; category?: string; link_type?: string }
+  ) => {
     if (!user) {
       navigate(`/auth?redirect=${encodeURIComponent(window.location.pathname)}`);
       return;
     }
     if (vendor === "hotel") console.log("[HOTEL_LINK_DEBUG] frontend click", { tier, label, url_opened: url });
     supabase.functions.invoke("track-click", {
-      body: { itinerary_id: itinerary?.id ?? id, package_tier: tier, vendor, label, target_url: url },
+      body: {
+        itinerary_id: itinerary?.id ?? id,
+        package_tier: tier,
+        vendor,
+        label,
+        target_url: url,
+        ...(meta && { provider: meta.provider, category: meta.category, link_type: meta.link_type }),
+      },
     });
     window.open(url, "_blank", "noopener,noreferrer");
   };
@@ -398,32 +413,57 @@ export default function ItineraryResults() {
                         </CardTitle>
                       </CardHeader>
                       <CardContent className="space-y-3">
-                        {lodgingItems.map((h: any, i: number) => (
-                          <div key={i} className="flex items-start justify-between gap-4">
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <p className="font-medium">{h.name}</p>
-                                {h.type && (
-                                  <Badge variant="secondary" className="text-xs">
-                                    {h.type === "vacation_rental" ? "Rental" : h.type === "golf_resort" ? "Golf Resort" : "Hotel"}
-                                  </Badge>
-                                )}
+                        {lodgingItems.map((h: any, i: number) => {
+                          const hotelLink = normalizeOutboundLink(h.link || h.url, "hotel");
+                          const hasUrl = (h.link?.url || h.url || "").trim();
+                          const buttonEl = (
+                            <Button
+                              size="sm"
+                              variant="default"
+                              onClick={() => trackClick(pkg.tier, "hotel", h.name, hotelLink.url, {
+                                provider: hotelLink.provider,
+                                category: hotelLink.category,
+                                link_type: hotelLink.link_type,
+                              })}
+                            >
+                              {hotelLink.label} <ExternalLink className="ml-1 h-3 w-3" />
+                            </Button>
+                          );
+                          return (
+                            <div key={i} className="flex items-start justify-between gap-4">
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <p className="font-medium">{h.name}</p>
+                                  {h.type && (
+                                    <Badge variant="secondary" className="text-xs">
+                                      {h.type === "vacation_rental" ? "Rental" : h.type === "golf_resort" ? "Golf Resort" : "Hotel"}
+                                    </Badge>
+                                  )}
+                                </div>
+                                {h.area && <p className="text-sm text-muted-foreground">{h.area}</p>}
+                                {h.why && <p className="text-sm text-muted-foreground italic">{h.why}</p>}
+                                {h.price_per_night && <p className="text-sm font-medium">{h.price_per_night}/night</p>}
                               </div>
-                              {h.area && <p className="text-sm text-muted-foreground">{h.area}</p>}
-                              {h.why && <p className="text-sm text-muted-foreground italic">{h.why}</p>}
-                              {h.price_per_night && <p className="text-sm font-medium">{h.price_per_night}/night</p>}
+                              {hasUrl && (
+                                <div className="flex flex-col items-end gap-1">
+                                  {hotelLink.disclaimer ? (
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>{buttonEl}</TooltipTrigger>
+                                      <TooltipContent side="top" className="max-w-xs text-xs">
+                                        {hotelLink.disclaimer}
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  ) : (
+                                    buttonEl
+                                  )}
+                                  {hotelLink.link_type === "provider_search" && (
+                                    <span className="text-xs text-muted-foreground">{hotelLink.provider} search</span>
+                                  )}
+                                </div>
+                              )}
                             </div>
-                            {h.url && (
-                              <Button
-                                size="sm"
-                                variant="default"
-                                onClick={() => trackClick(pkg.tier, "hotel", h.name, h.url)}
-                              >
-                                Book <ExternalLink className="ml-1 h-3 w-3" />
-                              </Button>
-                            )}
-                          </div>
-                        ))}
+                          );
+                        })}
                       </CardContent>
                     </Card>
                   ) : null;
@@ -450,31 +490,42 @@ export default function ItineraryResults() {
                               {e.date_time && <p className="text-sm text-muted-foreground">{e.date_time}</p>}
                               {e.price_range && <p className="text-sm font-medium">{e.price_range}</p>}
                             </div>
-                            {e.url && (
-                              <Button
-                                size="sm"
-                                variant="default"
-                                className="shrink-0"
-                                data-event-url={e.url}
-                                onClick={(ev) => {
-                                  const url = (ev.currentTarget as HTMLButtonElement).getAttribute("data-event-url");
-                                  if (url) {
-                                    console.log("[TM_LINK_DEBUG] Tickets click", {
-                                      event_name: e.name,
-                                      venue: e.venue,
-                                      venue_city: typeof e.venue_obj === "object" ? e.venue_obj?.city : undefined,
-                                      date_time: e.date_time,
-                                      url_opened: url,
-                                      itinerary_id: id,
-                                      package_tier: pkg.tier,
-                                    });
-                                    trackClick(pkg.tier, "ticket", e.name, url);
-                                  }
-                                }}
-                              >
-                                {(e.provider === "ticketmaster" || (e.url && String(e.url).includes("ticketmaster.com"))) ? "Find Tickets" : "Tickets"} <ExternalLink className="ml-1 h-3 w-3" />
-                              </Button>
-                            )}
+                            {(e.url || (e.link && typeof e.link === "object" && e.link.url)) && (() => {
+                              const concertLink = normalizeOutboundLink(e.link || e.url, "concert");
+                              const buttonEl = (
+                                <Button
+                                  size="sm"
+                                  variant="default"
+                                  className="shrink-0"
+                                  data-event-url={concertLink.url}
+                                  onClick={(ev) => {
+                                    const url = (ev.currentTarget as HTMLButtonElement).getAttribute("data-event-url");
+                                    if (url) {
+                                      trackClick(pkg.tier, "ticket", e.name, url, { provider: concertLink.provider, category: concertLink.category, link_type: concertLink.link_type });
+                                    }
+                                  }}
+                                >
+                                  {concertLink.label} <ExternalLink className="ml-1 h-3 w-3" />
+                                </Button>
+                              );
+                              return (
+                                <div className="flex flex-col items-end gap-1">
+                                  {concertLink.disclaimer ? (
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>{buttonEl}</TooltipTrigger>
+                                      <TooltipContent side="top" className="max-w-xs text-xs">
+                                        {concertLink.disclaimer}
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  ) : (
+                                    buttonEl
+                                  )}
+                                  {concertLink.link_type === "provider_search" && (
+                                    <span className="text-xs text-muted-foreground">{concertLink.provider} search</span>
+                                  )}
+                                </div>
+                              );
+                            })()}
                           </div>
                           <EventTrustPanel
                             venue={typeof e.venue_obj === "object" ? e.venue_obj : (e.venue ? { name: e.venue } : undefined)}
@@ -501,7 +552,24 @@ export default function ItineraryResults() {
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-3">
-                      {golfItems.map((g: any, i: number) => (
+                      {golfItems.map((g: any, i: number) => {
+                        const golfLink = normalizeOutboundLink(g.link || g.url, "golf");
+                        const hasUrl = (g.link?.url || g.url || "").trim();
+                        const buttonEl = (
+                          <Button
+                            size="sm"
+                            variant="default"
+                            className="shrink-0"
+                            onClick={() => trackClick(pkg.tier, "golf", g.name, golfLink.url, {
+                              provider: golfLink.provider,
+                              category: golfLink.category,
+                              link_type: golfLink.link_type,
+                            })}
+                          >
+                            {golfLink.label} <ExternalLink className="ml-1 h-3 w-3" />
+                          </Button>
+                        );
+                        return (
                         <div key={i} className="rounded-lg border border-border/50 p-4">
                           <div className="flex items-start justify-between gap-4">
                             <div>
@@ -509,15 +577,22 @@ export default function ItineraryResults() {
                               {g.why && <p className="text-sm text-muted-foreground italic">{g.why}</p>}
                               {g.green_fee && <p className="text-sm font-medium">{g.green_fee}</p>}
                             </div>
-                            {g.url && (
-                              <Button
-                                size="sm"
-                                variant="default"
-                                className="shrink-0"
-                                onClick={() => trackClick(pkg.tier, "golf", g.name, g.url)}
-                              >
-                                Tee Times <ExternalLink className="ml-1 h-3 w-3" />
-                              </Button>
+                            {hasUrl && (
+                              <div className="flex flex-col items-end gap-1">
+                                {golfLink.disclaimer ? (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>{buttonEl}</TooltipTrigger>
+                                    <TooltipContent side="top" className="max-w-xs text-xs">
+                                      {golfLink.disclaimer}
+                                    </TooltipContent>
+                                  </Tooltip>
+                                ) : (
+                                  buttonEl
+                                )}
+                                {golfLink.link_type === "provider_search" && (
+                                  <span className="text-xs text-muted-foreground">{golfLink.provider} search</span>
+                                )}
+                              </div>
                             )}
                           </div>
                           <GolfTrustPanel
@@ -534,7 +609,8 @@ export default function ItineraryResults() {
                             lng={g.lng}
                           />
                         </div>
-                      ))}
+                      );
+                      })}
                     </CardContent>
                   </Card>
                   );

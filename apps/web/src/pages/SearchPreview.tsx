@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { GolfTrustPanel, EventTrustPanel } from "@/components/TrustPanel";
+import { normalizeOutboundLink } from "@/types/outbound-link";
 import { fetchSearch, type SearchResponse } from "@/lib/api/search";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -91,13 +92,16 @@ export default function SearchPreview() {
                         <p className="text-xs text-muted-foreground">Capacity: {event.venue.capacity}</p>
                       )}
                     </div>
-                    {event.book_url && (
-                      <Button asChild size="sm" variant="outline" className="shrink-0">
-                        <a href={event.book_url} target="_blank" rel="noreferrer">
-                          Tickets
-                        </a>
-                      </Button>
-                    )}
+                    {(event.book_url || event.book_link?.url) && (() => {
+                      const link = normalizeOutboundLink(event.book_link || event.book_url, "concert");
+                      return (
+                        <Button asChild size="sm" variant="outline" className="shrink-0">
+                          <a href={link.url} target="_blank" rel="noreferrer">
+                            {link.label}
+                          </a>
+                        </Button>
+                      );
+                    })()}
                   </div>
                   <EventTrustPanel
                     venue={event.venue}
@@ -115,7 +119,10 @@ export default function SearchPreview() {
               <CardTitle className="font-serif text-lg">Golf</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              {data.golf_courses.map((course) => (
+              {data.golf_courses.map((course) => {
+                if (!course.book_link?.url && !course.book_url) return null;
+                const link = normalizeOutboundLink(course.book_link || course.book_url, "golf");
+                return (
                 <div key={course.id} className="rounded-lg border border-border/50 p-4">
                   <div className="flex items-start justify-between gap-4">
                     <div>
@@ -131,13 +138,11 @@ export default function SearchPreview() {
                         </p>
                       )}
                     </div>
-                    {course.book_url && (
-                      <Button asChild size="sm" variant="outline" className="shrink-0">
-                        <a href={course.book_url} target="_blank" rel="noreferrer">
-                          Tee times
-                        </a>
-                      </Button>
-                    )}
+                    <Button asChild size="sm" variant="outline" className="shrink-0">
+                      <a href={link.url} target="_blank" rel="noreferrer">
+                        {link.label}
+                      </a>
+                    </Button>
                   </div>
                   <GolfTrustPanel
                     drive_time_minutes={course.drive_time_minutes}
@@ -153,7 +158,8 @@ export default function SearchPreview() {
                     lng={course.lng}
                   />
                 </div>
-              ))}
+              );
+              })}
             </CardContent>
           </Card>
 
@@ -162,21 +168,23 @@ export default function SearchPreview() {
               <CardTitle className="font-serif text-lg">Hotels</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              {data.hotels.map((hotel) => (
-                <div key={hotel.id} className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="font-medium">{hotel.name}</p>
-                    {hotel.stars && <p className="text-sm text-muted-foreground">{hotel.stars} stars</p>}
-                  </div>
-                  {hotel.book_url && (
+              {data.hotels.map((hotel) => {
+                if (!hotel.book_link?.url && !hotel.book_url) return null;
+                const link = normalizeOutboundLink(hotel.book_link || hotel.book_url, "hotel");
+                return (
+                  <div key={hotel.id} className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="font-medium">{hotel.name}</p>
+                      {hotel.stars && <p className="text-sm text-muted-foreground">{hotel.stars} stars</p>}
+                    </div>
                     <Button asChild size="sm" variant="outline">
-                      <a href={hotel.book_url} target="_blank" rel="noreferrer">
-                        Book
+                      <a href={link.url} target="_blank" rel="noreferrer">
+                        {link.label}
                       </a>
                     </Button>
-                  )}
-                </div>
-              ))}
+                  </div>
+                );
+              })}
             </CardContent>
           </Card>
         </div>

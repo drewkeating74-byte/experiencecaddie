@@ -19,6 +19,42 @@ export type SearchRequest = {
   tee_time_window?: { start: string; end: string };
 };
 
+/** Outbound link shape for concerts (matches OutboundLink from types/outbound-link). */
+export type ConcertOutboundLink = {
+  url: string;
+  provider: string;
+  category: "concert";
+  link_type: "direct_event" | "provider_search" | "manual_fallback";
+  label: string;
+  is_verified: boolean;
+  confidence: "high" | "medium" | "low";
+  disclaimer?: string;
+};
+
+/** Outbound link shape for hotels (matches OutboundLink from types/outbound-link). */
+export type HotelOutboundLink = {
+  url: string;
+  provider: string;
+  category: "hotel";
+  link_type: "direct_listing" | "provider_search" | "manual_fallback";
+  label: string;
+  is_verified: boolean;
+  confidence: "high" | "medium" | "low";
+  disclaimer?: string;
+};
+
+/** Outbound link shape for golf (matches OutboundLink from types/outbound-link). */
+export type GolfOutboundLink = {
+  url: string;
+  provider: string;
+  category: "golf";
+  link_type: "direct_listing" | "provider_search" | "manual_fallback";
+  label: string;
+  is_verified: boolean;
+  confidence: "high" | "medium" | "low";
+  disclaimer?: string;
+};
+
 export type EventResult = {
   id: string;
   name: string;
@@ -27,6 +63,8 @@ export type EventResult = {
   image_url?: string;
   source_url?: string;
   book_url?: string;
+  /** Structured outbound link (Phase 2). When present, prefer over book_url for UI. */
+  book_link?: ConcertOutboundLink;
   price_min?: number;
   price_max?: number;
   provider: Provider;
@@ -49,6 +87,8 @@ export type GolfCourseResult = {
   source_url?: string;
   google_maps_uri?: string;
   book_url?: string;
+  /** Structured outbound link (Phase 4). When present, prefer over book_url for UI. */
+  book_link?: GolfOutboundLink;
   price_min?: number;
   price_max?: number;
   source?: string;
@@ -76,6 +116,8 @@ export type HotelResult = {
   image_url?: string;
   source_url?: string;
   book_url?: string;
+  /** Structured outbound link (Phase 3). When present, prefer over book_url for UI. */
+  book_link?: HotelOutboundLink;
   price_min?: number;
   price_max?: number;
   provider: Provider;
@@ -141,6 +183,17 @@ export function buildFallbackSearchResponse(request: SearchRequest): SearchRespo
   const endDate = request.dates.end_date;
   const teeWindow = request.tee_time_window ?? { start: "07:00", end: "11:00" };
 
+  const ticketUrl = "https://www.ticketmaster.com/";
+  const concertLink: ConcertOutboundLink = {
+    url: ticketUrl,
+    provider: "Ticketmaster",
+    category: "concert",
+    link_type: "provider_search",
+    label: "Find tickets",
+    is_verified: false,
+    confidence: "medium",
+    disclaimer: "Opens Ticketmaster search results for this event",
+  };
   return {
     destination: { city, state, start_date: startDate, end_date: endDate },
     events: [
@@ -150,8 +203,9 @@ export function buildFallbackSearchResponse(request: SearchRequest): SearchRespo
         date_time: `${startDate}T20:00:00-05:00`,
         venue: { name: "Mock Arena", city, state, capacity: 12000 },
         image_url: "https://images.unsplash.com/flagged/photo-1578703916946-53d0d7e6bbd0?w=1200",
-        source_url: "https://www.ticketmaster.com/",
-        book_url: "https://www.ticketmaster.com/",
+        source_url: ticketUrl,
+        book_url: ticketUrl,
+        book_link: concertLink,
         price_min: 75,
         price_max: 250,
         provider: "mock",
@@ -170,6 +224,16 @@ export function buildFallbackSearchResponse(request: SearchRequest): SearchRespo
         image_url: "https://images.unsplash.com/photo-1500930280485-71c409756852?w=1200",
         source_url: "https://www.golfnow.com/",
         book_url: "https://www.golfnow.com/",
+        book_link: {
+          url: "https://www.golfnow.com/",
+          provider: "GolfNow",
+          category: "golf",
+          link_type: "provider_search",
+          label: "Search tee times",
+          is_verified: false,
+          confidence: "medium",
+          disclaimer: "Opens external golf search results; tee time availability is not confirmed in Experience Caddie",
+        },
         price_min: 80,
         price_max: 180,
         provider: "mock",
@@ -186,6 +250,16 @@ export function buildFallbackSearchResponse(request: SearchRequest): SearchRespo
         image_url: "https://images.unsplash.com/photo-1566073771259-6a8506099945?w=1200",
         source_url: "https://www.booking.com/",
         book_url: "https://www.booking.com/",
+        book_link: {
+          url: "https://www.booking.com/",
+          provider: "Booking.com",
+          category: "hotel",
+          link_type: "provider_search",
+          label: "Search hotels",
+          is_verified: false,
+          confidence: "medium",
+          disclaimer: "Opens hotel search results; availability and rates are not confirmed in Experience Caddie",
+        },
         price_min: 160,
         price_max: 320,
         provider: "mock",
