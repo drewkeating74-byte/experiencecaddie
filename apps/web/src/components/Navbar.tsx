@@ -21,7 +21,7 @@ export default function Navbar() {
       <nav className="container mx-auto flex h-16 items-center justify-between px-4">
         <Link to="/" className="flex items-center gap-2">
           <img src={ecLogo} alt="Experience Caddie logo" className="h-10 w-auto" />
-          <span className="font-serif text-xl font-bold text-primary">Experience</span>
+          <span className="font-serif text-xl font-bold text-[#2D472C]">Experience</span>
           <span className="font-serif text-xl text-accent"> Caddie</span>
         </Link>
 
