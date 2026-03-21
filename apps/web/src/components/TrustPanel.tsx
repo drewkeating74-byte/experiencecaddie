@@ -35,7 +35,7 @@ function humanizeProvider(provider?: string): string | null {
 
 function formatFreshness(asOf?: string, generatedAt?: string): string {
   const ts = asOf || generatedAt;
-  if (!ts) return "Checked recently";
+  if (!ts) return "Built recently";
   const d = new Date(ts);
   const now = new Date();
   const diffMs = now.getTime() - d.getTime();
@@ -44,9 +44,9 @@ function formatFreshness(asOf?: string, generatedAt?: string): string {
     d.getDate() === now.getDate() &&
     d.getMonth() === now.getMonth() &&
     d.getFullYear() === now.getFullYear();
-  if (isToday) return "Checked today";
-  if (diffHours < 24) return "Checked recently";
-  return `Data checked on ${d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`;
+  if (isToday) return "Built today";
+  if (diffHours < 24) return "Built recently";
+  return `Data as of ${d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`;
 }
 
 export function GolfTrustPanel({
@@ -128,7 +128,7 @@ export function GolfTrustPanel({
             className="inline-flex items-center gap-1 text-primary hover:underline"
           >
             <Map className="h-3.5 w-3 shrink-0" />
-            Map
+            Open in Google Maps
             <ExternalLink className="h-3 w-3" />
           </a>
         )}

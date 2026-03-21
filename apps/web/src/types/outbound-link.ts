@@ -173,3 +173,28 @@ export function normalizeOutboundLink(
     disclaimer: partial.disclaimer,
   };
 }
+
+/**
+ * Returns a display label that includes the provider for trust.
+ * Use this for outbound CTAs so users know where they're going.
+ */
+export function getOutboundLinkDisplayLabel(link: OutboundLink): string {
+  const p = link.provider;
+  if (p === "External" || !p) return link.label;
+
+  switch (link.category) {
+    case "concert":
+      if (link.link_type === "direct_event") return `Find tickets on ${p}`;
+      if (p === "Google") return "Search tickets on Google";
+      return `Find tickets on ${p}`;
+    case "hotel":
+      if (link.link_type === "provider_search") return p === "Google Hotels" ? "Search hotels on Google Hotels" : `Check rates on ${p}`;
+      return `Check rates on ${p}`;
+    case "golf":
+      if (p === "Google Maps") return "Open in Google Maps";
+      if (link.link_type === "provider_search") return `Search tee times on ${p}`;
+      return `Book tee time on ${p}`;
+    default:
+      return link.label;
+  }
+}

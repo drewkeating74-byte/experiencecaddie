@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { MapPin, Search, ExternalLink } from "lucide-react";
+import { normalizeOutboundLink, getOutboundLinkDisplayLabel } from "@/types/outbound-link";
 
 export default function Courses() {
   const [courses, setCourses] = useState<GolfCourse[]>([]);
@@ -64,11 +65,14 @@ export default function Courses() {
                 {(course.green_fee_min || course.green_fee_max) && (
                   <p className="mt-2 font-semibold">${course.green_fee_min}{course.green_fee_max ? ` – $${course.green_fee_max}` : ""}</p>
                 )}
-                {course.booking_url && (
-                  <a href={course.booking_url} target="_blank" rel="noopener noreferrer" className="mt-2 inline-flex items-center gap-1 text-sm text-primary hover:underline">
-                    Book Tee Time <ExternalLink className="h-3 w-3" />
-                  </a>
-                )}
+                {course.booking_url && (() => {
+                  const link = normalizeOutboundLink(course.booking_url, "golf");
+                  return (
+                    <a href={link.url} target="_blank" rel="noopener noreferrer" className="mt-2 inline-flex items-center gap-1 text-sm text-primary hover:underline">
+                      {getOutboundLinkDisplayLabel(link)} <ExternalLink className="h-3 w-3" />
+                    </a>
+                  );
+                })()}
               </CardContent>
             </Card>
           ))}

@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { GolfTrustPanel, EventTrustPanel } from "@/components/TrustPanel";
-import { normalizeOutboundLink } from "@/types/outbound-link";
+import { normalizeOutboundLink, getOutboundLinkDisplayLabel } from "@/types/outbound-link";
 import { fetchSearch, type SearchResponse } from "@/lib/api/search";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -97,7 +97,7 @@ export default function SearchPreview() {
                       return (
                         <Button asChild size="sm" variant="outline" className="shrink-0">
                           <a href={link.url} target="_blank" rel="noreferrer">
-                            {link.label}
+                            {getOutboundLinkDisplayLabel(link)}
                           </a>
                         </Button>
                       );
@@ -140,7 +140,7 @@ export default function SearchPreview() {
                     </div>
                     <Button asChild size="sm" variant="outline" className="shrink-0">
                       <a href={link.url} target="_blank" rel="noreferrer">
-                        {link.label}
+                        {getOutboundLinkDisplayLabel(link)}
                       </a>
                     </Button>
                   </div>
@@ -179,7 +179,7 @@ export default function SearchPreview() {
                     </div>
                     <Button asChild size="sm" variant="outline">
                       <a href={link.url} target="_blank" rel="noreferrer">
-                        {link.label}
+                        {getOutboundLinkDisplayLabel(link)}
                       </a>
                     </Button>
                   </div>

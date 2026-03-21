@@ -16,9 +16,9 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Hotel, Music, Utensils, ExternalLink, Copy, ArrowLeft, Loader2, Mail, Bookmark, BookmarkCheck, RefreshCw } from "lucide-react";
+import { Hotel, Music, Utensils, ExternalLink, Copy, ArrowLeft, Loader2, Mail, Bookmark, BookmarkCheck } from "lucide-react";
 import { GolfTrustPanel, EventTrustPanel } from "@/components/TrustPanel";
-import { normalizeOutboundLink } from "@/types/outbound-link";
+import { normalizeOutboundLink, getOutboundLinkDisplayLabel } from "@/types/outbound-link";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -33,9 +33,9 @@ const TIER_STYLES: Record<string, { bg: string; border: string; badge: string }>
 };
 
 const TIER_DESCRIPTORS: Record<string, string> = {
-  BRONZE: "Best value with practical picks and solid options for your dates.",
-  SILVER: "A balanced mix of quality and convenience across your trip.",
-  GOLD: "Premium picks and a top-tier experience from start to finish.",
+  BRONZE: "Best practical value — solid picks, typically lower cost.",
+  SILVER: "Balanced comfort and convenience.",
+  GOLD: "Premium stay and top-tier experience.",
 };
 
 export default function ItineraryResults() {
@@ -48,7 +48,6 @@ export default function ItineraryResults() {
   const [shareEmailOpen, setShareEmailOpen] = useState(false);
   const [shareEmails, setShareEmails] = useState("");
   const [sendingEmail, setSendingEmail] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
 
   // Only select non-sensitive columns to avoid exposing email/user_id in shared views
   const safeColumns = "id, path, city, start_date, end_date, budget_tier, group_size, preferences, event_details, result_json, share_slug, status, created_at, updated_at";
@@ -215,17 +214,7 @@ export default function ItineraryResults() {
     }
   };
 
-  const handleRefresh = () => {
-    setRefreshing(true);
-    toast.info("Refreshing prices and availability...");
-    // TODO: Call refresh API to re-run Ticketmaster etc and update itinerary
-    setTimeout(() => {
-      setRefreshing(false);
-      toast.success("Refresh complete");
-    }, 2000);
-  };
-
-  const formatLastUpdated = (dateStr: string) => {
+  const formatGeneratedAt = (dateStr: string) => {
     const d = new Date(dateStr);
     return d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
   };
@@ -376,22 +365,19 @@ export default function ItineraryResults() {
                 </div>
 
                 <div className="flex flex-wrap items-center justify-between gap-2 py-1 text-xs text-muted-foreground border-b border-border/50">
-                  <span>Updated {formatLastUpdated(itinerary.updated_at)}</span>
-                  <div className="flex items-center gap-2">
-                    {!user && (
-                      <button
-                        type="button"
-                        className="text-amber-600 hover:underline"
-                        onClick={() => navigate(`/auth?redirect=${encodeURIComponent(window.location.pathname)}`)}
-                      >
-                        Log in to share, save, or book
-                      </button>
-                    )}
-                    <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={handleRefresh} disabled={refreshing}>
-                      {refreshing ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
-                      Refresh
-                    </Button>
+                  <div>
+                    <span>Generated {formatGeneratedAt(itinerary.updated_at)}</span>
+                    <p className="mt-0.5 text-[10px] opacity-80">Prices and availability are as of when this itinerary was created.</p>
                   </div>
+                  {!user && (
+                    <button
+                      type="button"
+                      className="text-amber-600 hover:underline"
+                      onClick={() => navigate(`/auth?redirect=${encodeURIComponent(window.location.pathname)}`)}
+                    >
+                      Log in to share, save, or book
+                    </button>
+                  )}
                 </div>
 
                 {pkg.estimated_total_usd && (
@@ -426,7 +412,7 @@ export default function ItineraryResults() {
                                 link_type: hotelLink.link_type,
                               })}
                             >
-                              {hotelLink.label} <ExternalLink className="ml-1 h-3 w-3" />
+                              {getOutboundLinkDisplayLabel(hotelLink)} <ExternalLink className="ml-1 h-3 w-3" />
                             </Button>
                           );
                           return (
@@ -502,7 +488,7 @@ export default function ItineraryResults() {
                                     }
                                   }}
                                 >
-                                  {concertLink.label} <ExternalLink className="ml-1 h-3 w-3" />
+                                  {getOutboundLinkDisplayLabel(concertLink)} <ExternalLink className="ml-1 h-3 w-3" />
                                 </Button>
                               );
                               return (
@@ -560,7 +546,7 @@ export default function ItineraryResults() {
                               link_type: golfLink.link_type,
                             })}
                           >
-                            {golfLink.label} <ExternalLink className="ml-1 h-3 w-3" />
+                            {getOutboundLinkDisplayLabel(golfLink)} <ExternalLink className="ml-1 h-3 w-3" />
                           </Button>
                         );
                         return (

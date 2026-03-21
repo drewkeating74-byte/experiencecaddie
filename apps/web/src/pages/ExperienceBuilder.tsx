@@ -10,7 +10,7 @@ import { Music, Search, Sparkles, ArrowRight, ArrowLeft, Loader2, Wand2, MapPin,
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { fetchSearch, buildFallbackSearchResponse } from "@/lib/api/search";
-import { normalizeOutboundLink } from "@/types/outbound-link";
+import { normalizeOutboundLink, getOutboundLinkDisplayLabel } from "@/types/outbound-link";
 
 
 
@@ -525,7 +525,7 @@ export default function ExperienceBuilder() {
                     const link = normalizeOutboundLink((opt as { link?: { url: string }; url?: string }).link || opt.url, "concert");
                     return (
                       <a href={link.url} target="_blank" rel="noopener noreferrer" className="text-xs text-primary mt-2 inline-block hover:underline">
-                        {link.label} →
+                        {getOutboundLinkDisplayLabel(link)} →
                       </a>
                     );
                   })()}

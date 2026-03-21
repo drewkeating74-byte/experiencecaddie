@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Music, MapPin, Calendar, Search, ExternalLink } from "lucide-react";
+import { normalizeOutboundLink, getOutboundLinkDisplayLabel } from "@/types/outbound-link";
 
 export default function Events() {
   const [events, setEvents] = useState<Event[]>([]);
@@ -65,11 +66,14 @@ export default function Events() {
                 {(event.min_price || event.max_price) && (
                   <p className="mt-2 font-semibold">${event.min_price}{event.max_price ? ` – $${event.max_price}` : ""}</p>
                 )}
-                {event.ticket_url && (
-                  <a href={event.ticket_url} target="_blank" rel="noopener noreferrer" className="mt-2 inline-flex items-center gap-1 text-sm text-primary hover:underline">
-                    Get Tickets <ExternalLink className="h-3 w-3" />
-                  </a>
-                )}
+                {event.ticket_url && (() => {
+                  const link = normalizeOutboundLink(event.ticket_url, "concert");
+                  return (
+                    <a href={link.url} target="_blank" rel="noopener noreferrer" className="mt-2 inline-flex items-center gap-1 text-sm text-primary hover:underline">
+                      {getOutboundLinkDisplayLabel(link)} <ExternalLink className="h-3 w-3" />
+                    </a>
+                  );
+                })()}
               </CardContent>
             </Card>
           ))}

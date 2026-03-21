@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Music, MapPin, Calendar, Clock, Car, Users, ArrowLeft, ExternalLink } from "lucide-react";
+import { normalizeOutboundLink, getOutboundLinkDisplayLabel } from "@/types/outbound-link";
 import { DEFAULT_PACKAGE_IMAGE } from "@/lib/constants";
 import { toast } from "sonner";
 
@@ -102,11 +103,14 @@ export default function PackageDetail() {
                     <span className="font-medium flex items-center gap-1"><Clock className="h-3.5 w-3.5" />{event.event_time}</span>
                   </div>
                 )}
-                {event.ticket_url && (
-                  <a href={event.ticket_url} target="_blank" rel="noopener noreferrer" className="mt-2 inline-flex items-center gap-1 text-sm text-primary hover:underline">
-                    View on Ticketmaster <ExternalLink className="h-3 w-3" />
-                  </a>
-                )}
+                {event.ticket_url && (() => {
+                  const link = normalizeOutboundLink(event.ticket_url, "concert");
+                  return (
+                    <a href={link.url} target="_blank" rel="noopener noreferrer" className="mt-2 inline-flex items-center gap-1 text-sm text-primary hover:underline">
+                      {getOutboundLinkDisplayLabel(link)} <ExternalLink className="h-3 w-3" />
+                    </a>
+                  );
+                })()}
               </CardContent>
             </Card>
           )}
@@ -150,11 +154,14 @@ export default function PackageDetail() {
                     <span className="font-medium">{course.guest_policy}</span>
                   </div>
                 )}
-                {course.booking_url && (
-                  <a href={course.booking_url} target="_blank" rel="noopener noreferrer" className="mt-2 inline-flex items-center gap-1 text-sm text-primary hover:underline">
-                    Book tee time <ExternalLink className="h-3 w-3" />
-                  </a>
-                )}
+                {course.booking_url && (() => {
+                  const link = normalizeOutboundLink(course.booking_url, "golf");
+                  return (
+                    <a href={link.url} target="_blank" rel="noopener noreferrer" className="mt-2 inline-flex items-center gap-1 text-sm text-primary hover:underline">
+                      {getOutboundLinkDisplayLabel(link)} <ExternalLink className="h-3 w-3" />
+                    </a>
+                  );
+                })()}
               </CardContent>
             </Card>
           )}
