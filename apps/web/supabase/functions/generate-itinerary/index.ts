@@ -375,8 +375,10 @@ ${artistSearch ? `- IMPORTANT: All 3 must be "${artistSearch}" — different cit
     });
     const golfBronze = poolBronze?.length ? poolBronze.map(toGolfEntry) : golfCourses.filter((g: any) => g.tier_hint === "bronze").map(toGolfEntry);
     const golfSilver = poolSilver?.length ? poolSilver.map(toGolfEntry) : golfCourses.filter((g: any) => g.tier_hint === "silver").map(toGolfEntry);
-    const golfGold = poolGold?.length ? poolGold.map(toGolfEntry) : golfCourses.filter((g: any) => g.tier_hint === "gold").map(toGolfEntry);
+    const golfGoldRaw = poolGold?.length ? poolGold.map(toGolfEntry) : golfCourses.filter((g: any) => g.tier_hint === "gold").map(toGolfEntry);
     const golfUnassigned = golfCourses.filter((g: any) => !g.tier_hint || !["bronze", "silver", "gold"].includes(g.tier_hint)).map(toGolfEntry);
+    // Fallback: if Gold pool is empty, use Silver (or Bronze) so Gold package always has golf options
+    const golfGold = golfGoldRaw.length > 0 ? golfGoldRaw : (golfSilver.length > 0 ? golfSilver : (golfBronze.length > 0 ? golfBronze : golfUnassigned));
     const hasRealHotels = hotels.length > 0 && hotels.some((h: any) => h.provider !== "mock");
     const hasRealData = events.length > 0 || golfCourses.length > 0 || hotels.length > 0;
     const hasTieredGolf = golfBronze.length > 0 || golfSilver.length > 0 || golfGold.length > 0;
@@ -397,7 +399,7 @@ Use the URLs above when composing packages. Do not invent different events or li
 ${events.length > 0 ? `
 CONCERT RULE (MANDATORY): For each package, use ONLY concerts from the CONCERTS list above. Do not add or substitute any event not in that list—these are verified events with active ticket listings. Spread the listed concerts across tiers (e.g. different events per tier) so each package has real options.` : ""}
 ${hasTieredGolf ? `
-GOLF TIER RULE (MANDATORY): For each package, pick golf courses ONLY from that package's tier list above. BRONZE package → use only from BRONZE golf list. SILVER → only from SILVER golf list. GOLD → only from GOLD golf list. Never use the same golf course in multiple packages. Each tier must have different golf. All golf, lodging, and the venue are within 30 miles of each other. When golf entries include drive_mins or miles, you may mention them in the "why" for context.` : ""}`
+GOLF TIER RULE (MANDATORY): For each package, pick golf courses ONLY from that package's tier list above. BRONZE package → use only from BRONZE golf list. SILVER → only from SILVER golf list. GOLD → only from GOLD golf list. Do NOT add golf courses from your own web search—use ONLY the courses listed. Exclude country clubs, private clubs, and members-only courses. Never use the same golf course in multiple packages. Each tier must have different golf. All golf, lodging, and the venue are within 30 miles of each other. When golf entries include drive_mins or miles, you may mention them in the "why" for context.` : ""}`
       : "";
 
     const systemPrompt = `You are Experience Caddie, an AI travel planner specializing in legendary golf + concert weekend getaways. 
@@ -565,8 +567,9 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
     const isLikelyPrivateGolf = (name: string): boolean => {
       const n = (name || "").toLowerCase();
       if (/municipal|muny|public\b|city\b|park\b|recreation|community\b/i.test(n)) return false;
-      if (/country club|private club|private\b|members only|members'? club|invitation only|invite only|invitational|athletic club|golf & country|golf and country|exclusive|membership/i.test(n)) return true;
-      if (/golf club|club\b/i.test(n)) return true;
+      if (/country club|private club|private\b|members only|members'? club|invitation only|invite only|invitational|athletic club|golf & country|golf and country|exclusive|membership|member's club|invite.?only/i.test(n)) return true;
+      if (/\bclub\b|golf club/i.test(n) && !/municipal|muny|public|city|park|recreation|community/i.test(n)) return true;
+      if (/\bclub\s+at\b|club\s+de\b|the\s+club\s+at|country\s+club/i.test(n)) return true;
       return false;
     };
     for (const pkg of parsedResult.packages || []) {
