@@ -17,7 +17,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Hotel, Music, Utensils, ExternalLink, Copy, ArrowLeft, Loader2, Mail, Bookmark, BookmarkCheck } from "lucide-react";
-import { GolfTrustPanel, EventTrustPanel } from "@/components/TrustPanel";
+import { GolfTrustPanel, EventTrustPanel, HotelTrustPanel } from "@/components/TrustPanel";
 import { normalizeOutboundLink, getOutboundLinkDisplayLabel } from "@/types/outbound-link";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
@@ -117,17 +117,32 @@ export default function ItineraryResults() {
       navigate(`/auth?redirect=${encodeURIComponent(window.location.pathname)}`);
       return;
     }
-    if (vendor === "hotel") console.log("[HOTEL_LINK_DEBUG] frontend click", { tier, label, url_opened: url });
-    supabase.functions.invoke("track-click", {
-      body: {
-        itinerary_id: itinerary?.id ?? id,
-        package_tier: tier,
-        vendor,
-        label,
-        target_url: url,
-        ...(meta && { provider: meta.provider, category: meta.category, link_type: meta.link_type }),
-      },
-    });
+
+    const itineraryId = itinerary?.id;
+    const canTrack = itineraryId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(itineraryId);
+
+    if (canTrack) {
+      try {
+        const { error } = await supabase.functions.invoke("track-click", {
+          body: {
+            itinerary_id: itineraryId,
+            package_tier: tier,
+            vendor,
+            label,
+            target_url: url,
+            ...(meta && { provider: meta.provider, category: meta.category, link_type: meta.link_type }),
+          },
+        });
+        if (error && import.meta.env.DEV) {
+          console.warn("[track-click] failed:", error);
+        }
+      } catch (e) {
+        if (import.meta.env.DEV) {
+          console.warn("[track-click] error:", e);
+        }
+      }
+    }
+
     window.open(url, "_blank", "noopener,noreferrer");
   };
 
@@ -416,34 +431,40 @@ export default function ItineraryResults() {
                             </Button>
                           );
                           return (
-                            <div key={i} className="flex items-start justify-between gap-4">
-                              <div>
-                                <div className="flex items-center gap-2">
-                                  <p className="font-medium">{h.name}</p>
-                                  {h.type && (
-                                    <Badge variant="secondary" className="text-xs">
-                                      {h.type === "vacation_rental" ? "Rental" : h.type === "golf_resort" ? "Golf Resort" : "Hotel"}
-                                    </Badge>
-                                  )}
+                            <div key={i} className="rounded-lg border border-border/50 p-4">
+                              <div className="flex items-start justify-between gap-4">
+                                <div>
+                                  <div className="flex items-center gap-2">
+                                    <p className="font-medium">{h.name}</p>
+                                    {h.type && (
+                                      <Badge variant="secondary" className="text-xs">
+                                        {h.type === "vacation_rental" ? "Rental" : h.type === "golf_resort" ? "Golf Resort" : "Hotel"}
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  {h.area && <p className="text-sm text-muted-foreground">{h.area}</p>}
+                                  {h.why && <p className="text-sm text-muted-foreground"><span className="font-medium">Why we picked it:</span> <span className="italic">{h.why}</span></p>}
+                                  {h.price_per_night && <p className="text-sm font-medium">{h.price_per_night}/night</p>}
                                 </div>
-                                {h.area && <p className="text-sm text-muted-foreground">{h.area}</p>}
-                                {h.why && <p className="text-sm text-muted-foreground italic">{h.why}</p>}
-                                {h.price_per_night && <p className="text-sm font-medium">{h.price_per_night}/night</p>}
+                                {hasUrl && (
+                                  <div className="flex flex-col items-end gap-1">
+                                    {hotelLink.disclaimer ? (
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>{buttonEl}</TooltipTrigger>
+                                        <TooltipContent side="top" className="max-w-xs text-xs">
+                                          {hotelLink.disclaimer}
+                                        </TooltipContent>
+                                      </Tooltip>
+                                    ) : (
+                                      buttonEl
+                                    )}
+                                  </div>
+                                )}
                               </div>
-                              {hasUrl && (
-                                <div className="flex flex-col items-end gap-1">
-                                  {hotelLink.disclaimer ? (
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>{buttonEl}</TooltipTrigger>
-                                      <TooltipContent side="top" className="max-w-xs text-xs">
-                                        {hotelLink.disclaimer}
-                                      </TooltipContent>
-                                    </Tooltip>
-                                  ) : (
-                                    buttonEl
-                                  )}
-                                </div>
-                              )}
+                              <HotelTrustPanel
+                                provider={hotelLink.provider}
+                                generatedAt={result._generated_at || itinerary.updated_at}
+                              />
                             </div>
                           );
                         })}
@@ -452,7 +473,9 @@ export default function ItineraryResults() {
                   ) : null;
                 })()}
 
-                {/* Events — only concerts/shows; exclude restaurant/bar/experience/attraction */}
+                {/* Events — only concerts/shows; exclude restaurant/bar/experience/attraction.
+                    Note: events schema has no "why" field. Future pass: add why to generate-itinerary
+                    LLM schema (events array) and render e.why here for consistency with lodging/golf. */}
                 {(() => {
                   const extrasTypes = ["restaurant", "bar", "experience", "attraction"];
                   const eventItems = (pkg.events || []).filter((e: any) => !extrasTypes.includes(e.type));
@@ -554,7 +577,7 @@ export default function ItineraryResults() {
                           <div className="flex items-start justify-between gap-4">
                             <div>
                               <p className="font-medium">{g.name}</p>
-                              {g.why && <p className="text-sm text-muted-foreground italic">{g.why}</p>}
+                              {g.why && <p className="text-sm text-muted-foreground"><span className="font-medium">Why we picked it:</span> <span className="italic">{g.why}</span></p>}
                               {g.green_fee && <p className="text-sm font-medium">{g.green_fee}</p>}
                             </div>
                             {hasUrl && (
@@ -614,7 +637,7 @@ export default function ItineraryResults() {
                           <div key={i}>
                             <p className="font-medium">{x.name}</p>
                             <Badge variant="secondary" className="text-xs">{x.type}</Badge>
-                            {x.why && <p className="mt-1 text-sm text-muted-foreground italic">{x.why}</p>}
+                            {x.why && <p className="mt-1 text-sm text-muted-foreground"><span className="font-medium">Why we picked it:</span> <span className="italic">{x.why}</span></p>}
                           </div>
                         ))}
                       </CardContent>

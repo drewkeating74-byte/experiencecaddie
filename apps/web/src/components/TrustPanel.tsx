@@ -19,12 +19,15 @@ const PROVIDER_LABELS: Record<string, string> = {
   google_places: "Google Places",
   "Google Hotels": "Google Hotels",
   "Google": "Google",
+  "Booking.com": "Booking.com",
+  "Expedia": "Expedia",
+  "Hotels.com": "Hotels.com",
 };
 
 const PUBLIC_ACCESS_LABELS: Record<string, { label: string; variant: "default" | "secondary" | "outline" }> = {
-  likely_public: { label: "Likely public", variant: "default" },
-  unknown: { label: "Access unclear", variant: "secondary" },
-  likely_private: { label: "Possibly private", variant: "outline" },
+  likely_public: { label: "Open to the public", variant: "default" },
+  unknown: { label: "Public access unclear", variant: "secondary" },
+  likely_private: { label: "May require membership", variant: "outline" },
 };
 
 function humanizeProvider(provider?: string): string | null {
@@ -90,15 +93,15 @@ export function GolfTrustPanel({
       {hasRow1 && (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
           {drive_time_minutes != null && (
-            <span className="inline-flex items-center gap-1" title="Drive time from search center">
+            <span className="inline-flex items-center gap-1" title="Drive time from venue area">
               <Car className="h-3.5 w-3 shrink-0" />
-              {drive_time_minutes} min
+              About {drive_time_minutes} min from venue
             </span>
           )}
           {distance_miles != null && (
-            <span className="inline-flex items-center gap-1" title="Distance from search center">
+            <span className="inline-flex items-center gap-1" title="Distance from venue area">
               <MapPin className="h-3.5 w-3 shrink-0" />
-              {distance_miles} mi
+              ~{distance_miles} mi away
             </span>
           )}
           {public_access_confidence && (
@@ -137,6 +140,36 @@ export function GolfTrustPanel({
           {formatFreshness(as_of, generatedAt)}
         </span>
       </div>
+    </div>
+  );
+}
+
+export function HotelTrustPanel({
+  provider,
+  generatedAt,
+}: {
+  provider?: string;
+  generatedAt?: string;
+}) {
+  const displayProvider = humanizeProvider(provider);
+
+  return (
+    <div className="mt-3 space-y-2 text-xs text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
+        {displayProvider && (
+          <span className="inline-flex items-center gap-1.5">
+            <Building2 className="h-3.5 w-3 shrink-0" />
+            <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 font-normal">
+              {displayProvider}
+            </Badge>
+          </span>
+        )}
+        <span className="inline-flex items-center gap-1" title="Data freshness">
+          <Clock className="h-3.5 w-3 shrink-0" />
+          {formatFreshness(undefined, generatedAt)}
+        </span>
+      </div>
+      <p className="text-[11px] opacity-90">Rates and availability vary — confirm on the provider site when booking.</p>
     </div>
   );
 }
