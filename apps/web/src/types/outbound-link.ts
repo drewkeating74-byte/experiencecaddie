@@ -185,10 +185,11 @@ export function getOutboundLinkDisplayLabel(link: OutboundLink): string {
   switch (link.category) {
     case "concert":
       if (link.link_type === "direct_event") return `Find tickets on ${p}`;
-      if (p === "Google") return "Search tickets on Google";
+      if (p === "Google") return "Search tickets";
       return `Find tickets on ${p}`;
     case "hotel":
-      if (link.link_type === "provider_search") return p === "Google Hotels" ? "Search hotels on Google Hotels" : `Check rates on ${p}`;
+      if (link.link_type === "provider_search") return "Search hotels";
+      if (p === "Google Hotels") return "Check rates";
       return `Check rates on ${p}`;
     case "golf":
       if (p === "Google Maps") return "Open in Google Maps";

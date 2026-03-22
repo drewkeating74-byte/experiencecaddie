@@ -15,7 +15,8 @@ const corsHeaders = {
 };
 
 const BASE_URL = "https://app.ticketmaster.com/discovery/v2";
-const DEFAULT_WINDOW_MONTHS = 6;
+const DEFAULT_START_OFFSET_DAYS = 14; // Search starts 2 weeks from today
+const DEFAULT_WINDOW_MONTHS = 9; // Search spans 9 months from start
 const MAX_WINDOW_MONTHS = 12;
 
 type TMVenue = {
@@ -186,6 +187,12 @@ type SearchResponse = {
   meta: { providers: ("ticketmaster" | "google_places" | "mock")[]; cached: boolean; generated_at: string; request_id: string };
 };
 
+function addDays(date: Date, days: number): Date {
+  const d = new Date(date);
+  d.setDate(d.getDate() + days);
+  return d;
+}
+
 function addMonths(date: Date, months: number): Date {
   const d = new Date(date);
   d.setMonth(d.getMonth() + months);
@@ -198,17 +205,24 @@ function toYYYYMMDD(d: Date): string {
 
 function resolveDateWindow(startDate?: string, endDate?: string): { start: string; end: string } {
   const today = new Date();
+  const defaultStart = addDays(today, DEFAULT_START_OFFSET_DAYS);
+  const defaultEnd = addMonths(defaultStart, DEFAULT_WINDOW_MONTHS);
+  const minStartStr = toYYYYMMDD(defaultStart);
+
   let start: Date;
   let end: Date;
   if (startDate && endDate) {
-    start = new Date(startDate);
-    end = new Date(endDate);
-    if (isNaN(start.getTime())) start = today;
-    if (isNaN(end.getTime())) end = addMonths(today, DEFAULT_WINDOW_MONTHS);
+    start = new Date(startDate + "T12:00:00");
+    end = new Date(endDate + "T12:00:00");
+    if (isNaN(start.getTime())) start = defaultStart;
+    if (isNaN(end.getTime())) end = addMonths(defaultStart, DEFAULT_WINDOW_MONTHS);
+    // Enforce minimum start: never search past events; start at least 2 weeks from today
+    const startStr = toYYYYMMDD(start);
+    if (startStr < minStartStr) start = defaultStart;
     if (end <= start) end = addMonths(start, DEFAULT_WINDOW_MONTHS);
   } else {
-    start = today;
-    end = addMonths(today, DEFAULT_WINDOW_MONTHS);
+    start = defaultStart;
+    end = defaultEnd;
   }
   const maxEnd = addMonths(start, MAX_WINDOW_MONTHS);
   if (end > maxEnd) end = maxEnd;
@@ -832,15 +846,15 @@ function parseRequest(url: URL): SearchRequest {
   const budget_tier =
     rawBudget === "low" || rawBudget === "mid" || rawBudget === "high" ? rawBudget : undefined;
 
-  const today = toYYYYMMDD(new Date());
-  const sixMo = toYYYYMMDD(addMonths(new Date(), DEFAULT_WINDOW_MONTHS));
+  const defaultStart = toYYYYMMDD(addDays(new Date(), DEFAULT_START_OFFSET_DAYS));
+  const defaultEnd = toYYYYMMDD(addMonths(addDays(new Date(), DEFAULT_START_OFFSET_DAYS), DEFAULT_WINDOW_MONTHS));
 
   return {
     artist: artist ?? undefined,
     destination: { city, state, lat, lng },
     dates: {
-      start_date: startDate ?? today,
-      end_date: endDate ?? sixMo,
+      start_date: startDate ?? defaultStart,
+      end_date: endDate ?? defaultEnd,
     },
     budget_tier,
     tee_time_window:

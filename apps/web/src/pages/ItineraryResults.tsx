@@ -347,6 +347,16 @@ export default function ItineraryResults() {
         </div>
       )}
 
+      {/* Generated date — prominent at top */}
+      <div className="mb-6 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-center">
+        <p className="text-sm font-medium">
+          Generated {formatGeneratedAt(itinerary.updated_at)}
+        </p>
+        <p className="text-xs text-muted-foreground">
+          Prices and availability are as of when this itinerary was created.
+        </p>
+      </div>
+
       {/* Tier Tabs */}
       <Tabs defaultValue={packages[0]?.tier || "BRONZE"}>
         <TabsList className="mx-auto mb-6 grid w-full max-w-md grid-cols-3">
@@ -379,21 +389,17 @@ export default function ItineraryResults() {
                   )}
                 </div>
 
-                <div className="flex flex-wrap items-center justify-between gap-2 py-1 text-xs text-muted-foreground border-b border-border/50">
-                  <div>
-                    <span>Generated {formatGeneratedAt(itinerary.updated_at)}</span>
-                    <p className="mt-0.5 text-[10px] opacity-80">Prices and availability are as of when this itinerary was created.</p>
-                  </div>
-                  {!user && (
+                {!user && (
+                  <div className="flex justify-end border-b border-border/50 pb-2">
                     <button
                       type="button"
-                      className="text-amber-600 hover:underline"
+                      className="text-xs text-amber-600 hover:underline"
                       onClick={() => navigate(`/auth?redirect=${encodeURIComponent(window.location.pathname)}`)}
                     >
                       Log in to share, save, or book
                     </button>
-                  )}
-                </div>
+                  </div>
+                )}
 
                 {pkg.estimated_total_usd && (
                   <div className="font-serif text-xl font-bold">

@@ -95,15 +95,27 @@ export default function ExperienceBuilder() {
     const cityNormalized = cityParam.trim();
     const isFlexibleCity = !cityNormalized || cityNormalized.toLowerCase() === "flexible";
 
+    // Don't use past dates from URL — search starts 2 weeks from today
+    const today = new Date();
+    const twoWeeksFromNow = new Date(today);
+    twoWeeksFromNow.setDate(twoWeeksFromNow.getDate() + 14);
+    const minStartStr = twoWeeksFromNow.toISOString().split("T")[0];
+    const nineMonthsLater = new Date(twoWeeksFromNow);
+    nineMonthsLater.setMonth(nineMonthsLater.getMonth() + 9);
+    const defaultEndStr = nineMonthsLater.toISOString().split("T")[0];
+    const useUrlDates = startParam >= minStartStr && endParam > startParam;
+    const resolvedStart = useUrlDates ? startParam : minStartStr;
+    const resolvedEnd = useUrlDates ? endParam : defaultEndStr;
+
     // Restore to the trip fine-tuning screen with the most relevant intent preserved.
     setStep("details");
 
     setFlexibleLocation(!isFlexibleCity);
     if (!isFlexibleCity) setCity(cityNormalized);
 
-    setFlexibleDates(false);
-    setStartDate(startParam);
-    setEndDate(endParam);
+    setFlexibleDates(!useUrlDates);
+    setStartDate(resolvedStart);
+    setEndDate(resolvedEnd);
 
     if ((validBudgets as readonly string[]).includes(budgetParam)) {
       setBudget(budgetParam as BudgetTier);
@@ -269,15 +281,39 @@ export default function ExperienceBuilder() {
     }
 
     const finalCity = trimmedCity;
-    const finalStart = flexibleDates ? new Date().toISOString().split("T")[0] : startDate;
-    const finalEnd = flexibleDates
-      ? new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]
-      : endDate;
+    // Flexible dates: start 2 weeks from today, end 9 months later
+    let finalStart: string;
+    let finalEnd: string;
+    if (flexibleDates) {
+      const twoWeeksFromNow = new Date();
+      twoWeeksFromNow.setDate(twoWeeksFromNow.getDate() + 14);
+      finalStart = twoWeeksFromNow.toISOString().split("T")[0];
+      const nineMonthsLater = new Date(twoWeeksFromNow);
+      nineMonthsLater.setMonth(nineMonthsLater.getMonth() + 9);
+      finalEnd = nineMonthsLater.toISOString().split("T")[0];
+    } else {
+      finalStart = startDate;
+      finalEnd = endDate;
+    }
 
     // Validate date format
     const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
     if (!dateRegex.test(finalStart) || !dateRegex.test(finalEnd)) {
       toast.error("Invalid date format");
+      return;
+    }
+
+    // Reject past dates — search starts 2 weeks from today
+    const today = new Date();
+    const twoWeeksFromNow = new Date(today);
+    twoWeeksFromNow.setDate(twoWeeksFromNow.getDate() + 14);
+    const minStartStr = twoWeeksFromNow.toISOString().split("T")[0];
+    if (finalStart < minStartStr) {
+      toast.error("Start date must be at least 2 weeks from today. Try flexible dates for automatic scheduling.");
+      return;
+    }
+    if (finalEnd <= finalStart) {
+      toast.error("End date must be after start date");
       return;
     }
 

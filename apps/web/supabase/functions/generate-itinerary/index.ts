@@ -63,6 +63,20 @@ serve(async (req) => {
             status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
+        // Clamp dates: start at least 2 weeks from today to avoid past events
+        const today = new Date();
+        const twoWeeksFromNow = new Date(today);
+        twoWeeksFromNow.setDate(twoWeeksFromNow.getDate() + 14);
+        const nineMonthsLater = new Date(twoWeeksFromNow);
+        nineMonthsLater.setMonth(nineMonthsLater.getMonth() + 9);
+        const minStart = twoWeeksFromNow.toISOString().slice(0, 10);
+        const maxEnd = nineMonthsLater.toISOString().slice(0, 10);
+        let discStart = String(p.start_date).slice(0, 10);
+        let discEnd = String(p.end_date).slice(0, 10);
+        if (discStart < minStart) discStart = minStart;
+        if (discEnd <= discStart) discEnd = maxEnd;
+        if (discEnd > maxEnd) discEnd = maxEnd;
+
         const artistSearch = p.artist_search?.trim();
         const cityHint = p.city && p.city !== "flexible" ? `Focus on ${p.city}.` : "Search across US cities with strong golf and live music scenes — vary the cities for different options.";
         const eventHint = artistSearch
@@ -82,7 +96,7 @@ Requirements:
 - Concert MUST be in the United States (US-only). Do NOT return international dates/cities.
 - Concert must be in a city that has quality public golf within 25 miles (we add golf in the next step)
 - Use Ticketmaster, SeatGeek, StubHub, or official venue sites. Return real ticket URLs.
-- Dates between ${p.start_date} and ${p.end_date}
+- Dates MUST be between ${discStart} and ${discEnd}. Do NOT return any concert with a date before ${discStart}.
 - ${cityHint}
 ${eventHint}
 - Pick 3 different artist+city+date combinations so the user has real choices
@@ -139,7 +153,15 @@ ${artistSearch ? `- IMPORTANT: All 3 must be "${artistSearch}" — different cit
             status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
-        return new Response(JSON.stringify({ success: true, concert_options: concertOptions.concert_options || [] }), {
+
+        // Filter out past concerts — LLM may return dates before requested range
+        let opts = concertOptions.concert_options || [];
+        opts = opts.filter((c: { date?: string }) => {
+          const d = (c.date || "").toString().slice(0, 10);
+          return d && d >= discStart;
+        });
+
+        return new Response(JSON.stringify({ success: true, concert_options: opts }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }

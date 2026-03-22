@@ -10,7 +10,6 @@ import {
   ExternalLink,
   Shield,
   Calendar,
-  Clock,
   Building2,
 } from "lucide-react";
 
@@ -34,22 +33,6 @@ function humanizeProvider(provider?: string): string | null {
   if (!provider) return null;
   if (provider === "mock") return import.meta.env.DEV ? "Sample data" : null;
   return PROVIDER_LABELS[provider] ?? provider.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
-function formatFreshness(asOf?: string, generatedAt?: string): string {
-  const ts = asOf || generatedAt;
-  if (!ts) return "Built recently";
-  const d = new Date(ts);
-  const now = new Date();
-  const diffMs = now.getTime() - d.getTime();
-  const diffHours = diffMs / (1000 * 60 * 60);
-  const isToday =
-    d.getDate() === now.getDate() &&
-    d.getMonth() === now.getMonth() &&
-    d.getFullYear() === now.getFullYear();
-  if (isToday) return "Built today";
-  if (diffHours < 24) return "Built recently";
-  return `Data as of ${d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`;
 }
 
 export function GolfTrustPanel({
@@ -122,24 +105,18 @@ export function GolfTrustPanel({
           )}
         </div>
       )}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
-        {mapUrl && (
-          <a
-            href={mapUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-primary hover:underline"
-          >
-            <Map className="h-3.5 w-3 shrink-0" />
-            Open in Google Maps
-            <ExternalLink className="h-3 w-3" />
-          </a>
-        )}
-        <span className="inline-flex items-center gap-1" title="Data freshness">
-          <Clock className="h-3.5 w-3 shrink-0" />
-          {formatFreshness(as_of, generatedAt)}
-        </span>
-      </div>
+      {mapUrl && (
+        <a
+          href={mapUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 text-primary hover:underline"
+        >
+          <Map className="h-3.5 w-3 shrink-0" />
+          Open in Google Maps
+          <ExternalLink className="h-3 w-3" />
+        </a>
+      )}
     </div>
   );
 }
@@ -151,24 +128,8 @@ export function HotelTrustPanel({
   provider?: string;
   generatedAt?: string;
 }) {
-  const displayProvider = humanizeProvider(provider);
-
   return (
     <div className="mt-3 space-y-2 text-xs text-muted-foreground">
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
-        {displayProvider && (
-          <span className="inline-flex items-center gap-1.5">
-            <Building2 className="h-3.5 w-3 shrink-0" />
-            <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 font-normal">
-              {displayProvider}
-            </Badge>
-          </span>
-        )}
-        <span className="inline-flex items-center gap-1" title="Data freshness">
-          <Clock className="h-3.5 w-3 shrink-0" />
-          {formatFreshness(undefined, generatedAt)}
-        </span>
-      </div>
       <p className="text-[11px] opacity-90">Rates and availability vary — confirm on the provider site when booking.</p>
     </div>
   );
@@ -209,19 +170,15 @@ export function EventTrustPanel({
           )}
         </div>
       )}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
-        {displayProvider && (
+      {displayProvider && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
           <span className="inline-flex items-center gap-1.5">
             <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 font-normal">
               {displayProvider}
             </Badge>
           </span>
-        )}
-        <span className="inline-flex items-center gap-1" title="Data freshness">
-          <Clock className="h-3.5 w-3 shrink-0" />
-          {formatFreshness(undefined, generatedAt)}
-        </span>
-      </div>
+        </div>
+      )}
     </div>
   );
 }
