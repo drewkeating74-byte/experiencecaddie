@@ -128,11 +128,7 @@ export function HotelTrustPanel({
   provider?: string;
   generatedAt?: string;
 }) {
-  return (
-    <div className="mt-3 space-y-2 text-xs text-muted-foreground">
-      <p className="text-[11px] opacity-90">Rates and availability vary — confirm on the provider site when booking.</p>
-    </div>
-  );
+  return null;
 }
 
 export function EventTrustPanel({

@@ -481,11 +481,11 @@ export default function ExperienceBuilder() {
             <p className="text-muted-foreground max-w-md">
               {artistName ? (
                 <>
-                  We couldn&apos;t find any upcoming concerts or tour dates for <strong>{artistName}</strong> in your date range.
+                  We couldn't find any upcoming concerts or tour dates for <strong>{artistName}</strong> in your date range.
                   They may not be touring right now, or dates could be outside our search window.
                 </>
               ) : (
-                "We couldn&apos;t find any concerts matching your criteria in your date range. Try broadening your search or adjusting your dates."
+                "We couldn't find any concerts matching your criteria in your date range. Try broadening your search or adjusting your dates."
               )}
             </p>
           </div>

@@ -341,19 +341,16 @@ export default function ItineraryResults() {
               Estimated total: ${summary.estimated_total_range_usd[0]?.toLocaleString()} – ${summary.estimated_total_range_usd[1]?.toLocaleString()}
             </p>
           )}
-          <p className="mt-2 text-xs text-muted-foreground max-w-xl mx-auto">
-            Ticket and hotel availability may vary—confirm on the linked sites before booking.
-          </p>
         </div>
       )}
 
-      {/* Generated date — prominent at top */}
-      <div className="mb-6 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-center">
-        <p className="text-sm font-medium">
+      {/* Generated date + combined trust disclosure */}
+      <div className="mb-6 text-center space-y-2">
+        <p className="text-sm font-semibold">
           Generated {formatGeneratedAt(itinerary.updated_at)}
         </p>
-        <p className="text-xs text-muted-foreground">
-          Prices and availability are as of when this itinerary was created.
+        <p className="text-xs text-muted-foreground max-w-xl mx-auto">
+          Prices and availability are as of this date. You'll book directly with providers—confirm on their site before booking. Experience Caddie does not handle reservations.
         </p>
       </div>
 
@@ -681,11 +678,6 @@ export default function ItineraryResults() {
           );
         })}
       </Tabs>
-
-      {/* Disclaimer */}
-      <div className="mt-8 space-y-2 text-center text-xs text-muted-foreground">
-        <p>Prices, availability, and accommodations may change. You'll book directly with providers. No booking handled by Experience Caddie.</p>
-      </div>
     </div>
   );
 }

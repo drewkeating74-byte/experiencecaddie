@@ -154,11 +154,22 @@ ${artistSearch ? `- IMPORTANT: All 3 must be "${artistSearch}" — different cit
           });
         }
 
-        // Filter out past concerts — LLM may return dates before requested range
+        // Filter out past concerts — only when we can reliably parse YYYY-MM-DD
+        // LLM may return "April 15, 2025" etc; if we can't parse, keep the concert
         let opts = concertOptions.concert_options || [];
         opts = opts.filter((c: { date?: string }) => {
-          const d = (c.date || "").toString().slice(0, 10);
-          return d && d >= discStart;
+          const raw = (c.date || "").toString().trim();
+          const isoMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+          if (isoMatch) {
+            const d = isoMatch[0];
+            return d >= discStart;
+          }
+          const parsed = new Date(raw);
+          if (!isNaN(parsed.getTime())) {
+            const d = parsed.toISOString().slice(0, 10);
+            return d >= discStart;
+          }
+          return true; // unknown format — keep it
         });
 
         return new Response(JSON.stringify({ success: true, concert_options: opts }), {
