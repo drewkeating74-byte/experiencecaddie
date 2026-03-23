@@ -40,15 +40,30 @@ const TIER_DESCRIPTORS: Record<string, string> = {
   GOLD: "Premium stay and top-tier experience.",
 };
 
-/** Extract YYYY-MM-DD from date_time string (e.g. "2025-03-15T20:00:00-05:00") or date-like value. */
+/** Extract YYYY-MM-DD from date_time string, timestamp, or date-like value. Handles PostgREST, ISO, and odd formats. */
 function toYYYYMMDD(val: unknown): string | null {
-  if (!val) return null;
+  if (val == null) return null;
   if (typeof val === "string") {
-    const iso = val.slice(0, 10);
-    return /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso : null;
+    const trimmed = val.trim();
+    const iso = trimmed.slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
+    const parsed = new Date(trimmed);
+    if (!isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
+    return null;
+  }
+  if (typeof val === "number") {
+    if (!Number.isFinite(val) || val < 0) return null;
+    const d = new Date(val);
+    if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+    return null;
   }
   if (val instanceof Date && !isNaN(val.getTime())) {
     return val.toISOString().slice(0, 10);
+  }
+  if (typeof val === "object") {
+    const obj = val as Record<string, unknown>;
+    if (typeof obj.date === "string") return toYYYYMMDD(obj.date);
+    if (typeof obj.toISOString === "function") return toYYYYMMDD((obj as Date).toISOString());
   }
   return null;
 }

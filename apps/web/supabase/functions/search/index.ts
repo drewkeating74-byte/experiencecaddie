@@ -1022,18 +1022,19 @@ Deno.serve(async (req: Request) => {
     );
 
     const providers: SearchResponse["meta"]["providers"] = [];
+    // For flexible/missing city: use Austin as default so we get real TM + golf instead of mock-only
+    const DEFAULT_FLEXIBLE_CITY = "Austin";
     const effectiveCity =
       payload.destination?.city && payload.destination.city !== "flexible"
         ? payload.destination.city
-        : "Various";
+        : DEFAULT_FLEXIBLE_CITY;
 
     const hasTicketmasterKey = Boolean(
       Deno.env.get("TICKETMASTER_API_KEY") || Deno.env.get("TICKETMASTER_CONSUMER_KEY")
     );
     const shouldCallTicketmaster =
       hasTicketmasterKey &&
-      (Boolean(payload.artist?.trim()) ||
-        (Boolean(payload.destination?.city) && payload.destination?.city !== "flexible"));
+      (Boolean(payload.artist?.trim()) || Boolean(effectiveCity));
 
     let events: EventResult[];
 
@@ -1041,9 +1042,7 @@ Deno.serve(async (req: Request) => {
       try {
         const tmEvents = await searchTicketmaster({
           artist: payload.artist,
-          city: payload.destination?.city && payload.destination.city !== "flexible"
-            ? payload.destination.city
-            : undefined,
+          city: effectiveCity,
           state: payload.destination?.state,
           startDate,
           endDate,

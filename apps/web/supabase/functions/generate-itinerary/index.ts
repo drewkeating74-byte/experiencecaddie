@@ -448,27 +448,30 @@ ${artistSearch ? `- IMPORTANT: All 3 must be "${artistSearch}" — different cit
     const golfUnassigned = golfCourses.filter((g: any) => !g.tier_hint || !["bronze", "silver", "gold"].includes(g.tier_hint)).map(toGolfEntry);
     // Fallback: if Gold pool is empty, use Silver (or Bronze) so Gold package always has golf options
     const golfGold = golfGoldRaw.length > 0 ? golfGoldRaw : (golfSilver.length > 0 ? golfSilver : (golfBronze.length > 0 ? golfBronze : golfUnassigned));
+    const goldPoolIsThin = golfGoldRaw.length === 0 && golfGold.length > 0;
     const hasRealHotels = hotels.length > 0 && hotels.some((h: any) => h.provider !== "mock");
     const hasRealData = events.length > 0 || golfCourses.length > 0 || hotels.length > 0;
     const hasTieredGolf = golfBronze.length > 0 || golfSilver.length > 0 || golfGold.length > 0;
     const realDataSection = hasRealData
       ? `
-REAL DATA PROVIDED (use these exact options in your packages; include their book_url/ticket URLs):
-${events.length ? `- CONCERTS: ${JSON.stringify(events.slice(0, 6).map((e: any) => ({ name: e.name, venue: e.venue?.name, date: e.date_time, url: e.book_url || e.source_url })))}` : ""}
+REAL DATA PROVIDED (use these exact options in your packages; include their book_url/ticket URLs and prices when available):
+${events.length ? `- CONCERTS: ${JSON.stringify(events.slice(0, 6).map((e: any) => ({ name: e.name, venue: e.venue?.name, date: e.date_time, url: e.book_url || e.source_url, price_min: e.price_min, price_max: e.price_max })))}` : ""}
 ${golfCourses.length && !hasTieredGolf ? `- GOLF (all): ${JSON.stringify(golfCourses.slice(0, 6).map((g: any) => ({ name: g.name, url: g.book_url || g.source_url })))}` : ""}
 ${hasTieredGolf ? `- GOLF by tier (CRITICAL – use ONLY from the matching list per package):
   * BRONZE package golf: ${JSON.stringify(golfBronze.length ? golfBronze : golfUnassigned)}
   * SILVER package golf: ${JSON.stringify(golfSilver.length ? golfSilver : golfUnassigned)}
   * GOLD package golf: ${JSON.stringify(golfGold.length ? golfGold : golfUnassigned)}
   ${golfUnassigned.length ? `(If a tier list is empty, use from: ${JSON.stringify(golfUnassigned)})` : ""}` : ""}
-${hasRealHotels ? `- HOTELS: ${JSON.stringify(hotels.slice(0, 6).map((h: any) => ({ name: h.name, url: h.book_url || h.source_url })))}` : ""}
+${hasRealHotels ? `- HOTELS: ${JSON.stringify(hotels.slice(0, 6).map((h: any) => ({ name: h.name, url: h.book_url || h.source_url, price_min: h.price_min, price_max: h.price_max })))}` : ""}
 ${!hasRealHotels && hotels.length > 0 ? `- HOTELS: (none provided – SEARCH the web for real hotels in ${itinerary.city} on Expedia, Booking.com, or Hotels.com. Use actual property names as listed on those sites (e.g. "Hotel Van Zandt", "W Austin") and real booking URLs. Do not use vague names like "convenient option" or "boutique hotel near venue".)` : ""}
 
-Use the URLs above when composing packages. Do not invent different events or links.${!hasRealHotels ? " For hotels, search the web as instructed." : ""}
+Use the URLs above when composing packages. Do not invent different events or links.
+PRICE RULE: When concerts or hotels include price_min/price_max, use them. For events: set price_range as a string like "$75–$250" or "From $50" using the provided numbers. For lodging: set price_per_night using the range (e.g. "$160–$320/night"). If no price data is provided, you may estimate based on the budget tier.${!hasRealHotels ? " For hotels, search the web as instructed." : ""}
 ${events.length > 0 ? `
 CONCERT RULE (MANDATORY): For each package, use ONLY concerts from the CONCERTS list above. Do not add or substitute any event not in that list—these are verified events with active ticket listings. Spread the listed concerts across tiers (e.g. different events per tier) so each package has real options.` : ""}
 ${hasTieredGolf ? `
-GOLF TIER RULE (MANDATORY): For each package, pick golf courses ONLY from that package's tier list above. BRONZE package → use only from BRONZE golf list. SILVER → only from SILVER golf list. GOLD → only from GOLD golf list. Do NOT add golf courses from your own web search—use ONLY the courses listed. Exclude country clubs, private clubs, and members-only courses. Never use the same golf course in multiple packages. Each tier must have different golf. All golf, lodging, and the venue are within 30 miles of each other. When golf entries include drive_mins or miles, you may mention them in the "why" for context.` : ""}`
+GOLF TIER RULE (MANDATORY): For each package, pick golf courses ONLY from that package's tier list above. BRONZE package → use only from BRONZE golf list. SILVER → only from SILVER golf list. GOLD → only from GOLD golf list. Do NOT add golf courses from your own web search—use ONLY the courses listed. Exclude country clubs, private clubs, and members-only courses. Never use the same golf course in multiple packages. Each tier must have different golf. All golf, lodging, and the venue are within 30 miles of each other. When golf entries include drive_mins or miles, you may mention them in the "why" for context.${goldPoolIsThin ? `
+GOLD HONESTY NOTE: Premium (Gold-tier) golf options are limited for this destination. For the GOLD package, add to safety_notes: "Premium course availability is limited in this area; we've included the best available public courses."` : ""}` : ""}`
       : "";
 
     const systemPrompt = `You are Experience Caddie, an AI travel planner specializing in legendary golf + concert weekend getaways. 

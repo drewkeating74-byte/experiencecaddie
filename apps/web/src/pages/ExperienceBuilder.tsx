@@ -393,19 +393,21 @@ export default function ExperienceBuilder() {
       const eventDetails = getEventDetails();
       const hasArtist = selectedEntry === "artist" && eventInput?.trim();
       const hasCity = finalCity !== "flexible";
+      // For flexible/broad discovery: use Austin as default city so we get real TM + golf instead of mock-only
+      const searchCity = hasCity ? finalCity : "Austin";
       const searchRequest = {
         artist: hasArtist ? eventInput.trim() : undefined,
-        destination: { city: hasCity ? finalCity : finalCity === "flexible" ? undefined : finalCity },
+        destination: { city: searchCity },
         dates: { start_date: finalStart, end_date: finalEnd },
         group_size: Math.min(Math.max(groupSize, 1), 20),
         budget_tier: budget,
       };
       let searchResult;
       try {
-        searchResult = (hasArtist || hasCity) ? await fetchSearch(searchRequest) : buildFallbackSearchResponse({ ...searchRequest, destination: { ...searchRequest.destination, city: "Austin" } });
+        searchResult = await fetchSearch(searchRequest);
       } catch (err) {
         if (import.meta.env.DEV) console.warn("Search API unreachable, using fallback:", err);
-        searchResult = buildFallbackSearchResponse({ ...searchRequest, destination: { city: finalCity === "flexible" ? "Austin" : finalCity, state: (searchRequest.destination as any)?.state } });
+        searchResult = buildFallbackSearchResponse(searchRequest);
       }
       const search_results = {
         events: searchResult.events?.slice(0, 6) || [],
