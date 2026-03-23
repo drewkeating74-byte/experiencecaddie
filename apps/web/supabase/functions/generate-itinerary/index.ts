@@ -78,9 +78,13 @@ serve(async (req) => {
         if (discEnd > maxEnd) discEnd = maxEnd;
 
         const artistSearch = p.artist_search?.trim();
-        const cityHint = p.city && p.city !== "flexible" ? `Focus on ${p.city}.` : "Search across US cities with strong golf and live music scenes — vary the cities for different options.";
+        const cityHint = p.city && p.city !== "flexible" ? `Focus on ${p.city}.` : "Search cities like Nashville, Phoenix, Austin, Las Vegas, Denver, Atlanta, Dallas — places with arenas and good golf nearby.";
+        const eventDetails = String(p.event_details || "").toLowerCase();
+        const isBroadDiscover = !artistSearch && (eventDetails.includes("genres: any") || eventDetails.includes("discover for me") || !eventDetails.trim());
         const eventHint = artistSearch
           ? `Find 3 different tour dates for "${artistSearch}" in different cities. Each option must be this artist.`
+          : isBroadDiscover
+          ? "Pick 3 high-demand upcoming arena or amphitheater concerts — any genre. Include major tours (country, rock, pop, etc.). Vary the artists and cities."
           : (p.event_details ? `User preference: ${String(p.event_details).slice(0, 200)}. Prioritize when relevant.` : "");
         const discoverPrompt = `Search the web for 3 REAL upcoming concerts. Return ONLY valid JSON with this exact structure (no markdown):
 
@@ -94,9 +98,9 @@ serve(async (req) => {
 Requirements:
 - Venue capacity must be at least 5,000 people (arenas, amphitheaters, large venues only)
 - Concert MUST be in the United States (US-only). Do NOT return international dates/cities.
-- Concert must be in a city that has quality public golf within 25 miles (we add golf in the next step)
+- Concert must be in a city with good public golf nearby (Nashville, Phoenix, Austin, Vegas, Denver, Atlanta, Dallas, etc.)
 - Use Ticketmaster, SeatGeek, StubHub, or official venue sites. Return real ticket URLs.
-- Dates MUST be between ${discStart} and ${discEnd}. Do NOT return any concert with a date before ${discStart}.
+- Dates MUST be between ${discStart} and ${discEnd}. Use YYYY-MM-DD format for the date field.
 - ${cityHint}
 ${eventHint}
 - Pick 3 different artist+city+date combinations so the user has real choices
@@ -154,11 +158,12 @@ ${artistSearch ? `- IMPORTANT: All 3 must be "${artistSearch}" — different cit
           });
         }
 
-        // Filter out past concerts — only when we can reliably parse YYYY-MM-DD
-        // LLM may return "April 15, 2025" etc; if we can't parse, keep the concert
+        // Filter out past concerts — only when we can reliably parse
+        // LLM may use date, event_date, or return "April 15, 2025"; if we can't parse, keep the concert
         let opts = concertOptions.concert_options || [];
-        opts = opts.filter((c: { date?: string }) => {
-          const raw = (c.date || "").toString().trim();
+        opts = opts.filter((c: Record<string, unknown>) => {
+          const raw = String(c.date || c.event_date || c.eventDate || "").trim();
+          if (!raw) return true; // no date — keep it
           const isoMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
           if (isoMatch) {
             const d = isoMatch[0];

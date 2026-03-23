@@ -1,6 +1,9 @@
 /**
  * Search Edge Function — Ticketmaster events + Google Places golf + mock hotels.
+ * Phase 1A: DB-first golf lookup for Phoenix, Nashville, Austin when pool is strong enough.
  */
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
 function json(body: unknown, status: number, headers?: Record<string, string>) {
   return new Response(JSON.stringify(body), {
     status,
@@ -632,9 +635,14 @@ function assignTierHint(c: {
 function applyGolfTiering(
   courses: GolfCourseResult[],
   centerLat: number,
-  centerLng: number
+  centerLng: number,
+  options?: { allowUnknown?: boolean; preserveTierHint?: boolean }
 ): GolfCourseResult[] {
-  const publicOnly = courses.filter((c) => c.public_access_confidence === "likely_public");
+  const allowUnknown = options?.allowUnknown ?? false;
+  const preserveTierHint = options?.preserveTierHint ?? false;
+  const publicOnly = courses.filter((c) =>
+    c.public_access_confidence === "likely_public" || (allowUnknown && c.public_access_confidence === "unknown")
+  );
   const withDistance = publicOnly.map((c) => {
     const dist = c.distance_miles ?? (c.lat != null && c.lng != null
       ? haversineMiles(centerLat, centerLng, c.lat, c.lng)
@@ -643,8 +651,9 @@ function applyGolfTiering(
   });
 
   const withScores = withDistance.map((c) => {
-    const quality_score = computeQualityScore(c);
-    const tier_hint = assignTierHint({ ...c, quality_score });
+    const quality_score = (c as { quality_score?: number }).quality_score ?? computeQualityScore(c);
+    const tier_hint =
+      preserveTierHint && c.tier_hint ? c.tier_hint : assignTierHint({ ...c, quality_score });
     return { ...c, quality_score, tier_hint };
   });
 
@@ -675,6 +684,143 @@ function applyGolfTiering(
     courses: [...result, ...remaining],
     pools: { bronze: bronzePool, silver: silverPool, gold: goldPool },
   };
+}
+
+// --- Phase 1A: DB-first golf catalog ---
+const CITY_TO_METRO: Record<string, string> = {
+  phoenix: "Phoenix",
+  scottsdale: "Phoenix",
+  tempe: "Phoenix",
+  mesa: "Phoenix",
+  gilbert: "Phoenix",
+  nashville: "Nashville",
+  franklin: "Nashville",
+  brentwood: "Nashville",
+  austin: "Austin",
+  "round rock": "Austin",
+  "cedar park": "Austin",
+};
+
+const MIN_DB_COURSES = 8;
+const MIN_DB_TIERS = 2;
+
+const METRO_STATE: Record<string, string> = {
+  Phoenix: "AZ",
+  Nashville: "TN",
+  Austin: "TX",
+};
+
+function getMetro(city: string | undefined): string | null {
+  if (!city || city === "flexible" || city === "Various") return null;
+  const key = String(city).toLowerCase().trim();
+  return CITY_TO_METRO[key] ?? null;
+}
+
+function inferTierFromScore(score: number | null | undefined): TierHint {
+  if (score == null) return "bronze";
+  if (score >= 70) return "gold";
+  if (score >= 50) return "silver";
+  return "bronze";
+}
+
+type DbGolfRow = {
+  id: string;
+  name: string;
+  city: string;
+  state?: string;
+  lat?: number;
+  lng?: number;
+  source_id?: string;
+  place_id?: string;
+  metro?: string;
+  canonical_name?: string;
+  public_access_confidence?: string | null;
+  normalized_quality_score?: number | null;
+  tier_hint?: string | null;
+  editorial_boost?: number | null;
+};
+
+async function findGolfFromDb(
+  supabase: ReturnType<typeof createClient>,
+  metro: string,
+  state: string
+): Promise<DbGolfRow[]> {
+  const { data, error } = await supabase
+    .from("golf_courses")
+    .select("id,name,city,state,lat,lng,source_id,place_id,metro,canonical_name,public_access_confidence,normalized_quality_score,tier_hint,editorial_boost")
+    .eq("metro", metro)
+    .eq("state", state.toUpperCase().slice(0, 2))
+    .eq("active", true)
+    .in("public_access_confidence", ["likely_public", "unknown"])
+    .not("source_id", "is", null)
+    .order("normalized_quality_score", { ascending: false, nullsFirst: false })
+    .limit(20);
+  if (error) {
+    console.error("DB golf query error:", error);
+    return [];
+  }
+  return (data ?? []) as DbGolfRow[];
+}
+
+function dbMeetsThreshold(rows: DbGolfRow[]): boolean {
+  if (rows.length < MIN_DB_COURSES) return false;
+  const tiers = new Set<string>();
+  for (const r of rows) {
+    const tier = r.tier_hint || inferTierFromScore(r.normalized_quality_score);
+    tiers.add(tier);
+  }
+  return tiers.size >= MIN_DB_TIERS;
+}
+
+function dbRowsToGolfCourseResults(
+  rows: DbGolfRow[],
+  centerLat: number,
+  centerLng: number,
+  teeWindow: { start: string; end: string }
+): GolfCourseResult[] {
+  const asOf = new Date().toISOString();
+  return rows.map((r) => {
+    const placeId = r.source_id ?? r.place_id;
+    if (!placeId) return null;
+    const id = String(placeId).startsWith("ChIJ") ? placeId : `places/${placeId}`;
+    const name = r.canonical_name ?? r.name;
+    const lat = r.lat;
+    const lng = r.lng;
+    const distance_miles =
+      lat != null && lng != null ? haversineMiles(centerLat, centerLng, lat, lng) : undefined;
+    const quality_score = r.normalized_quality_score ?? 50;
+    const tier_hint = (r.tier_hint as TierHint) || inferTierFromScore(r.normalized_quality_score);
+    const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(name + " " + r.city)}`;
+    return {
+      id,
+      name,
+      city: r.city || "Unknown",
+      state: r.state,
+      public_access: r.public_access_confidence === "likely_public",
+      public_access_confidence: (r.public_access_confidence as GolfCourseResult["public_access_confidence"]) ?? "unknown",
+      rating: undefined,
+      tee_time_window: teeWindow,
+      lat,
+      lng,
+      source_url: undefined,
+      google_maps_uri: undefined,
+      book_url: url,
+      book_link: buildGolfOutboundLink(url),
+      source: "google_places",
+      as_of: asOf,
+      provider: "google_places",
+      quality_score,
+      tier_hint,
+      distance_miles,
+    };
+  }).filter((c): c is GolfCourseResult => c != null);
+}
+
+async function enrichDbCoursesWithPlaceDetails(
+  courses: GolfCourseResult[],
+  apiKey: string
+): Promise<GolfCourseResult[]> {
+  return enrichGolfCandidates(courses, apiKey);
 }
 
 type PlaceNearby = {
@@ -953,22 +1099,55 @@ Deno.serve(async (req: Request) => {
       try {
         const center = await resolveGolfCenter();
         if (center) {
-          const raw = await searchGolfGooglePlaces(
-            center.lat,
-            center.lng,
-            48280,
-            teeWindow,
-            googleKey,
-            effectiveCity !== "Various" ? effectiveCity : undefined,
-            payload.destination?.state
-          );
-          const preFiltered = applyQualityPreFilter(raw);
-          const enriched = await enrichGolfCandidates(preFiltered, googleKey);
-          const tiered = applyGolfTiering(enriched, center.lat, center.lng);
-          golfCourses = tiered.courses;
-          bronzePool = tiered.pools.bronze;
-          silverPool = tiered.pools.silver;
-          goldPool = tiered.pools.gold;
+          const metro = getMetro(effectiveCity);
+          const state =
+            payload.destination?.state ??
+            events[0]?.venue?.state ??
+            (metro ? METRO_STATE[metro] : "");
+          const stateCode = state?.toUpperCase().slice(0, 2) || "";
+
+          let useDbPath = false;
+          if (metro && stateCode) {
+            const supabaseUrl = Deno.env.get("SUPABASE_URL");
+            const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+            if (supabaseUrl && supabaseKey) {
+              const supabase = createClient(supabaseUrl, supabaseKey);
+              const dbRows = await findGolfFromDb(supabase, metro, stateCode);
+              if (dbMeetsThreshold(dbRows)) {
+                useDbPath = true;
+                const dbResults = dbRowsToGolfCourseResults(dbRows, center.lat, center.lng, teeWindow);
+                const enriched = await enrichDbCoursesWithPlaceDetails(dbResults, googleKey);
+                const tiered = applyGolfTiering(enriched, center.lat, center.lng, {
+                  allowUnknown: true,
+                  preserveTierHint: true,
+                });
+                golfCourses = tiered.courses;
+                bronzePool = tiered.pools.bronze;
+                silverPool = tiered.pools.silver;
+                goldPool = tiered.pools.gold;
+              }
+            }
+          }
+
+          if (!useDbPath) {
+            const raw = await searchGolfGooglePlaces(
+              center.lat,
+              center.lng,
+              48280,
+              teeWindow,
+              googleKey,
+              effectiveCity !== "Various" ? effectiveCity : undefined,
+              payload.destination?.state
+            );
+            const preFiltered = applyQualityPreFilter(raw);
+            const enriched = await enrichGolfCandidates(preFiltered, googleKey);
+            const tiered = applyGolfTiering(enriched, center.lat, center.lng);
+            golfCourses = tiered.courses;
+            bronzePool = tiered.pools.bronze;
+            silverPool = tiered.pools.silver;
+            goldPool = tiered.pools.gold;
+          }
+
           if (golfCourses.length > 0 && !providers.includes("google_places")) {
             providers.push("google_places");
           }
