@@ -48,8 +48,34 @@ serve(async (req) => {
 
     let itinerary: any;
     let itinerary_id: string;
+    let isRefreshMode = false;
 
-    if (body?.payload) {
+    // REFRESH MODE: itinerary_id + search_results in request — keep share_slug, only update on success
+    const refreshSearchResults = body.payload?.search_results || body.search_results;
+    const hasRefreshData = refreshSearchResults && typeof refreshSearchResults === "object" &&
+      (Array.isArray(refreshSearchResults.events) || Array.isArray(refreshSearchResults.golf_courses) || Array.isArray(refreshSearchResults.hotels));
+    if (body.itinerary_id && hasRefreshData) {
+      itinerary_id = String(body.itinerary_id).trim();
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!itinerary_id || !uuidRegex.test(itinerary_id)) {
+        return new Response(JSON.stringify({ error: "Invalid or missing itinerary_id" }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const { data: fetched, error: fetchErr } = await supabase
+        .from("itineraries")
+        .select("*")
+        .eq("id", itinerary_id)
+        .single();
+      if (fetchErr || !fetched) {
+        return new Response(JSON.stringify({ error: "Itinerary not found" }), {
+          status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      itinerary = fetched;
+      itinerary.search_results = refreshSearchResults;
+      isRefreshMode = true;
+    } else if (body?.payload) {
       const p = body.payload;
       const validPaths = ["golf_music", "sports", "luxury", "custom"];
       const validBudgets = ["low", "mid", "high"];
@@ -370,10 +396,15 @@ ${artistSearch ? `- IMPORTANT: All 3 must be "${artistSearch}" — different cit
     }
 
     // Generate share slug early so the "Public read shared itineraries" RLS policy allows reads during generation
-    const shareSlug = `${itinerary.city.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}-${Date.now().toString(36)}`;
+    // In refresh mode, preserve existing share_slug so the link stays stable
+    const shareSlug = isRefreshMode
+      ? (itinerary.share_slug || `${itinerary.city?.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "trip"}-${Date.now().toString(36)}`)
+      : `${itinerary.city.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}-${Date.now().toString(36)}`;
 
-    // Mark as generating and set share_slug
-    await supabase.from("itineraries").update({ status: "generating", share_slug: shareSlug }).eq("id", itinerary_id);
+    // Mark as generating and set share_slug (skip for refresh — frontend handles loading; no DB write until success)
+    if (!isRefreshMode) {
+      await supabase.from("itineraries").update({ status: "generating", share_slug: shareSlug }).eq("id", itinerary_id);
+    }
 
     const pathLabel = PATH_LABELS[itinerary.path] || itinerary.path;
     const budgetLabel = BUDGET_LABELS[itinerary.budget_tier] || itinerary.budget_tier;
@@ -538,14 +569,14 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
       console.error("Perplexity API error:", response.status, errText);
 
       if (response.status === 429) {
-        await supabase.from("itineraries").update({ status: "error" }).eq("id", itinerary_id);
+        if (!isRefreshMode) await supabase.from("itineraries").update({ status: "error" }).eq("id", itinerary_id);
         return new Response(JSON.stringify({ error: "Rate limited. Please try again in a moment." }), {
           status: 429,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
       if (response.status === 401 || response.status === 402) {
-        await supabase.from("itineraries").update({ status: "error" }).eq("id", itinerary_id);
+        if (!isRefreshMode) await supabase.from("itineraries").update({ status: "error" }).eq("id", itinerary_id);
         return new Response(JSON.stringify({ error: "Perplexity API key invalid or quota exceeded." }), {
           status: 502,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -557,7 +588,7 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
         const errJson = JSON.parse(errText);
         errMsg = errJson?.error?.message || errJson?.error || errMsg;
       } catch { /* use default */ }
-      await supabase.from("itineraries").update({ status: "error" }).eq("id", itinerary_id);
+      if (!isRefreshMode) await supabase.from("itineraries").update({ status: "error" }).eq("id", itinerary_id);
       return new Response(JSON.stringify({ error: errMsg }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -568,7 +599,7 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
     const content = aiResult.choices?.[0]?.message?.content;
 
     if (!content) {
-      await supabase.from("itineraries").update({ status: "error" }).eq("id", itinerary_id);
+      if (!isRefreshMode) await supabase.from("itineraries").update({ status: "error" }).eq("id", itinerary_id);
       return new Response(JSON.stringify({ error: "Empty AI response" }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -589,7 +620,7 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
       }
       if (!parsedResult) {
         console.error("Failed to parse AI JSON:", content.substring(0, 500));
-        await supabase.from("itineraries").update({ status: "error" }).eq("id", itinerary_id);
+        if (!isRefreshMode) await supabase.from("itineraries").update({ status: "error" }).eq("id", itinerary_id);
         return new Response(JSON.stringify({ error: "AI returned invalid format. Please try again." }), {
           status: 500,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -929,12 +960,13 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
       }
     }
 
-    // Save result (share_slug already set during "generating" phase)
+    // Save result (share_slug already set during "generating" phase; refresh mode never touches share_slug)
     const { error: updateErr } = await supabase
       .from("itineraries")
       .update({
         result_json: parsedResult,
         status: "generated",
+        updated_at: new Date().toISOString(),
       })
       .eq("id", itinerary_id);
 

@@ -16,11 +16,13 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Hotel, Music, Utensils, ExternalLink, Copy, ArrowLeft, Loader2, Mail, Bookmark, BookmarkCheck } from "lucide-react";
+import { Hotel, Music, Utensils, ExternalLink, Copy, ArrowLeft, Loader2, Mail, Bookmark, BookmarkCheck, RefreshCw } from "lucide-react";
 import { GolfTrustPanel, EventTrustPanel, HotelTrustPanel } from "@/components/TrustPanel";
 import { normalizeOutboundLink, getOutboundLinkDisplayLabel } from "@/types/outbound-link";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
+import { fetchSearch } from "@/lib/api/search";
+import type { SearchRequest } from "@/lib/api/search";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 const MAX_EMAILS = 10;
@@ -38,6 +40,44 @@ const TIER_DESCRIPTORS: Record<string, string> = {
   GOLD: "Premium stay and top-tier experience.",
 };
 
+/** Reconstruct search params from itinerary + result_json for refresh. Prefer itinerary.city where available. */
+function deriveSearchParams(itinerary: any, result_json: any): SearchRequest | null {
+  const start = itinerary?.start_date;
+  const end = itinerary?.end_date;
+  if (!start || !end) return null;
+  const prefs = itinerary?.preferences || {};
+  const pkgs = result_json?.packages || [];
+  const firstEvent = pkgs[0]?.events?.[0];
+  const venueCity = firstEvent?.venue?.city;
+  const venueState = firstEvent?.venue?.state;
+
+  let artist: string | undefined;
+  let city: string;
+
+  if (itinerary?.city === "flexible" || prefs.flexible_location) {
+    // Flow 3: Flexible — no artist; city from first event venue or Austin only when no better fallback
+    artist = undefined;
+    city = venueCity?.trim() || "Austin"; // Explicit fallback: no venue city in result
+  } else if (firstEvent && pkgs.every((p: any) => p.events?.[0]?.name === firstEvent.name)) {
+    // Flow 2: Discover (same event across packages)
+    artist = firstEvent.name;
+    city = venueCity?.trim() || itinerary?.city || "Austin";
+  } else {
+    // Flow 1: Artist + city — prefer itinerary.city
+    const ed = (itinerary?.event_details || "").trim();
+    artist = ed && ed.length < 80 && !ed.toLowerCase().startsWith("genres:") ? ed : undefined;
+    city = itinerary?.city?.trim() || venueCity?.trim() || "Austin"; // itinerary.city first per plan
+  }
+
+  return {
+    artist,
+    destination: { city: city || "Austin", state: venueState },
+    dates: { start_date: start, end_date: end },
+    group_size: itinerary?.group_size ?? 2,
+    budget_tier: (itinerary?.budget_tier as "low" | "mid" | "high") ?? "mid",
+  };
+}
+
 export default function ItineraryResults() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -48,6 +88,7 @@ export default function ItineraryResults() {
   const [shareEmailOpen, setShareEmailOpen] = useState(false);
   const [shareEmails, setShareEmails] = useState("");
   const [sendingEmail, setSendingEmail] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   // Only select non-sensitive columns to avoid exposing email/user_id in shared views
   const safeColumns = "id, path, city, start_date, end_date, budget_tier, group_size, preferences, event_details, result_json, share_slug, status, created_at, updated_at";
@@ -246,6 +287,73 @@ export default function ItineraryResults() {
     }
   };
 
+  const handleRefresh = async () => {
+    if (!itinerary?.start_date || !itinerary?.end_date) {
+      toast.error("Cannot refresh: missing dates");
+      return;
+    }
+    const params = deriveSearchParams(itinerary, itinerary.result_json);
+    if (!params) {
+      toast.error("Cannot refresh: missing dates");
+      return;
+    }
+    setRefreshing(true);
+    toast.loading("Refreshing prices and availability…", { id: "refresh" });
+    try {
+      const searchRes = await fetchSearch(params);
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+      if (!supabaseUrl || !supabaseKey) {
+        toast.error("App configuration error. Please try again later.", { id: "refresh" });
+        setRefreshing(false);
+        return;
+      }
+      const genRes = await fetch(`${supabaseUrl}/functions/v1/generate-itinerary`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` },
+        body: JSON.stringify({
+          itinerary_id: itinerary.id,
+          payload: {
+            search_results: {
+              events: searchRes.events,
+              golf_courses: searchRes.golf_courses,
+              hotels: searchRes.hotels,
+              bronze_golf_candidates: searchRes.bronze_golf_candidates,
+              silver_golf_candidates: searchRes.silver_golf_candidates,
+              gold_golf_candidates: searchRes.gold_golf_candidates,
+            },
+          },
+        }),
+      });
+      const genData = await genRes.json().catch(() => ({}));
+      if (!genRes.ok) {
+        const errMsg = genData?.error || `Refresh failed (${genRes.status})`;
+        toast.error(errMsg, { id: "refresh" });
+        setRefreshing(false);
+        return;
+      }
+      // Refetch itinerary (same pattern as initial load)
+      const slug = itinerary.share_slug || itinerary.id;
+      const headers = { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` };
+      const slugRes = await fetch(`${supabaseUrl}/rest/v1/itineraries?select=${encodeURIComponent(safeColumns)}&share_slug=eq.${encodeURIComponent(slug)}&limit=1`, { headers });
+      const slugRows = await slugRes.json();
+      const rows = slugRows?.length > 0 ? slugRows : await (await fetch(`${supabaseUrl}/rest/v1/itineraries?select=${encodeURIComponent(safeColumns)}&id=eq.${encodeURIComponent(itinerary.id)}&limit=1`, { headers })).json();
+      if (rows?.length > 0) {
+        setItinerary(rows[0]);
+      } else if (genData?.result) {
+        // Fallback: backend succeeded but refetch failed — update from response
+        setItinerary((prev: any) => prev ? { ...prev, result_json: genData.result, updated_at: new Date().toISOString() } : prev);
+      }
+      toast.success("Refresh complete", { id: "refresh" });
+    } catch (e: any) {
+      const msg = e?.message || "Refresh failed";
+      const isNetworkError = msg === "Failed to fetch" || msg === "Load failed" || msg?.includes("NetworkError");
+      toast.error(isNetworkError ? "Could not reach the server. Check your connection and try again." : msg, { id: "refresh" });
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   if (loading) return <div className="flex min-h-[60vh] items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
   if (!itinerary) return <div className="container mx-auto px-4 py-16 text-center">Itinerary not found</div>;
 
@@ -344,11 +452,26 @@ export default function ItineraryResults() {
         </div>
       )}
 
-      {/* Generated date + combined trust disclosure */}
+      {/* Generated date + Refresh + combined trust disclosure */}
       <div className="mb-6 text-center space-y-2">
-        <p className="text-sm font-semibold">
-          Generated {formatGeneratedAt(itinerary.updated_at)}
-        </p>
+        <div className="flex items-center justify-center gap-2 flex-wrap">
+          <p className="text-sm font-semibold">
+            Generated {formatGeneratedAt(itinerary.updated_at)}
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleRefresh}
+            disabled={refreshing}
+          >
+            {refreshing ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="mr-2 h-4 w-4" />
+            )}
+            Refresh
+          </Button>
+        </div>
         <p className="text-xs text-muted-foreground max-w-xl mx-auto">
           Prices and availability are as of this date. You'll book directly with providers—confirm on their site before booking. Experience Caddie does not handle reservations.
         </p>
