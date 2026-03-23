@@ -40,10 +40,45 @@ const TIER_DESCRIPTORS: Record<string, string> = {
   GOLD: "Premium stay and top-tier experience.",
 };
 
-/** Reconstruct search params from itinerary + result_json for refresh. Prefer itinerary.city where available. */
+/** Extract YYYY-MM-DD from date_time string (e.g. "2025-03-15T20:00:00-05:00") or date-like value. */
+function toYYYYMMDD(val: unknown): string | null {
+  if (!val) return null;
+  if (typeof val === "string") {
+    const iso = val.slice(0, 10);
+    return /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso : null;
+  }
+  if (val instanceof Date && !isNaN(val.getTime())) {
+    return val.toISOString().slice(0, 10);
+  }
+  return null;
+}
+
+/** Reconstruct search params from itinerary + result_json for refresh. Prefer itinerary.city where available.
+ * Dates: itinerary.start_date/end_date first; fallback to result_json event date_time when itinerary dates missing. */
 function deriveSearchParams(itinerary: any, result_json: any): SearchRequest | null {
-  const start = itinerary?.start_date;
-  const end = itinerary?.end_date;
+  let start = toYYYYMMDD(itinerary?.start_date);
+  let end = toYYYYMMDD(itinerary?.end_date);
+
+  // Fallback: derive from result_json event date_time when itinerary dates are missing (e.g. legacy data)
+  if ((!start || !end) && result_json?.packages?.length) {
+    const dates: string[] = [];
+    for (const pkg of result_json.packages) {
+      for (const evt of pkg.events || []) {
+        const d = toYYYYMMDD(evt.date_time);
+        if (d) dates.push(d);
+      }
+    }
+    if (dates.length > 0) {
+      dates.sort();
+      if (!start) start = dates[0];
+      if (!end) end = dates[dates.length - 1];
+      if (start === end && start) {
+        const d = new Date(start);
+        d.setDate(d.getDate() + 2);
+        end = d.toISOString().slice(0, 10);
+      }
+    }
+  }
   if (!start || !end) return null;
   const prefs = itinerary?.preferences || {};
   const pkgs = result_json?.packages || [];
@@ -72,7 +107,7 @@ function deriveSearchParams(itinerary: any, result_json: any): SearchRequest | n
   return {
     artist,
     destination: { city: city || "Austin", state: venueState },
-    dates: { start_date: start, end_date: end },
+    dates: { start_date: start!, end_date: end! },
     group_size: itinerary?.group_size ?? 2,
     budget_tier: (itinerary?.budget_tier as "low" | "mid" | "high") ?? "mid",
   };
@@ -288,13 +323,9 @@ export default function ItineraryResults() {
   };
 
   const handleRefresh = async () => {
-    if (!itinerary?.start_date || !itinerary?.end_date) {
-      toast.error("Cannot refresh: missing dates");
-      return;
-    }
-    const params = deriveSearchParams(itinerary, itinerary.result_json);
+    const params = deriveSearchParams(itinerary, itinerary?.result_json);
     if (!params) {
-      toast.error("Cannot refresh: missing dates");
+      toast.error("Cannot refresh: no dates found. Dates come from the itinerary or from event dates in the trip.");
       return;
     }
     setRefreshing(true);
