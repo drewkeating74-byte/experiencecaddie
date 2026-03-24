@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import type { User, Session } from "@supabase/supabase-js";
+import { identifyUser, clearUser } from "@/lib/monitoring";
 
 const OAUTH_PROVIDER_KEY = "oauth_provider";
 
@@ -38,6 +39,7 @@ export function useAuth() {
         finishLoading();
 
         if (session?.user) {
+          identifyUser(session.user.id, session.user.email);
           const provider = sessionStorage.getItem(OAUTH_PROVIDER_KEY);
           if (provider) showOAuthSuccessToast(provider);
           Promise.resolve(supabase
@@ -48,6 +50,8 @@ export function useAuth() {
             .maybeSingle())
             .then(({ data }) => { if (mounted) setIsAdmin(!!data); })
             .catch((err: unknown) => { console.error("Failed to check admin role:", err); });
+        } else {
+          clearUser();
         }
       }
     );
@@ -61,6 +65,7 @@ export function useAuth() {
       finishLoading();
       clearTimeout(timeoutId);
       if (session?.user) {
+        identifyUser(session.user.id, session.user.email);
         const provider = sessionStorage.getItem(OAUTH_PROVIDER_KEY);
         if (provider) showOAuthSuccessToast(provider);
         Promise.resolve(supabase
@@ -88,6 +93,7 @@ export function useAuth() {
     setSession(null);
     setUser(null);
     setIsAdmin(false);
+    clearUser(); // Remove user tag from Sentry so post-logout errors are anonymous.
     try {
       await Promise.race([
         supabase.auth.signOut({ scope: "local" }),

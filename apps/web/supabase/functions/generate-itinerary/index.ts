@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { reportError } from "../_shared/monitoring.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -985,9 +986,10 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
       JSON.stringify({ success: true, itinerary_id, share_slug: shareSlug, result: parsedResult }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
-  } catch (e: any) {
-    console.error("generate-itinerary error:", e);
-    const msg = e?.message?.includes("PERPLEXITY") ? "API configuration error. Please try again later." : "Internal server error";
+  } catch (e: unknown) {
+    const errMsg = e instanceof Error ? e.message : String(e);
+    await reportError(e, { function: "generate-itinerary" });
+    const msg = errMsg.includes("PERPLEXITY") ? "API configuration error. Please try again later." : "Internal server error";
     return new Response(
       JSON.stringify({ error: msg }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }

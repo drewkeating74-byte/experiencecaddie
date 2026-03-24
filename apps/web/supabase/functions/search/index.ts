@@ -3,6 +3,7 @@
  * Phase 1A: DB-first golf lookup for Phoenix, Nashville, Austin when pool is strong enough.
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { reportError } from "../_shared/monitoring.ts";
 
 function json(body: unknown, status: number, headers?: Record<string, string>) {
   return new Response(JSON.stringify(body), {
@@ -1196,8 +1197,8 @@ Deno.serve(async (req: Request) => {
     };
 
     return json(response, 200, corsHeaders);
-  } catch (e) {
-    console.error("Search error:", e);
+  } catch (e: unknown) {
+    await reportError(e, { function: "search" });
     return json({ error: "Search failed" }, 500, corsHeaders);
   }
 });
