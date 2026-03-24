@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-const db = supabase as any;
 import type { Event } from "@/types/database";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -14,7 +13,7 @@ export default function Events() {
   const [search, setSearch] = useState("");
 
   useEffect(() => {
-    db
+    supabase
       .from("events")
       .select("*, artists(*), venues(*)")
       .gte("event_date", new Date().toISOString().split("T")[0])

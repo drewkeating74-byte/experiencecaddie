@@ -46,8 +46,8 @@ export function useAuth() {
             .eq("user_id", session.user.id)
             .eq("role", "admin")
             .maybeSingle())
-            .then(({ data }: any) => mounted && setIsAdmin(!!data))
-            .catch(() => {});
+            .then(({ data }) => { if (mounted) setIsAdmin(!!data); })
+            .catch((err: unknown) => { console.error("Failed to check admin role:", err); });
         }
       }
     );
@@ -69,8 +69,8 @@ export function useAuth() {
           .eq("user_id", session.user.id)
           .eq("role", "admin")
           .maybeSingle())
-          .then(({ data }: any) => mounted && setIsAdmin(!!data))
-          .catch(() => {});
+          .then(({ data }) => { if (mounted) setIsAdmin(!!data); })
+          .catch((err: unknown) => { console.error("Failed to check admin role:", err); });
       }
     }).catch(() => {
       finishLoading();

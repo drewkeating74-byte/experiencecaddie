@@ -24,6 +24,84 @@ import { useAuth } from "@/hooks/useAuth";
 import { fetchSearch } from "@/lib/api/search";
 import type { SearchRequest } from "@/lib/api/search";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import type { Tables } from "@/integrations/supabase/types";
+
+// ---------------------------------------------------------------------------
+// Types for the AI-generated result_json blob stored in the itineraries table.
+// These mirror the output schema of the generate-itinerary Edge Function.
+// ---------------------------------------------------------------------------
+interface ResultLink { url: string; [key: string]: unknown; }
+
+interface ResultHotelItem {
+  name: string;
+  area?: string;
+  why?: string;
+  price_per_night?: string;
+  link?: string | ResultLink;
+  url?: string;
+  type?: string;
+}
+
+interface ResultEventItem {
+  name?: string;
+  venue?: string | { name?: string; city?: string; state?: string };
+  venue_obj?: { name?: string; city?: string; state?: string };
+  date_time?: string;
+  price_range?: string;
+  link?: string | ResultLink;
+  url?: string;
+  type?: string;
+  provider?: string;
+}
+
+interface ResultGolfItem {
+  name?: string;
+  type?: string;
+  why?: string;
+  green_fee?: string;
+  drive_time_minutes?: number;
+  distance_miles?: number;
+  public_access_confidence?: string;
+  provider?: string;
+  source_url?: string;
+  maps_url?: string;
+  as_of?: string;
+  place_id?: string;
+  lat?: number;
+  lng?: number;
+  link?: string | ResultLink;
+  url?: string;
+}
+
+interface ResultExtra { name: string; type?: string; why?: string; }
+
+interface ResultItineraryDay { day: string; plan?: string[]; }
+
+interface ResultPackage {
+  tier: string;
+  events?: ResultEventItem[];
+  hotels?: ResultHotelItem[];
+  lodging?: ResultHotelItem[];
+  golf?: ResultGolfItem[];
+  extras?: ResultExtra[];
+  itinerary?: ResultItineraryDay[];
+  estimated_total_usd?: [number, number];
+  safety_notes?: string;
+}
+
+interface ResultSummary {
+  title?: string;
+  vibe?: string;
+  estimated_total_range_usd?: [number, number];
+}
+
+interface ResultJson {
+  summary?: ResultSummary;
+  packages?: ResultPackage[];
+  _generated_at?: string;
+}
+
+type ItineraryRow = Tables<"itineraries">;
 
 const MAX_EMAILS = 10;
 
@@ -70,7 +148,7 @@ function toYYYYMMDD(val: unknown): string | null {
 
 /** Reconstruct search params from itinerary + result_json for refresh. Prefer itinerary.city where available.
  * Dates: itinerary.start_date/end_date first; fallback to result_json event date_time when itinerary dates missing. */
-function deriveSearchParams(itinerary: any, result_json: any): SearchRequest | null {
+function deriveSearchParams(itinerary: ItineraryRow | null, result_json: ResultJson | null): SearchRequest | null {
   let start = toYYYYMMDD(itinerary?.start_date);
   let end = toYYYYMMDD(itinerary?.end_date);
 
@@ -78,7 +156,7 @@ function deriveSearchParams(itinerary: any, result_json: any): SearchRequest | n
   if ((!start || !end) && result_json?.packages?.length) {
     const dates: string[] = [];
     for (const pkg of result_json.packages) {
-      for (const evt of pkg.events || []) {
+      for (const evt of pkg.events ?? []) {
         const d = toYYYYMMDD(evt.date_time);
         if (d) dates.push(d);
       }
@@ -95,11 +173,14 @@ function deriveSearchParams(itinerary: any, result_json: any): SearchRequest | n
     }
   }
   if (!start || !end) return null;
-  const prefs = itinerary?.preferences || {};
-  const pkgs = result_json?.packages || [];
+
+  const prefs = (itinerary?.preferences ?? {}) as Record<string, unknown>;
+  const pkgs = result_json?.packages ?? [];
   const firstEvent = pkgs[0]?.events?.[0];
-  const venueCity = firstEvent?.venue?.city;
-  const venueState = firstEvent?.venue?.state;
+  // venue may be a string or an object — extract city/state only when it's an object
+  const firstVenue = firstEvent?.venue && typeof firstEvent.venue === "object" ? firstEvent.venue : undefined;
+  const venueCity = firstVenue?.city;
+  const venueState = firstVenue?.state;
 
   let artist: string | undefined;
   let city: string;
@@ -108,13 +189,13 @@ function deriveSearchParams(itinerary: any, result_json: any): SearchRequest | n
     // Flow 3: Flexible — no artist; city from first event venue or Austin only when no better fallback
     artist = undefined;
     city = venueCity?.trim() || "Austin"; // Explicit fallback: no venue city in result
-  } else if (firstEvent && pkgs.every((p: any) => p.events?.[0]?.name === firstEvent.name)) {
+  } else if (firstEvent && pkgs.every((p) => p.events?.[0]?.name === firstEvent.name)) {
     // Flow 2: Discover (same event across packages)
     artist = firstEvent.name;
     city = venueCity?.trim() || itinerary?.city || "Austin";
   } else {
     // Flow 1: Artist + city — prefer itinerary.city
-    const ed = (itinerary?.event_details || "").trim();
+    const ed = (itinerary?.event_details ?? "").trim();
     artist = ed && ed.length < 80 && !ed.toLowerCase().startsWith("genres:") ? ed : undefined;
     city = itinerary?.city?.trim() || venueCity?.trim() || "Austin"; // itinerary.city first per plan
   }
@@ -122,7 +203,7 @@ function deriveSearchParams(itinerary: any, result_json: any): SearchRequest | n
   return {
     artist,
     destination: { city: city || "Austin", state: venueState },
-    dates: { start_date: start!, end_date: end! },
+    dates: { start_date: start, end_date: end },
     group_size: itinerary?.group_size ?? 2,
     budget_tier: (itinerary?.budget_tier as "low" | "mid" | "high") ?? "mid",
   };
@@ -132,7 +213,7 @@ export default function ItineraryResults() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [itinerary, setItinerary] = useState<any>(null);
+  const [itinerary, setItinerary] = useState<ItineraryRow | null>(null);
   const [loading, setLoading] = useState(true);
   const [savedTiers, setSavedTiers] = useState<Set<string>>(new Set());
   const [shareEmailOpen, setShareEmailOpen] = useState(false);
@@ -143,15 +224,19 @@ export default function ItineraryResults() {
   // Only select non-sensitive columns to avoid exposing email/user_id in shared views
   const safeColumns = "id, path, city, start_date, end_date, budget_tier, group_size, preferences, event_details, result_json, share_slug, status, created_at, updated_at";
 
-  // Load which package tiers user has saved
+  // Load which package tiers user has saved.
+  // user_saved_packages is a pending DB migration — not yet in generated types, hence the cast.
   useEffect(() => {
     if (!user?.id || !itinerary?.id) return;
-    (supabase
-      .from("user_saved_packages" as any)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const db = supabase as any;
+    db.from("user_saved_packages")
       .select("package_tier")
       .eq("user_id", user.id)
-      .eq("itinerary_id", itinerary.id) as any)
-      .then(({ data }: any) => setSavedTiers(new Set((data || []).map((r: any) => r.package_tier))));
+      .eq("itinerary_id", itinerary.id)
+      .then(({ data }: { data: Array<{ package_tier: string }> | null }) =>
+        setSavedTiers(new Set((data ?? []).map((r) => r.package_tier)))
+      );
   }, [user?.id, itinerary?.id]);
 
   useEffect(() => {
@@ -166,7 +251,7 @@ export default function ItineraryResults() {
     // Use fetch directly — Supabase JS client hangs silently on this project
     fetch(`${supabaseUrl}/rest/v1/itineraries?select=${encodeURIComponent(safeColumns)}&share_slug=eq.${encodeURIComponent(id)}&limit=1`, { headers })
       .then(r => r.json())
-      .then((rows: any[]) => {
+      .then((rows: ItineraryRow[]) => {
         if (rows?.length > 0) {
           setItinerary(rows[0]);
           setLoading(false);
@@ -174,24 +259,24 @@ export default function ItineraryResults() {
           // Fall back to ID lookup
           fetch(`${supabaseUrl}/rest/v1/itineraries?select=${encodeURIComponent(safeColumns)}&id=eq.${encodeURIComponent(id)}&limit=1`, { headers })
             .then(r => r.json())
-            .then((rows2: any[]) => {
+            .then((rows2: ItineraryRow[]) => {
               if (rows2?.length > 0) setItinerary(rows2[0]);
               else toast.error("Itinerary not found");
               setLoading(false);
             })
-            .catch(() => { toast.error("Failed to load itinerary"); setLoading(false); });
+            .catch((err: unknown) => { console.error("Failed to load itinerary:", err); toast.error("Failed to load itinerary"); setLoading(false); });
         }
       })
-      .catch(() => { toast.error("Failed to load itinerary"); setLoading(false); });
+      .catch((err: unknown) => { console.error("Failed to load itinerary:", err); toast.error("Failed to load itinerary"); setLoading(false); });
   }, [id]);
 
   // Temporary: log saved result_json when ?tm_debug=1 for Ticketmaster URL inspection
   useEffect(() => {
     if (!itinerary?.result_json || !window.location.search.includes("tm_debug=1")) return;
-    const result = itinerary.result_json as any;
-    const eventsByPkg = (result?.packages || []).map((p: any) => ({
+    const result = itinerary.result_json as unknown as ResultJson;
+    const eventsByPkg = (result?.packages ?? []).map((p) => ({
       tier: p.tier,
-      events: (p.events || []).map((e: any) => ({ name: e.name, venue: e.venue, date_time: e.date_time, url: e.url })),
+      events: (p.events ?? []).map((e) => ({ name: e.name, venue: e.venue, date_time: e.date_time, url: e.url })),
     }));
     console.log("[TM_LINK_DEBUG] Saved result_json (from DB)", { itinerary_id: itinerary.id, packages_events: eventsByPkg });
     console.log("[TM_LINK_DEBUG] Full result_json", result);
@@ -243,14 +328,16 @@ export default function ItineraryResults() {
       navigate(`/auth?redirect=${encodeURIComponent(window.location.pathname)}`);
       return;
     }
+    // user_saved_packages is a pending DB migration — not yet in generated types, hence the cast.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const db = supabase as any;
     const isSaved = savedTiers.has(tier);
     if (isSaved) {
-      await (supabase
-        .from("user_saved_packages" as any)
+      await db.from("user_saved_packages")
         .delete()
         .eq("user_id", user.id)
         .eq("itinerary_id", itinerary.id)
-        .eq("package_tier", tier) as any);
+        .eq("package_tier", tier);
       setSavedTiers((prev) => {
         const next = new Set(prev);
         next.delete(tier);
@@ -258,12 +345,10 @@ export default function ItineraryResults() {
       });
       toast.success("Removed from My Trips");
     } else {
-      await (supabase
-        .from("user_saved_packages" as any)
-        .upsert(
-          { user_id: user.id, itinerary_id: itinerary.id, package_tier: tier },
-          { onConflict: "user_id,itinerary_id,package_tier" }
-        ) as any);
+      await db.from("user_saved_packages").upsert(
+        { user_id: user.id, itinerary_id: itinerary.id, package_tier: tier },
+        { onConflict: "user_id,itinerary_id,package_tier" }
+      );
       setSavedTiers((prev) => new Set(prev).add(tier));
       toast.success("Saved to My Trips");
     }
@@ -388,7 +473,7 @@ export default function ItineraryResults() {
         setItinerary(rows[0]);
       } else if (genData?.result) {
         // Fallback: backend succeeded but refetch failed — update from response
-        setItinerary((prev: any) => prev ? { ...prev, result_json: genData.result, updated_at: new Date().toISOString() } : prev);
+        setItinerary((prev) => prev ? { ...prev, result_json: genData.result, updated_at: new Date().toISOString() } : prev);
       }
       toast.success("Refresh complete", { id: "refresh" });
     } catch (e: any) {
@@ -423,11 +508,11 @@ export default function ItineraryResults() {
     );
   }
 
-  const result = itinerary.result_json;
+  const result = itinerary.result_json as unknown as ResultJson | null;
   if (!result) return <div className="container mx-auto px-4 py-16 text-center">No results yet</div>;
 
   const summary = result.summary;
-  const packages = result.packages || [];
+  const packages = result.packages ?? [];
 
   const newTripParams = new URLSearchParams();
   if (itinerary?.city) newTripParams.set("city", itinerary.city);

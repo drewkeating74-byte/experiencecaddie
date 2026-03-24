@@ -5,7 +5,6 @@ import { Badge } from "@/components/ui/badge";
 import { Music, MapPin, Calendar, ArrowRight, Star } from "lucide-react";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-const db = supabase as any;
 import type { Package } from "@/types/database";
 import heroImage from "@/assets/hero-image.jpg";
 import { DEFAULT_PACKAGE_IMAGE } from "@/lib/constants";
@@ -19,7 +18,7 @@ export default function Index() {
   const [featuredPackages, setFeaturedPackages] = useState<Package[]>([]);
 
   useEffect(() => {
-    db
+    supabase
       .from("packages")
       .select("*, events(*, artists(*), venues(*)), golf_courses(*), destinations(*)")
       .eq("featured", true)

@@ -1,4 +1,6 @@
 // Manual types until auto-generated types update
+import type { Json } from "@/integrations/supabase/types";
+
 export interface Destination {
   id: string;
   name: string;
@@ -99,7 +101,7 @@ export interface Package {
   image_url: string | null;
   price: number;
   original_price: number | null;
-  itinerary_json: any;
+  itinerary_json: Json | null;
   drive_time_minutes: number | null;
   distance_miles: number | null;
   category: string | null;

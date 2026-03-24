@@ -2,10 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
-
-// Helper to bypass strict typing until auto-generated types update
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const db = supabase as any;
+import type { Database } from "@/integrations/supabase/types";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -19,6 +16,9 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { Plus, Trash2, Edit, Music, MapPin } from "lucide-react";
+
+/** Union of all known table names — prevents passing typos to useCrud. */
+type KnownTable = keyof Database["public"]["Tables"];
 
 export default function Admin() {
   const { user, isAdmin, loading: authLoading } = useAuth();
@@ -62,12 +62,15 @@ export default function Admin() {
 }
 
 // --- Generic CRUD helpers ---
-function useCrud<T extends { id: string }>(table: string, selectQuery = "*") {
+function useCrud<T extends { id: string }>(table: KnownTable, selectQuery = "*") {
   const [items, setItems] = useState<T[]>([]);
   const [loading, setLoading] = useState(true);
 
   const refresh = async () => {
-    const { data } = await db.from(table).select(selectQuery).order("created_at", { ascending: false });
+    // The dynamic select query (with optional joins) needs a cast since the return
+    // type is table-specific but this hook is intentionally generic.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data } = await (supabase.from(table) as any).select(selectQuery).order("created_at", { ascending: false });
     if (data) setItems(data as T[]);
     setLoading(false);
   };
@@ -75,8 +78,9 @@ function useCrud<T extends { id: string }>(table: string, selectQuery = "*") {
   useEffect(() => { refresh(); }, []);
 
   const remove = async (id: string) => {
-    const { error } = await db.from(table).delete().eq("id", id);
-    if (error) toast.error("Delete failed: " + error.message);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error } = await (supabase.from(table) as any).delete().eq("id", id);
+    if (error) toast.error("Delete failed: " + (error as { message: string }).message);
     else { toast.success("Deleted"); refresh(); }
   };
 
@@ -90,7 +94,7 @@ function AdminDestinations() {
   const [form, setForm] = useState({ name: "", city: "", state: "", country: "", description: "" });
 
   const save = async () => {
-    const { error } = await db.from("destinations").insert(form);
+    const { error } = await supabase.from("destinations").insert(form);
     if (error) toast.error(error.message);
     else { toast.success("Destination added"); setOpen(false); setForm({ name: "", city: "", state: "", country: "", description: "" }); refresh(); }
   };
@@ -145,7 +149,7 @@ function AdminArtists() {
   const [form, setForm] = useState({ name: "", genre: "", subgenre: "", description: "" });
 
   const save = async () => {
-    const { error } = await db.from("artists").insert(form);
+    const { error } = await supabase.from("artists").insert(form);
     if (error) toast.error(error.message);
     else { toast.success("Artist added"); setOpen(false); setForm({ name: "", genre: "", subgenre: "", description: "" }); refresh(); }
   };
@@ -199,11 +203,11 @@ function AdminVenues() {
   const [form, setForm] = useState({ name: "", city: "", state: "", country: "", address: "", destination_id: "", capacity: "" });
 
   useEffect(() => {
-    db.from("destinations").select("id, name").then(({ data }: any) => { if (data) setDestinations(data); });
+    supabase.from("destinations").select("id, name").then(({ data }) => { if (data) setDestinations(data); });
   }, []);
 
   const save = async () => {
-    const { error } = await db.from("venues").insert({
+    const { error } = await supabase.from("venues").insert({
       ...form,
       destination_id: form.destination_id || null,
       capacity: form.capacity ? parseInt(form.capacity) : null,
@@ -271,12 +275,12 @@ function AdminEvents() {
   const [form, setForm] = useState({ name: "", artist_id: "", venue_id: "", event_date: "", event_time: "", description: "", ticket_url: "", min_price: "", max_price: "" });
 
   useEffect(() => {
-    db.from("artists").select("id, name").then(({ data }: any) => { if (data) setArtists(data); });
-    db.from("venues").select("id, name").then(({ data }: any) => { if (data) setVenues(data); });
+    supabase.from("artists").select("id, name").then(({ data }) => { if (data) setArtists(data); });
+    supabase.from("venues").select("id, name").then(({ data }) => { if (data) setVenues(data); });
   }, []);
 
   const save = async () => {
-    const { error } = await db.from("events").insert({
+    const { error } = await supabase.from("events").insert({
       ...form,
       artist_id: form.artist_id || null,
       venue_id: form.venue_id || null,
@@ -355,11 +359,11 @@ function AdminCourses() {
   const [form, setForm] = useState({ name: "", city: "", state: "", country: "", address: "", destination_id: "", holes: "18", green_fee_min: "", green_fee_max: "", public_access: true, description: "", booking_url: "" });
 
   useEffect(() => {
-    db.from("destinations").select("id, name").then(({ data }: any) => { if (data) setDestinations(data); });
+    supabase.from("destinations").select("id, name").then(({ data }) => { if (data) setDestinations(data); });
   }, []);
 
   const save = async () => {
-    const { error } = await db.from("golf_courses").insert({
+    const { error } = await supabase.from("golf_courses").insert({
       ...form,
       destination_id: form.destination_id || null,
       holes: parseInt(form.holes) || 18,
@@ -441,13 +445,13 @@ function AdminPackages() {
   const [form, setForm] = useState({ name: "", event_id: "", golf_course_id: "", destination_id: "", price: "", original_price: "", category: "weekend", featured: false, description: "" });
 
   useEffect(() => {
-    db.from("events").select("id, name").then(({ data }: any) => { if (data) setEvents(data); });
-    db.from("golf_courses").select("id, name").then(({ data }: any) => { if (data) setCourses(data); });
-    db.from("destinations").select("id, name").then(({ data }: any) => { if (data) setDestinations(data); });
+    supabase.from("events").select("id, name").then(({ data }) => { if (data) setEvents(data); });
+    supabase.from("golf_courses").select("id, name").then(({ data }) => { if (data) setCourses(data); });
+    supabase.from("destinations").select("id, name").then(({ data }) => { if (data) setDestinations(data); });
   }, []);
 
   const save = async () => {
-    const { error } = await db.from("packages").insert({
+    const { error } = await supabase.from("packages").insert({
       ...form,
       event_id: form.event_id || null,
       golf_course_id: form.golf_course_id || null,

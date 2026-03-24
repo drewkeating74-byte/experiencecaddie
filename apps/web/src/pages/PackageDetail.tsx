@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-const db = supabase as any;
 import type { Package } from "@/types/database";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -20,7 +19,7 @@ export default function PackageDetail() {
 
   useEffect(() => {
     if (!id) return;
-    db
+    supabase
       .from("packages")
       .select("*, events(*, artists(*), venues(*)), golf_courses(*), destinations(*)")
       .eq("id", id)
@@ -174,7 +173,7 @@ export default function PackageDetail() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {(Array.isArray(pkg.itinerary_json) ? pkg.itinerary_json : []).map((day: any, i: number) => (
+                  {(Array.isArray(pkg.itinerary_json) ? pkg.itinerary_json as Array<{ title?: string; description?: string }> : []).map((day, i) => (
                     <div key={i}>
                       <h4 className="font-semibold">{day.title || `Day ${i + 1}`}</h4>
                       <p className="text-sm text-muted-foreground">{day.description}</p>

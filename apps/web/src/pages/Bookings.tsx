@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-const db = supabase as any;
 import { useAuth } from "@/hooks/useAuth";
 import type { Booking } from "@/types/database";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -26,7 +25,7 @@ export default function Bookings() {
     if (authLoading) return;
     if (!user) { navigate("/auth?redirect=/bookings"); return; }
 
-    db
+    supabase
       .from("bookings")
       .select("*, packages(*, events(*, artists(*), venues(*)), golf_courses(*), destinations(*))")
       .eq("user_id", user.id)
@@ -38,7 +37,7 @@ export default function Bookings() {
   }, [user, authLoading, navigate]);
 
   const cancelBooking = async (id: string) => {
-    const { error } = await db.from("bookings").update({ status: "cancelled" }).eq("id", id);
+    const { error } = await supabase.from("bookings").update({ status: "cancelled" }).eq("id", id);
     if (error) toast.error("Failed to cancel");
     else {
       toast.success("Booking cancelled");
