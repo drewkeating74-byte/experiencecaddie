@@ -8,21 +8,23 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   console.log("[vite-build] VITE_SENTRY_DSN length:", env.VITE_SENTRY_DSN?.length ?? 0, "| VITE_APP_ENV:", env.VITE_APP_ENV ?? "(unset)");
 
-  // Inline the Vercel env vars directly into monitoring.ts at build time.
-  // Vite's define and import.meta.env both fail to pick up process.env vars
-  // in this monorepo --prefix build setup, so we use a transform plugin instead.
+  // Virtual module approach: the most reliable way to inject build-time values into
+  // Vite app code. monitoring.ts imports from "virtual:ec-env" which resolves to this
+  // generated module containing the actual values baked in at build time.
+  const VIRTUAL_ID = "virtual:ec-env";
+  const RESOLVED_VIRTUAL_ID = "\0virtual:ec-env";
   const ecEnvPlugin = {
     name: "ec-env-inject",
-    transform(code: string, id: string) {
-      if (!id.includes("monitoring")) return null;
-      const dsnJson = JSON.stringify(env.VITE_SENTRY_DSN ?? "");
-      const appEnvJson = JSON.stringify(env.VITE_APP_ENV ?? "");
-      console.log("[ec-env-inject] id:", id);
-      console.log("[ec-env-inject] dsn-json-len:", dsnJson.length, "| app-env-json:", appEnvJson);
-      console.log("[ec-env-inject] placeholder-found:", code.includes('"__EC_SENTRY_DSN_PLACEHOLDER__"'));
-      return code
-        .replace(/"__EC_SENTRY_DSN_PLACEHOLDER__"/g, dsnJson)
-        .replace(/"__EC_APP_ENV_PLACEHOLDER__"/g, appEnvJson);
+    resolveId(id: string) {
+      if (id === VIRTUAL_ID) return RESOLVED_VIRTUAL_ID;
+    },
+    load(id: string) {
+      if (id !== RESOLVED_VIRTUAL_ID) return;
+      const dsn = env.VITE_SENTRY_DSN ?? "";
+      const appEnv = env.VITE_APP_ENV ?? "";
+      console.log("[ec-env-inject] virtual module loaded | dsn-len:", dsn.length, "| app-env:", appEnv);
+      return `export const SENTRY_DSN = ${JSON.stringify(dsn)};
+export const APP_ENV = ${JSON.stringify(appEnv)};`;
     },
   };
 

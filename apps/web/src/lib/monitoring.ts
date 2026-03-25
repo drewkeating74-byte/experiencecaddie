@@ -14,10 +14,11 @@
 
 import * as Sentry from "@sentry/react";
 
-// DSN and ENV are injected at build time by the ec-env-inject Vite plugin in vite.config.ts.
-// The placeholder strings below are replaced with the real values during the build.
-const DSN = ("__EC_SENTRY_DSN_PLACEHOLDER__" || undefined) as string | undefined;
-const ENV = ("__EC_APP_ENV_PLACEHOLDER__" || import.meta.env.MODE || "development") as string;
+// DSN and ENV are provided by a virtual module generated at build time (see vite.config.ts).
+// This is the most reliable way to inject Vercel env vars into the Vite client bundle.
+import { SENTRY_DSN, APP_ENV } from "virtual:ec-env";
+const DSN = (SENTRY_DSN || undefined) as string | undefined;
+const ENV = (APP_ENV || import.meta.env.MODE || "development") as string;
 console.log("[monitoring] DSN length:", DSN?.length ?? 0, "| ENV:", ENV);
 
 /** Call this once, before React renders. Safe to call with no DSN — it becomes a no-op. */
