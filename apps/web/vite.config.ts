@@ -1,7 +1,7 @@
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
-import { writeFileSync } from "fs";
+import { writeFileSync, readFileSync } from "fs";
 import { componentTagger } from "lovable-tagger";
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
@@ -15,10 +15,10 @@ export default defineConfig(({ mode }) => {
   const dsn = env.VITE_SENTRY_DSN ?? "";
   const appEnv = env.VITE_APP_ENV ?? "";
   console.log("[ec-env-inject] writing config | dsn-len:", dsn.length, "| app-env:", appEnv);
-  writeFileSync(
-    configFilePath,
-    `// Auto-generated at build time by vite.config.ts — do not edit\nexport const EC_DSN = ${JSON.stringify(dsn)};\nexport const EC_APP_ENV = ${JSON.stringify(appEnv)};\n`
-  );
+  const configContent = `// Auto-generated at build time by vite.config.ts — do not edit\nexport const EC_DSN = ${JSON.stringify(dsn)};\nexport const EC_APP_ENV = ${JSON.stringify(appEnv)};\n`;
+  writeFileSync(configFilePath, configContent);
+  const written = readFileSync(configFilePath, "utf8");
+  console.log("[ec-env-inject] file written, first 60 chars:", written.slice(0, 60));
   const ecEnvPlugin = null;
 
   return {
