@@ -1,6 +1,7 @@
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
+import { writeFileSync } from "fs";
 import { componentTagger } from "lovable-tagger";
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
@@ -8,25 +9,17 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   console.log("[vite-build] VITE_SENTRY_DSN length:", env.VITE_SENTRY_DSN?.length ?? 0, "| VITE_APP_ENV:", env.VITE_APP_ENV ?? "(unset)");
 
-  // Virtual module approach: the most reliable way to inject build-time values into
-  // Vite app code. monitoring.ts imports from "virtual:ec-env" which resolves to this
-  // generated module containing the actual values baked in at build time.
-  const VIRTUAL_ID = "virtual:ec-env";
-  const RESOLVED_VIRTUAL_ID = "\0virtual:ec-env";
-  const ecEnvPlugin = {
-    name: "ec-env-inject",
-    resolveId(id: string) {
-      if (id === VIRTUAL_ID) return RESOLVED_VIRTUAL_ID;
-    },
-    load(id: string) {
-      if (id !== RESOLVED_VIRTUAL_ID) return;
-      const dsn = env.VITE_SENTRY_DSN ?? "";
-      const appEnv = env.VITE_APP_ENV ?? "";
-      console.log("[ec-env-inject] virtual module loaded | dsn-len:", dsn.length, "| app-env:", appEnv);
-      return `export const EC_DSN = ${JSON.stringify(dsn)};
-export const EC_APP_ENV = ${JSON.stringify(appEnv)};`;
-    },
-  };
+  // Write a real TypeScript file at build time containing the env values.
+  // This is more reliable than virtual modules or define in this monorepo setup.
+  const configFilePath = path.resolve(__dirname, "src/lib/ec-build-config.ts");
+  const dsn = env.VITE_SENTRY_DSN ?? "";
+  const appEnv = env.VITE_APP_ENV ?? "";
+  console.log("[ec-env-inject] writing config | dsn-len:", dsn.length, "| app-env:", appEnv);
+  writeFileSync(
+    configFilePath,
+    `// Auto-generated at build time by vite.config.ts — do not edit\nexport const EC_DSN = ${JSON.stringify(dsn)};\nexport const EC_APP_ENV = ${JSON.stringify(appEnv)};\n`
+  );
+  const ecEnvPlugin = null;
 
   return {
     server: {
@@ -39,7 +32,6 @@ export const EC_APP_ENV = ${JSON.stringify(appEnv)};`;
     plugins: [
       react(),
       mode === "development" && componentTagger(),
-      ecEnvPlugin,
     ].filter(Boolean),
     resolve: {
       alias: {
