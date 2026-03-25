@@ -16,10 +16,10 @@ import * as Sentry from "@sentry/react";
 
 // DSN and ENV are provided by a virtual module generated at build time (see vite.config.ts).
 // This is the most reliable way to inject Vercel env vars into the Vite client bundle.
-import { SENTRY_DSN, APP_ENV } from "virtual:ec-env";
-const DSN = (SENTRY_DSN || undefined) as string | undefined;
-const ENV = (APP_ENV || import.meta.env.MODE || "development") as string;
-console.log("[monitoring] DSN length:", DSN?.length ?? 0, "| ENV:", ENV);
+import { EC_DSN, EC_APP_ENV } from "virtual:ec-env";
+const DSN = (EC_DSN || undefined) as string | undefined;
+const ENV = (EC_APP_ENV || import.meta.env.MODE || "development") as string;
+console.log("[monitoring] EC_DSN raw length:", EC_DSN.length, "| DSN:", DSN?.length ?? 0, "| ENV:", ENV);
 
 /** Call this once, before React renders. Safe to call with no DSN — it becomes a no-op. */
 export function initMonitoring(): void {

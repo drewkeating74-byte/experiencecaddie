@@ -23,8 +23,8 @@ export default defineConfig(({ mode }) => {
       const dsn = env.VITE_SENTRY_DSN ?? "";
       const appEnv = env.VITE_APP_ENV ?? "";
       console.log("[ec-env-inject] virtual module loaded | dsn-len:", dsn.length, "| app-env:", appEnv);
-      return `export const SENTRY_DSN = ${JSON.stringify(dsn)};
-export const APP_ENV = ${JSON.stringify(appEnv)};`;
+      return `export const EC_DSN = ${JSON.stringify(dsn)};
+export const EC_APP_ENV = ${JSON.stringify(appEnv)};`;
     },
   };
 
