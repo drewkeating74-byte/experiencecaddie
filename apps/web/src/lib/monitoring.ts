@@ -16,6 +16,7 @@ import * as Sentry from "@sentry/react";
 
 const DSN = import.meta.env.VITE_SENTRY_DSN as string | undefined;
 const ENV = (import.meta.env.VITE_APP_ENV ?? import.meta.env.MODE ?? "development") as string;
+console.log("[monitoring] DSN present:", Boolean(DSN), "| ENV:", ENV, "| MODE:", import.meta.env.MODE);
 
 /** Call this once, before React renders. Safe to call with no DSN — it becomes a no-op. */
 export function initMonitoring(): void {
