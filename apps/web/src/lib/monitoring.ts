@@ -19,9 +19,10 @@ import * as Sentry from "@sentry/react";
 // when the build runs via `npm run build --prefix apps/web`.
 declare const __EC_SENTRY_DSN__: string;
 declare const __EC_APP_ENV__: string;
+declare const __EC_TEST__: string;
 const DSN = (typeof __EC_SENTRY_DSN__ !== "undefined" ? __EC_SENTRY_DSN__ : "") || undefined;
 const ENV = (typeof __EC_APP_ENV__ !== "undefined" ? __EC_APP_ENV__ : "") || import.meta.env.MODE || "development";
-console.log("[monitoring] DSN present:", Boolean(DSN), "| DSN length:", DSN?.length ?? 0, "| ENV:", ENV);
+console.log("[monitoring] DSN length:", DSN?.length ?? 0, "| ENV:", ENV, "| define-test:", __EC_TEST__);
 
 /** Call this once, before React renders. Safe to call with no DSN — it becomes a no-op. */
 export function initMonitoring(): void {

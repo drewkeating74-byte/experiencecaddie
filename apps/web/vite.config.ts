@@ -23,6 +23,7 @@ export default defineConfig(({ mode }) => {
     define: {
       __EC_SENTRY_DSN__: JSON.stringify(env.VITE_SENTRY_DSN ?? ""),
       __EC_APP_ENV__: JSON.stringify(env.VITE_APP_ENV ?? ""),
+      __EC_TEST__: JSON.stringify("define-is-working"),
     },
     plugins: [
       react(),
