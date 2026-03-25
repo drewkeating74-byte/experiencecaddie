@@ -6,6 +6,7 @@ import { componentTagger } from "lovable-tagger";
 export default defineConfig(({ mode }) => {
   // Load env so we can read SENTRY_AUTH_TOKEN and VITE_SENTRY_DSN at build time.
   const env = loadEnv(mode, process.cwd(), "");
+  console.log("[vite-build] VITE_SENTRY_DSN length:", env.VITE_SENTRY_DSN?.length ?? 0, "| VITE_APP_ENV:", env.VITE_APP_ENV ?? "(unset)");
 
   // Source-map upload disabled until SENTRY_ORG/SENTRY_PROJECT are confirmed correct.
   // Re-enable by un-commenting the sentryVitePlugin block below.

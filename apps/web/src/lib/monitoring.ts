@@ -21,7 +21,7 @@ declare const __EC_SENTRY_DSN__: string;
 declare const __EC_APP_ENV__: string;
 const DSN = (typeof __EC_SENTRY_DSN__ !== "undefined" ? __EC_SENTRY_DSN__ : "") || undefined;
 const ENV = (typeof __EC_APP_ENV__ !== "undefined" ? __EC_APP_ENV__ : "") || import.meta.env.MODE || "development";
-console.log("[monitoring] DSN present:", Boolean(DSN), "| ENV:", ENV, "| MODE:", import.meta.env.MODE);
+console.log("[monitoring] DSN present:", Boolean(DSN), "| DSN length:", DSN?.length ?? 0, "| ENV:", ENV);
 
 /** Call this once, before React renders. Safe to call with no DSN — it becomes a no-op. */
 export function initMonitoring(): void {
