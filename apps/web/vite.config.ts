@@ -11,16 +11,6 @@ export default defineConfig(({ mode }) => {
   // Re-enable by un-commenting the sentryVitePlugin block below.
   const sentryPlugin = null;
 
-  // Explicitly forward VITE_* env vars into the client bundle via define.
-  // Required because npm --prefix changes cwd in a way that breaks Vite's
-  // automatic process.env injection for non-.env-file variables.
-  const defineEnv: Record<string, string> = {};
-  for (const [key, val] of Object.entries(env)) {
-    if (key.startsWith("VITE_")) {
-      defineEnv[`import.meta.env.${key}`] = JSON.stringify(val);
-    }
-  }
-
   return {
     server: {
       host: "::",
@@ -29,7 +19,10 @@ export default defineConfig(({ mode }) => {
         overlay: false,
       },
     },
-    define: defineEnv,
+    define: {
+      __EC_SENTRY_DSN__: JSON.stringify(env.VITE_SENTRY_DSN ?? ""),
+      __EC_APP_ENV__: JSON.stringify(env.VITE_APP_ENV ?? ""),
+    },
     plugins: [
       react(),
       mode === "development" && componentTagger(),

@@ -48,8 +48,7 @@ export default function Admin() {
           size="sm"
           className="ml-auto"
           onClick={() => {
-            const dsn = import.meta.env.VITE_SENTRY_DSN;
-            console.log("[Sentry test] DSN present:", Boolean(dsn), "| env:", import.meta.env.VITE_APP_ENV);
+            console.log("[Sentry test] clicked — check [monitoring] log on page load for DSN status");
             const err = new Error("[EC] Sentry test error — triggered manually from Admin panel");
             captureError(err, { context: "sentry-test", triggered_by: "admin-panel" });
             toast.success("Sentry event sent — check sentry.io Issues");

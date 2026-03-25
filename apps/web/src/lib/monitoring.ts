@@ -14,8 +14,13 @@
 
 import * as Sentry from "@sentry/react";
 
-const DSN = import.meta.env.VITE_SENTRY_DSN as string | undefined;
-const ENV = (import.meta.env.VITE_APP_ENV ?? import.meta.env.MODE ?? "development") as string;
+// __EC_SENTRY_DSN__ and __EC_APP_ENV__ are injected at build time via vite.config.ts define.
+// This bypasses Vite's import.meta.env replacement which doesn't pick up Vercel env vars
+// when the build runs via `npm run build --prefix apps/web`.
+declare const __EC_SENTRY_DSN__: string;
+declare const __EC_APP_ENV__: string;
+const DSN = (typeof __EC_SENTRY_DSN__ !== "undefined" ? __EC_SENTRY_DSN__ : "") || undefined;
+const ENV = (typeof __EC_APP_ENV__ !== "undefined" ? __EC_APP_ENV__ : "") || import.meta.env.MODE || "development";
 console.log("[monitoring] DSN present:", Boolean(DSN), "| ENV:", ENV, "| MODE:", import.meta.env.MODE);
 
 /** Call this once, before React renders. Safe to call with no DSN — it becomes a no-op. */
