@@ -11,6 +11,16 @@ export default defineConfig(({ mode }) => {
   // Re-enable by un-commenting the sentryVitePlugin block below.
   const sentryPlugin = null;
 
+  // Explicitly forward VITE_* env vars into the client bundle via define.
+  // Required because npm --prefix changes cwd in a way that breaks Vite's
+  // automatic process.env injection for non-.env-file variables.
+  const defineEnv: Record<string, string> = {};
+  for (const [key, val] of Object.entries(env)) {
+    if (key.startsWith("VITE_")) {
+      defineEnv[`import.meta.env.${key}`] = JSON.stringify(val);
+    }
+  }
+
   return {
     server: {
       host: "::",
@@ -19,6 +29,7 @@ export default defineConfig(({ mode }) => {
         overlay: false,
       },
     },
+    define: defineEnv,
     plugins: [
       react(),
       mode === "development" && componentTagger(),
@@ -29,10 +40,8 @@ export default defineConfig(({ mode }) => {
         "@": path.resolve(__dirname, "./src"),
       },
     },
-    // Generate source maps in production so Sentry can upload them.
-    // The Sentry plugin deletes them from the bundle after upload.
     build: {
-      sourcemap: mode === "production",
+      sourcemap: false,
     },
   };
 });
