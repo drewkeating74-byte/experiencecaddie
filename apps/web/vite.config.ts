@@ -15,9 +15,14 @@ export default defineConfig(({ mode }) => {
     name: "ec-env-inject",
     transform(code: string, id: string) {
       if (!id.includes("monitoring")) return null;
+      const dsnJson = JSON.stringify(env.VITE_SENTRY_DSN ?? "");
+      const appEnvJson = JSON.stringify(env.VITE_APP_ENV ?? "");
+      console.log("[ec-env-inject] id:", id);
+      console.log("[ec-env-inject] dsn-json-len:", dsnJson.length, "| app-env-json:", appEnvJson);
+      console.log("[ec-env-inject] placeholder-found:", code.includes('"__EC_SENTRY_DSN_PLACEHOLDER__"'));
       return code
-        .replace(/"__EC_SENTRY_DSN_PLACEHOLDER__"/g, JSON.stringify(env.VITE_SENTRY_DSN ?? ""))
-        .replace(/"__EC_APP_ENV_PLACEHOLDER__"/g, JSON.stringify(env.VITE_APP_ENV ?? ""));
+        .replace(/"__EC_SENTRY_DSN_PLACEHOLDER__"/g, dsnJson)
+        .replace(/"__EC_APP_ENV_PLACEHOLDER__"/g, appEnvJson);
     },
   };
 
