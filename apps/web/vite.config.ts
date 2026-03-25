@@ -10,12 +10,14 @@ export default defineConfig(({ mode }) => {
 
   const dsn = env.VITE_SENTRY_DSN ?? "";
   const appEnv = env.VITE_APP_ENV ?? "";
-  console.log("[ec-env-inject] dsn-len:", dsn.length, "| app-env:", appEnv);
+  const callId = Math.random().toString(36).slice(2, 6);
+  console.log(`[ec-env-inject][${callId}] config called | dsn-len:`, dsn.length, "| app-env:", appEnv);
 
   // Inject DSN into HTML as meta tags — bypasses Rollup entirely.
   const ecEnvPlugin = {
     name: "ec-env-inject",
     transformIndexHtml(html: string) {
+      console.log(`[ec-env-inject][${callId}] transformIndexHtml | dsn-len:`, dsn.length);
       return html.replace(
         "</head>",
         `<meta name="ec-sentry-dsn" content="${dsn}"><meta name="ec-app-env" content="${appEnv}"></head>`
