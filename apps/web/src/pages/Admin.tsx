@@ -15,7 +15,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Plus, Trash2, Edit, Music, MapPin } from "lucide-react";
+import { Plus, Trash2, Edit, Music, MapPin, Bug } from "lucide-react";
+import { captureError } from "@/lib/monitoring";
 
 /** Union of all known table names — prevents passing typos to useCrud. */
 type KnownTable = keyof Database["public"]["Tables"];
@@ -37,6 +38,24 @@ export default function Admin() {
     <div className="container mx-auto px-4 py-8">
       <h1 className="font-serif text-3xl font-bold">Admin Panel</h1>
       <p className="mt-1 text-muted-foreground">Manage your concert + golf inventory</p>
+
+      {/* Sentry test — admin only, not visible to public users */}
+      <div className="mt-4 flex items-center gap-3 rounded-lg border border-dashed border-destructive/40 bg-destructive/5 p-3">
+        <Bug className="h-4 w-4 text-destructive shrink-0" />
+        <span className="text-sm text-destructive font-medium">Sentry diagnostics</span>
+        <Button
+          variant="destructive"
+          size="sm"
+          className="ml-auto"
+          onClick={() => {
+            const err = new Error("[EC] Sentry test error — triggered manually from Admin panel");
+            captureError(err, { context: "sentry-test", triggered_by: "admin-panel" });
+            throw err;
+          }}
+        >
+          Trigger Sentry Test Error
+        </Button>
+      </div>
 
       <Tabs defaultValue="packages" className="mt-6">
         <TabsList className="flex-wrap">
