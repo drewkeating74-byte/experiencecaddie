@@ -13,6 +13,7 @@ export function useAuth() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [adminChecked, setAdminChecked] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -48,10 +49,11 @@ export function useAuth() {
             .eq("user_id", session.user.id)
             .eq("role", "admin")
             .maybeSingle())
-            .then(({ data }) => { if (mounted) setIsAdmin(!!data); })
-            .catch((err: unknown) => { console.error("Failed to check admin role:", err); });
+            .then(({ data }) => { if (mounted) { setIsAdmin(!!data); setAdminChecked(true); } })
+            .catch((err: unknown) => { console.error("Failed to check admin role:", err); if (mounted) setAdminChecked(true); });
         } else {
           clearUser();
+          if (mounted) setAdminChecked(true);
         }
       }
     );
@@ -74,8 +76,10 @@ export function useAuth() {
           .eq("user_id", session.user.id)
           .eq("role", "admin")
           .maybeSingle())
-          .then(({ data }) => { if (mounted) setIsAdmin(!!data); })
-          .catch((err: unknown) => { console.error("Failed to check admin role:", err); });
+          .then(({ data }) => { if (mounted) { setIsAdmin(!!data); setAdminChecked(true); } })
+          .catch((err: unknown) => { console.error("Failed to check admin role:", err); if (mounted) setAdminChecked(true); });
+      } else {
+        if (mounted) setAdminChecked(true);
       }
     }).catch(() => {
       finishLoading();
@@ -111,5 +115,5 @@ export function useAuth() {
     }
   };
 
-  return { user, session, loading, isAdmin, signOut };
+  return { user, session, loading, isAdmin, adminChecked, signOut };
 }

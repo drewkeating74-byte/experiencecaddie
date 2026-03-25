@@ -22,16 +22,16 @@ import { captureError } from "@/lib/monitoring";
 type KnownTable = keyof Database["public"]["Tables"];
 
 export default function Admin() {
-  const { user, isAdmin, loading: authLoading } = useAuth();
+  const { user, isAdmin, loading: authLoading, adminChecked } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (!authLoading && (!user || !isAdmin)) {
+    if (!authLoading && adminChecked && (!user || !isAdmin)) {
       navigate("/");
     }
-  }, [user, isAdmin, authLoading, navigate]);
+  }, [user, isAdmin, authLoading, adminChecked, navigate]);
 
-  if (authLoading) return <div className="container mx-auto px-4 py-16 text-center">Loading...</div>;
+  if (authLoading || !adminChecked) return <div className="container mx-auto px-4 py-16 text-center">Loading...</div>;
   if (!isAdmin) return null;
 
   return (
