@@ -20,7 +20,6 @@ const _getMeta = (name: string) =>
   document.querySelector<HTMLMetaElement>(`meta[name="${name}"]`)?.content || "";
 const DSN = _getMeta("ec-sentry-dsn") || undefined;
 const ENV = _getMeta("ec-app-env") || import.meta.env.MODE || "development";
-console.log("[monitoring] DSN length:", DSN?.length ?? 0, "| ENV:", ENV);
 
 /** Call this once, before React renders. Safe to call with no DSN — it becomes a no-op. */
 export function initMonitoring(): void {
