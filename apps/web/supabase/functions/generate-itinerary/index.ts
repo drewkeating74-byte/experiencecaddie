@@ -484,15 +484,57 @@ ${artistSearch ? `- CRITICAL: All 5 must be "${artistSearch}" — different citi
     const claimNew = (g: any) => { const k = normGolfName(g); if (!k || claimedForTier.has(k)) return false; claimedForTier.add(k); return true; };
     const golfGoldExcl   = golfGoldRaw.filter(claimNew);
     const golfSilverExcl = golfSilverRaw.filter(claimNew);
-    const golfBronze     = golfBronzeRaw.filter(claimNew);
+    const golfBronzeExcl = golfBronzeRaw.filter(claimNew);
 
     // Silver fallback: if no silver-tier courses, promote unassigned courses not already claimed.
-    const golfSilver = golfSilverExcl.length > 0
-      ? golfSilverExcl
-      : golfUnassigned.filter((g: any) => { const k = normGolfName(g); return k && !claimedForTier.has(k); }).slice(0, 5);
+    // If unassigned is also empty, carve the top half of bronze out as silver so there is always
+    // a middle tier with different courses from bronze.
+    const golfUnassignedUnclaimed = golfUnassigned.filter((g: any) => { const k = normGolfName(g); return k && !claimedForTier.has(k); });
 
-    // Gold fallback: if no gold-tier courses, use the silver pool (goldPoolIsThin flag triggers honesty note).
-    const golfGold = golfGoldExcl.length > 0 ? golfGoldExcl : (golfSilver.length > 0 ? golfSilver : (golfBronze.length > 0 ? golfBronze : golfUnassigned));
+    let golfBronze: ReturnType<typeof toGolfEntry>[];
+    let golfSilver: ReturnType<typeof toGolfEntry>[];
+    let golfGold: ReturnType<typeof toGolfEntry>[];
+
+    if (golfGoldExcl.length > 0 && golfSilverExcl.length > 0) {
+      // Best case: real gold and silver pools exist.
+      golfGold   = golfGoldExcl;
+      golfSilver = golfSilverExcl;
+      golfBronze = golfBronzeExcl;
+    } else if (golfGoldExcl.length > 0) {
+      // Gold exists, silver is empty — fill silver from unassigned or carved bronze.
+      golfGold = golfGoldExcl;
+      if (golfUnassignedUnclaimed.length > 0) {
+        golfSilver = golfUnassignedUnclaimed.slice(0, 5);
+        golfBronze = golfBronzeExcl;
+      } else {
+        const carveCount = Math.max(1, Math.ceil(golfBronzeExcl.length / 2));
+        golfSilver = golfBronzeExcl.slice(0, carveCount);
+        golfBronze = golfBronzeExcl.slice(carveCount);
+      }
+    } else if (golfSilverExcl.length > 0) {
+      // Silver exists, gold is empty — promote silver to gold, fill silver from unassigned or carved bronze.
+      golfGold = golfSilverExcl;
+      if (golfUnassignedUnclaimed.length > 0) {
+        golfSilver = golfUnassignedUnclaimed.slice(0, 5);
+        golfBronze = golfBronzeExcl;
+      } else {
+        const carveCount = Math.max(1, Math.ceil(golfBronzeExcl.length / 2));
+        golfSilver = golfBronzeExcl.slice(0, carveCount);
+        golfBronze = golfBronzeExcl.slice(carveCount);
+      }
+    } else {
+      // Neither gold nor silver have dedicated courses — divide available courses into thirds.
+      const all = [...golfUnassignedUnclaimed, ...golfBronzeExcl];
+      const n = all.length;
+      const third = Math.max(1, Math.floor(n / 3));
+      golfBronze = all.slice(0, third);
+      golfSilver = all.slice(third, third * 2);
+      golfGold   = all.slice(third * 2);
+      // Ensure each tier has at least one entry.
+      if (golfBronze.length === 0) golfBronze = all.slice(0, 1);
+      if (golfSilver.length === 0) golfSilver = all.slice(0, 1);
+      if (golfGold.length === 0)   golfGold   = all.slice(-1);
+    }
     const goldPoolIsThin = golfGoldExcl.length === 0 && golfGold.length > 0;
     const hasRealHotels = hotels.length > 0 && hotels.some((h: any) => h.provider !== "mock");
     const hasRealData = events.length > 0 || golfCourses.length > 0 || hotels.length > 0;

@@ -637,11 +637,13 @@ function assignTierHint(c: {
   if (isTopTierPremium && !isMunicipalOrPark && rating >= 4.2 && c.quality_score >= 60) return "gold";
   if ((premium >= 6 && rating >= 4.4 && hasStrongReviews) || (rating >= 4.6 && c.quality_score >= 68 && !isMunicipalOrPark)) return "gold";
 
-  // Bronze: true municipal / city / park-named courses, or clearly weak quality.
-  if (isMunicipalOrPark || c.quality_score < 42) return "bronze";
-  if (rating > 0 && rating < 3.9) return "bronze";
+  // Bronze: municipal / park-named courses, unrated courses, clearly low-rated, or very low quality.
+  if (isMunicipalOrPark) return "bronze";
+  if (rating === 0) return "bronze";
+  if (rating < 4.0) return "bronze";
+  if (c.quality_score < 35) return "bronze";
 
-  // Silver: mid-range — well-rated accessible courses that aren't budget municipal or premium destination.
+  // Silver: everything else — well-rated accessible courses that aren't budget municipal or premium resort.
   return "silver";
 }
 
@@ -1153,7 +1155,7 @@ Deno.serve(async (req: Request) => {
             );
             const preFiltered = applyQualityPreFilter(raw);
             const enriched = await enrichGolfCandidates(preFiltered, googleKey);
-            const tiered = applyGolfTiering(enriched, center.lat, center.lng);
+            const tiered = applyGolfTiering(enriched, center.lat, center.lng, { allowUnknown: true });
             golfCourses = tiered.courses;
             bronzePool = tiered.pools.bronze;
             silverPool = tiered.pools.silver;
