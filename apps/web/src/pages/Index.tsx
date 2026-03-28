@@ -122,7 +122,6 @@ export default function Index() {
             </div>
           ))}
         </div>
-        <p className="mx-auto mt-8 text-center text-sm italic text-muted-foreground max-w-md">Designed for group trips, milestone birthdays, bachelor parties, and long-overdue weekends.</p>
       </section>
 
       {/* Featured Packages */}
