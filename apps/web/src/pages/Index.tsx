@@ -23,7 +23,7 @@ export default function Index() {
       .select("*, events(*, artists(*), venues(*)), golf_courses(*), destinations(*)")
       .eq("featured", true)
       .eq("active", true)
-      .limit(9)
+      .limit(18)
       .then(({ data }) => {
         if (data) setFeaturedPackages(data as unknown as Package[]);
       });
