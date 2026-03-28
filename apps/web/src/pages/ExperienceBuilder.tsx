@@ -75,6 +75,8 @@ export default function ExperienceBuilder() {
 
   // Guards against firing the auto-submit more than once per navigation
   const autoSubmitFiredRef = useRef(false);
+  // When true, handleGenerate skips the discover_concerts step (used for featured package cards)
+  const skipDiscoveryRef = useRef(false);
 
   // Prefill "New Trip" context when returning from an itinerary page.
   // This avoids forcing users to go back through the entire start flow.
@@ -175,6 +177,7 @@ export default function ExperienceBuilder() {
     if (selectedEntry === "artist" && !eventInput.trim()) return;
 
     autoSubmitFiredRef.current = true;
+    skipDiscoveryRef.current = true; // go straight to generation — we know artist + city already
     // Small tick so all batched state is committed before the generator reads it
     const timer = setTimeout(() => handleGenerate(), 50);
     return () => clearTimeout(timer);
@@ -345,7 +348,12 @@ export default function ExperienceBuilder() {
       return;
     }
 
-    const useDiscoveryFlow = selectedEntry === "find_concert" || selectedEntry === "surprise" || selectedEntry === "artist";
+    // skipDiscoveryRef is set by the featured-package auto-submit path — we already
+    // know the artist + city so there's no need to run the discover_concerts step.
+    const useDiscoveryFlow =
+      !skipDiscoveryRef.current &&
+      (selectedEntry === "find_concert" || selectedEntry === "surprise" || selectedEntry === "artist");
+    skipDiscoveryRef.current = false; // consume the flag
     const eventDetails = getEventDetails();
 
     if (useDiscoveryFlow && discoveryStep === "form") {
@@ -623,7 +631,7 @@ export default function ExperienceBuilder() {
         </div>
         <Button
           variant="ghost"
-          onClick={() => { setGenerating(false); autoSubmitFiredRef.current = false; }}
+          onClick={() => { setGenerating(false); autoSubmitFiredRef.current = false; skipDiscoveryRef.current = false; }}
           className="mt-4 text-muted-foreground"
         >
           Cancel & try again
