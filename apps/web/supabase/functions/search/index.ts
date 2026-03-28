@@ -435,8 +435,11 @@ async function geocodeCity(city: string, state?: string): Promise<GeoResult> {
 function publicAccessConfidence(name: string): "likely_public" | "unknown" | "likely_private" {
   const n = (name || "").toLowerCase();
   if (/municipal|muny|public\b|city\b|park\b|recreation|community\b/i.test(n)) return "likely_public";
-  if (/country club|private club|private\b|members only|members'? club|invitation only|invite only|invitational|athletic club|golf & country|golf and country|exclusive|membership/i.test(n)) return "likely_private";
-  if (/golf club|club\b/i.test(n) && !/municipal|muny|public|city|park|recreation|community/i.test(n)) return "likely_private";
+  // Only flag as private when the name contains explicit private-membership language.
+  // "Golf Club" alone is NOT a reliable private indicator — the vast majority of courses
+  // marketed as tee-time-bookable venues use this naming convention (e.g. "Avery Ranch Golf Club").
+  if (/private club|private\b golf|members[- ]only|members'? club|invitation[- ]only|invite[- ]only|proprietary|exclusive\b.*club/i.test(n)) return "likely_private";
+  if (/(country club|golf & country|golf and country)\b/i.test(n) && !/resort|lodge|inn|hotel|spa/i.test(n)) return "likely_private";
   return "unknown";
 }
 
@@ -530,7 +533,7 @@ function computeQualityScore(c: {
 // - quality_score recomputed after enrichment in applyGolfTiering
 const MIN_GOLF_RATING = 3.8;
 const MIN_GOLF_REVIEW_COUNT = 5;
-const ENRICHMENT_SHORTLIST_SIZE = 12;
+const ENRICHMENT_SHORTLIST_SIZE = 20;
 
 function preliminaryQualityScore(c: GolfCourseResult): number {
   const rating = c.rating ?? 0;
@@ -873,11 +876,11 @@ async function searchGolfGooglePlaces(
 ): Promise<GolfCourseResult[]> {
   const radiusMiles = radiusMeters / 1609.344;
   const locationPart = city && state ? ` in ${city}, ${state}` : city ? ` in ${city}` : "";
-  const textQuery = `18 hole public golf course${locationPart}`.trim();
+  const textQuery = `golf course${locationPart}`.trim();
   const viewport = viewportFromCenter(lat, lng, radiusMiles);
   const body = {
     textQuery,
-    pageSize: 12,
+    pageSize: 20,
     locationRestriction: { rectangle: viewport },
     includedType: "golf_course",
     strictTypeFiltering: true,
