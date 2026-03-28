@@ -41,7 +41,7 @@ export default function Packages() {
     let startDate = "";
     let endDate = "";
     if (eventDate) {
-      const d = new Date(eventDate);
+      const d = new Date(eventDate + "T12:00:00");
       const before = new Date(d); before.setDate(d.getDate() - 1);
       const after  = new Date(d); after.setDate(d.getDate() + 1);
       startDate = before.toISOString().slice(0, 10);
@@ -235,7 +235,7 @@ export default function Packages() {
                   )}
                   {pkg.events?.event_date && (
                     <p className="mt-1 flex items-center gap-1 text-sm text-muted-foreground">
-                      <Calendar className="h-3.5 w-3.5" /> {new Date(pkg.events.event_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      <Calendar className="h-3.5 w-3.5" /> {new Date(pkg.events.event_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                     </p>
                   )}
                   {getIncludes(pkg).length > 0 && (

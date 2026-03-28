@@ -194,13 +194,14 @@ function PackageCard({ pkg }: { pkg: Package }) {
     let startDate = "";
     let endDate = "";
     if (eventDate) {
-      const d = new Date(eventDate);
-      const before = new Date(d);
-      before.setDate(d.getDate() - 1);
-      const after = new Date(d);
-      after.setDate(d.getDate() + 1);
+      // Parse as local noon to avoid UTC off-by-one in US timezones:
+      // new Date("2026-04-11") creates UTC midnight, which resolves to April 10
+      // in UTC-5 to UTC-8 when getDate() is called.
+      const d = new Date(eventDate + "T12:00:00");
+      const before = new Date(d); before.setDate(d.getDate() - 1);
+      const after  = new Date(d); after.setDate(d.getDate() + 1);
       startDate = before.toISOString().slice(0, 10);
-      endDate = after.toISOString().slice(0, 10);
+      endDate   = after.toISOString().slice(0, 10);
     }
 
     const params = new URLSearchParams({
@@ -256,7 +257,7 @@ function PackageCard({ pkg }: { pkg: Package }) {
           )}
           {event?.event_date && (
             <p className="mt-1 flex items-center gap-1 text-sm text-muted-foreground">
-              <Calendar className="h-3.5 w-3.5" /> {new Date(event.event_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+              <Calendar className="h-3.5 w-3.5" /> {new Date(event.event_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
             </p>
           )}
           <div className="mt-3 flex items-end justify-between">
