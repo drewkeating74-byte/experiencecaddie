@@ -822,7 +822,6 @@ export default function ItineraryResults() {
                               );
                             })()}
                           </div>
-                          </div>
                           <EventTrustPanel
                             venue={typeof e.venue_obj === "object" ? e.venue_obj : (e.venue ? { name: e.venue } : undefined)}
                             date_time={e.date_time}
