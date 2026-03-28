@@ -621,15 +621,27 @@ function assignTierHint(c: {
   const value = nameValueScore(c.name);
   const rating = c.rating ?? 0;
   const reviewCount = c.user_rating_count ?? 0;
-  const isValueCourse = value >= 10 || c.public_access_confidence === "likely_public";
-  const isTopTierPremium = premium >= 14;
+
+  // A "municipal/value" course is one explicitly named as such — NOT simply any course that
+  // happens to be publicly accessible. Many excellent resort and semi-private courses are open
+  // to the public; forcing them to bronze because Google marks them as "likely_public" was
+  // creating empty silver pools and removing all quality differentiation.
+  const isMunicipalOrPark = value >= 10; // "municipal", "muny", "city", "public", "park", "recreation", "community" in name
+  const isTopTierPremium = premium >= 14; // "resort", "links", "plantation", "dunes", "pebble", "ocean course" etc.
   const isLikelyPrivate = c.public_access_confidence === "likely_private";
   const hasStrongReviews = reviewCount >= 50 && rating >= 4.3;
 
   if (isLikelyPrivate) return "bronze";
-  if (isTopTierPremium && !isValueCourse && rating >= 4.2 && c.quality_score >= 68) return "gold";
-  if ((premium >= 6 && rating >= 4.4 && hasStrongReviews) || (rating >= 4.5 && c.quality_score >= 72 && !isValueCourse)) return "gold";
-  if (isValueCourse || c.quality_score < 50) return "bronze";
+
+  // Gold: resort / destination courses with solid ratings and quality scores.
+  if (isTopTierPremium && !isMunicipalOrPark && rating >= 4.2 && c.quality_score >= 60) return "gold";
+  if ((premium >= 6 && rating >= 4.4 && hasStrongReviews) || (rating >= 4.6 && c.quality_score >= 68 && !isMunicipalOrPark)) return "gold";
+
+  // Bronze: true municipal / city / park-named courses, or clearly weak quality.
+  if (isMunicipalOrPark || c.quality_score < 42) return "bronze";
+  if (rating > 0 && rating < 3.9) return "bronze";
+
+  // Silver: mid-range — well-rated accessible courses that aren't budget municipal or premium destination.
   return "silver";
 }
 

@@ -466,16 +466,34 @@ ${artistSearch ? `- CRITICAL: All 5 must be "${artistSearch}" — different citi
     const toGolfEntry = (g: any) => ({
       name: g.name,
       url: g.book_url || g.source_url,
+      ...(g.price_min != null && { price_min: g.price_min }),
+      ...(g.price_max != null && { price_max: g.price_max }),
+      ...(g.rating != null && { rating: g.rating }),
       ...(g.drive_time_minutes != null && { drive_mins: g.drive_time_minutes }),
       ...(g.distance_miles != null && { miles: g.distance_miles }),
     });
-    const golfBronze = poolBronze?.length ? poolBronze.map(toGolfEntry) : golfCourses.filter((g: any) => g.tier_hint === "bronze").map(toGolfEntry);
-    const golfSilver = poolSilver?.length ? poolSilver.map(toGolfEntry) : golfCourses.filter((g: any) => g.tier_hint === "silver").map(toGolfEntry);
-    const golfGoldRaw = poolGold?.length ? poolGold.map(toGolfEntry) : golfCourses.filter((g: any) => g.tier_hint === "gold").map(toGolfEntry);
+    const golfBronzeRaw  = poolBronze?.length ? poolBronze.map(toGolfEntry) : golfCourses.filter((g: any) => g.tier_hint === "bronze").map(toGolfEntry);
+    const golfSilverRaw  = poolSilver?.length ? poolSilver.map(toGolfEntry) : golfCourses.filter((g: any) => g.tier_hint === "silver").map(toGolfEntry);
+    const golfGoldRaw    = poolGold?.length   ? poolGold.map(toGolfEntry)   : golfCourses.filter((g: any) => g.tier_hint === "gold").map(toGolfEntry);
     const golfUnassigned = golfCourses.filter((g: any) => !g.tier_hint || !["bronze", "silver", "gold"].includes(g.tier_hint)).map(toGolfEntry);
-    // Fallback: if Gold pool is empty, use Silver (or Bronze) so Gold package always has golf options
-    const golfGold = golfGoldRaw.length > 0 ? golfGoldRaw : (golfSilver.length > 0 ? golfSilver : (golfBronze.length > 0 ? golfBronze : golfUnassigned));
-    const goldPoolIsThin = golfGoldRaw.length === 0 && golfGold.length > 0;
+
+    // Enforce mutual exclusivity: each course belongs to exactly one tier (gold > silver > bronze).
+    // This prevents the same course appearing in multiple packages.
+    const normGolfName = (g: any) => ((g.name ?? "") as string).toLowerCase().trim();
+    const claimedForTier = new Set<string>();
+    const claimNew = (g: any) => { const k = normGolfName(g); if (!k || claimedForTier.has(k)) return false; claimedForTier.add(k); return true; };
+    const golfGoldExcl   = golfGoldRaw.filter(claimNew);
+    const golfSilverExcl = golfSilverRaw.filter(claimNew);
+    const golfBronze     = golfBronzeRaw.filter(claimNew);
+
+    // Silver fallback: if no silver-tier courses, promote unassigned courses not already claimed.
+    const golfSilver = golfSilverExcl.length > 0
+      ? golfSilverExcl
+      : golfUnassigned.filter((g: any) => { const k = normGolfName(g); return k && !claimedForTier.has(k); }).slice(0, 5);
+
+    // Gold fallback: if no gold-tier courses, use the silver pool (goldPoolIsThin flag triggers honesty note).
+    const golfGold = golfGoldExcl.length > 0 ? golfGoldExcl : (golfSilver.length > 0 ? golfSilver : (golfBronze.length > 0 ? golfBronze : golfUnassigned));
+    const goldPoolIsThin = golfGoldExcl.length === 0 && golfGold.length > 0;
     const hasRealHotels = hotels.length > 0 && hotels.some((h: any) => h.provider !== "mock");
     const hasRealData = events.length > 0 || golfCourses.length > 0 || hotels.length > 0;
     const hasTieredGolf = golfBronze.length > 0 || golfSilver.length > 0 || golfGold.length > 0;
@@ -485,6 +503,11 @@ REAL DATA PROVIDED (use these exact options in your packages; include their book
 ${events.length ? `- CONCERTS: ${JSON.stringify(events.slice(0, 6).map((e: any) => ({ name: e.name, venue: e.venue?.name, date: e.date_time, url: e.book_url || e.source_url, price_min: e.price_min, price_max: e.price_max })))}` : ""}
 ${golfCourses.length && !hasTieredGolf ? `- GOLF (all): ${JSON.stringify(golfCourses.slice(0, 6).map((g: any) => ({ name: g.name, url: g.book_url || g.source_url })))}` : ""}
 ${hasTieredGolf ? `- GOLF by tier (CRITICAL – use ONLY from the matching list per package):
+  TIER QUALITY GUIDE — use this to set green_fee and explain the "why" per course:
+  * BRONZE: Affordable public/municipal courses, green fees ~$40–$90. Good for value-conscious golfers.
+  * SILVER: Well-rated public courses with better conditions and amenities, green fees ~$90–$160. Solid choice for avid golfers.
+  * GOLD: Premium, resort, or destination-quality public courses, green fees ~$150+. Exceptional conditions, scenic settings, or signature design.
+  When price_min/price_max are provided for a course, use those exact values in the green_fee field.
   * BRONZE package golf: ${JSON.stringify(golfBronze.length ? golfBronze : golfUnassigned)}
   * SILVER package golf: ${JSON.stringify(golfSilver.length ? golfSilver : golfUnassigned)}
   * GOLD package golf: ${JSON.stringify(golfGold.length ? golfGold : golfUnassigned)}
@@ -497,7 +520,7 @@ PRICE RULE: When concerts or hotels include price_min/price_max, use them. For e
 ${events.length > 0 ? `
 CONCERT RULE (MANDATORY): For each package, use ONLY concerts from the CONCERTS list above. Do not add or substitute any event not in that list—these are verified events with active ticket listings. Spread the listed concerts across tiers (e.g. different events per tier) so each package has real options.` : ""}
 ${hasTieredGolf ? `
-GOLF TIER RULE (MANDATORY): For each package, pick golf courses ONLY from that package's tier list above. BRONZE package → use only from BRONZE golf list. SILVER → only from SILVER golf list. GOLD → only from GOLD golf list. Do NOT add golf courses from your own web search—use ONLY the courses listed. Exclude country clubs, private clubs, and members-only courses. Never use the same golf course in multiple packages. Each tier must have different golf. All golf, lodging, and the venue are within 30 miles of each other. When golf entries include drive_mins or miles, you may mention them in the "why" for context.${goldPoolIsThin ? `
+GOLF TIER RULE (MANDATORY): For each package, pick golf courses ONLY from that package's tier list above. BRONZE package → use only from BRONZE golf list. SILVER → only from SILVER golf list. GOLD → only from GOLD golf list. Do NOT add golf courses from your own web search—use ONLY the courses listed. Exclude country clubs, private clubs, and members-only courses. EACH PACKAGE MUST USE DIFFERENT GOLF COURSES — never repeat the same course across Bronze, Silver, and Gold. Each tier must have at least one golf option. All golf, lodging, and the venue are within 30 miles of each other. When golf entries include drive_mins or miles, you may mention them in the "why" for context.${goldPoolIsThin ? `
 GOLD HONESTY NOTE: Premium (Gold-tier) golf options are limited for this destination. For the GOLD package, add to safety_notes: "Premium course availability is limited in this area; we've included the best available public courses."` : ""}` : ""}`
       : "";
 
