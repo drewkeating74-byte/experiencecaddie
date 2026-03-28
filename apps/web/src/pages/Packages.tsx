@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { useSearchParams, useNavigate } from "react-router-dom";
 import type { Package } from "@/types/database";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Music, MapPin, Calendar, Search, Check } from "lucide-react";
 import { DEFAULT_PACKAGE_IMAGE } from "@/lib/constants";
+import { logEvent } from "@/lib/analytics";
 
 function getIncludes(pkg: Package): string[] {
   const items: string[] = [];
@@ -31,6 +32,42 @@ export default function Packages() {
   const [budgetTier, setBudgetTier] = useState("all");
   const [destination, setDestination] = useState("all");
   const [month, setMonth] = useState("all");
+  const navigate = useNavigate();
+
+  function buildItineraryUrl(pkg: Package): string {
+    const city = pkg.destinations?.city ?? "";
+    const artistName = pkg.events?.artists?.name ?? pkg.events?.name ?? "";
+    const eventDate = pkg.events?.event_date ?? "";
+    let startDate = "";
+    let endDate = "";
+    if (eventDate) {
+      const d = new Date(eventDate);
+      const before = new Date(d); before.setDate(d.getDate() - 1);
+      const after  = new Date(d); after.setDate(d.getDate() + 1);
+      startDate = before.toISOString().slice(0, 10);
+      endDate   = after.toISOString().slice(0, 10);
+    }
+    const params = new URLSearchParams({
+      city,
+      event_details: artistName,
+      budget_tier: "mid",
+      group_size: "2",
+      auto: "1",
+      ...(startDate && { start_date: startDate }),
+      ...(endDate   && { end_date: endDate }),
+    });
+    return `/experience?${params.toString()}`;
+  }
+
+  function handlePackageClick(pkg: Package) {
+    logEvent({
+      event_type: "package_generate_click",
+      package_id: pkg.id,
+      metro_slug: pkg.destinations?.city?.toLowerCase().replace(/[\s/]+/g, "-") ?? undefined,
+      artist_name: pkg.events?.artists?.name ?? pkg.events?.name ?? undefined,
+    });
+    navigate(buildItineraryUrl(pkg));
+  }
 
   useEffect(() => {
     const fetchPackages = async () => {
@@ -167,7 +204,10 @@ export default function Packages() {
       ) : filtered.length > 0 ? (
         <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {filtered.map((pkg) => (
-            <Link key={pkg.id} to={`/packages/${pkg.id}`}>
+            <div key={pkg.id} role="button" tabIndex={0}
+              onClick={() => handlePackageClick(pkg)}
+              onKeyDown={(e) => e.key === "Enter" && handlePackageClick(pkg)}
+              className="cursor-pointer">
               <Card className="group overflow-hidden border-border/50 transition-all hover:shadow-xl">
                 <div className="relative aspect-[16/10] overflow-hidden">
                   <img
@@ -220,7 +260,7 @@ export default function Packages() {
                   </div>
                 </CardContent>
               </Card>
-            </Link>
+            </div>
           ))}
         </div>
       ) : (

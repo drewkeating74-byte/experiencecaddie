@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useParams, Link, useNavigate } from "react-router-dom";
+import { useParams, Link, useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -212,6 +212,7 @@ function deriveSearchParams(itinerary: ItineraryRow | null, result_json: ResultJ
 export default function ItineraryResults() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useAuth();
   const [itinerary, setItinerary] = useState<ItineraryRow | null>(null);
   const [loading, setLoading] = useState(true);
@@ -220,6 +221,18 @@ export default function ItineraryResults() {
   const [shareEmails, setShareEmails] = useState("");
   const [sendingEmail, setSendingEmail] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+
+  // Auto-open the share-email dialog when returning from auth with ?open=share-email
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get("open") === "share-email" && user) {
+      setShareEmailOpen(true);
+      // Remove the param from the URL so refreshing doesn't re-open it
+      params.delete("open");
+      const newSearch = params.toString();
+      navigate(location.pathname + (newSearch ? `?${newSearch}` : ""), { replace: true });
+    }
+  }, [location.search, user, location.pathname, navigate]);
 
   // Only select non-sensitive columns to avoid exposing email/user_id in shared views
   const safeColumns = "id, path, city, start_date, end_date, budget_tier, group_size, preferences, event_details, result_json, share_slug, status, created_at, updated_at";
@@ -558,7 +571,7 @@ export default function ItineraryResults() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => (user ? setShareEmailOpen(true) : navigate(`/auth?redirect=${encodeURIComponent(window.location.pathname)}`))}
+            onClick={() => (user ? setShareEmailOpen(true) : navigate(`/auth?redirect=${encodeURIComponent(window.location.pathname + "?open=share-email")}`))}
           >
             <Mail className="mr-2 h-4 w-4" /> Share via email
           </Button>
