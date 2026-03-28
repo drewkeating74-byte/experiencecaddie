@@ -189,7 +189,7 @@ VALUES
    'b099b173-2fda-4b79-b196-9f835d85d88c',
    'd1ec0001-0000-0000-0000-000000000001',
    'Country music and championship golf in the Live Music Capital. Catch Luke Combs at Moody Center, then hit the fairways at Star Ranch Golf Club.',
-   'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=800&fit=crop',
+   'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=800&h=500&fit=crop',
    895, 1050, 'Golf + Concert', true, true),
 
   -- ── Austin × Rock ─────────────────────────────────────────────────────────
@@ -199,7 +199,7 @@ VALUES
    'b099b173-2fda-4b79-b196-9f835d85d88c',
    'd1ec0001-0000-0000-0000-000000000001',
    'Punk rock anthems and morning tee times in Austin. Green Day at Moody Center paired with a round at one of Austin''s top public courses.',
-   'https://images.unsplash.com/photo-1540039155733-5bb30b53aa14?w=800&fit=crop',
+   'https://images.unsplash.com/photo-1540039155733-5bb30b53aa14?w=800&h=500&fit=crop',
    875, 995, 'Golf + Concert', true, true),
 
   -- ── Austin × Pop ──────────────────────────────────────────────────────────
@@ -209,7 +209,7 @@ VALUES
    'b099b173-2fda-4b79-b196-9f835d85d88c',
    'd1ec0001-0000-0000-0000-000000000001',
    'A pop-perfect Austin weekend — Olivia Rodrigo lighting up Moody Center, with a scenic round at Star Ranch Golf Club the next morning.',
-   'https://images.unsplash.com/photo-1501386761578-eac5c94b800a?w=800&fit=crop',
+   'https://images.unsplash.com/photo-1501386761578-eac5c94b800a?w=800&h=500&fit=crop',
    925, 1095, 'Golf + Concert', true, true),
 
   -- ── Nashville × Country ───────────────────────────────────────────────────
@@ -219,7 +219,7 @@ VALUES
    'fda2c5d9-a87b-4dab-8347-aaddee64a187',
    'd1ec0001-0000-0000-0000-000000000002',
    'World-class country music meets championship golf in Music City. Chris Stapleton at Bridgestone Arena, then a round at Gaylord Springs Golf Links.',
-   'https://images.unsplash.com/photo-1508854710579-5cecc3a9ff17?w=800&fit=crop',
+   'https://images.unsplash.com/photo-1508854710579-5cecc3a9ff17?w=800&h=500&fit=crop',
    975, 1150, 'Golf + Concert', true, true),
 
   -- ── Nashville × Rock ──────────────────────────────────────────────────────
@@ -229,7 +229,7 @@ VALUES
    'fda2c5d9-a87b-4dab-8347-aaddee64a187',
    'd1ec0001-0000-0000-0000-000000000002',
    'Heavy metal and southern fairways — Metallica bringing the thunder at Bridgestone Arena, then a sunrise round at Gaylord Springs Golf Links.',
-   'https://images.unsplash.com/photo-1540039155733-5bb30b53aa14?w=800&fit=crop',
+   'https://images.unsplash.com/photo-1429962714451-bb934ecdc4ec?w=800&h=500&fit=crop',
    950, 1095, 'Golf + Concert', true, true),
 
   -- ── Nashville × Pop ───────────────────────────────────────────────────────
@@ -239,7 +239,7 @@ VALUES
    'fda2c5d9-a87b-4dab-8347-aaddee64a187',
    'd1ec0001-0000-0000-0000-000000000002',
    'The ultimate Nashville experience — Taylor Swift at the arena where she got her start, plus championship golf at Gaylord Springs Golf Links.',
-   'https://images.unsplash.com/photo-1501386761578-eac5c94b800a?w=800&fit=crop',
+   'https://images.unsplash.com/photo-1470229538611-16ba8c7ffbd7?w=800&h=500&fit=crop',
    1095, 1295, 'Golf + Concert', true, true),
 
   -- ── Las Vegas × Country ───────────────────────────────────────────────────
@@ -249,7 +249,7 @@ VALUES
    '74fd4b12-c14d-4cb4-b7d7-89504acadf62',
    'd1ec0001-0000-0000-0000-000000000003',
    'Country meets the desert in Las Vegas — Morgan Wallen at Dolby Live, plus a premier round at Las Vegas Paiute Golf Resort.',
-   'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=800&fit=crop',
+   'https://images.unsplash.com/photo-1581351721010-8cf859cb14a4?w=800&h=500&fit=crop',
    1195, 1395, 'Golf + Concert', true, true),
 
   -- ── Las Vegas × Rock ──────────────────────────────────────────────────────
@@ -259,7 +259,7 @@ VALUES
    '74fd4b12-c14d-4cb4-b7d7-89504acadf62',
    'd1ec0001-0000-0000-0000-000000000003',
    'Rock out under the Vegas lights — Foo Fighters at Dolby Live, followed by a sunrise round at Las Vegas Paiute Golf Resort.',
-   'https://images.unsplash.com/photo-1540039155733-5bb30b53aa14?w=800&fit=crop',
+   'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=800&h=500&fit=crop',
    1150, 1350, 'Golf + Concert', true, true),
 
   -- ── Las Vegas × Pop ───────────────────────────────────────────────────────
@@ -269,6 +269,6 @@ VALUES
    '74fd4b12-c14d-4cb4-b7d7-89504acadf62',
    'd1ec0001-0000-0000-0000-000000000003',
    'An unforgettable Vegas weekend — Billie Eilish''s breathtaking show at Dolby Live, plus a round at Las Vegas Paiute Golf Resort as the sun rises over the Mojave.',
-   'https://images.unsplash.com/photo-1501386761578-eac5c94b800a?w=800&fit=crop',
+   'https://images.unsplash.com/photo-1459749411175-04bf5292ceea?w=800&h=500&fit=crop',
    1295, 1550, 'Golf + Concert', true, true)
 ON CONFLICT (id) DO NOTHING;
