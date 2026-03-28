@@ -789,10 +789,11 @@ export default function ItineraryResults() {
                             </div>
                             {(e.url || (e.link && typeof e.link === "object" && e.link.url)) && (() => {
                               const concertLink = normalizeOutboundLink(e.link || e.url, "concert");
+                              const isUnconfirmed = concertLink.link_type === "provider_search" || concertLink.link_type === "manual_fallback";
                               const buttonEl = (
                                 <Button
                                   size="sm"
-                                  variant="default"
+                                  variant={isUnconfirmed ? "outline" : "default"}
                                   className="shrink-0"
                                   data-event-url={concertLink.url}
                                   onClick={(ev) => {
@@ -820,6 +821,16 @@ export default function ItineraryResults() {
                                 </div>
                               );
                             })()}
+                          </div>
+                          {(() => {
+                            const concertLink = normalizeOutboundLink(e.link || e.url, "concert");
+                            const isUnconfirmed = concertLink.link_type === "provider_search" || concertLink.link_type === "manual_fallback";
+                            return isUnconfirmed ? (
+                              <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
+                                ⚠ No confirmed tour date found — use the search link to check for upcoming announcements.
+                              </p>
+                            ) : null;
+                          })()}
                           </div>
                           <EventTrustPanel
                             venue={typeof e.venue_obj === "object" ? e.venue_obj : (e.venue ? { name: e.venue } : undefined)}

@@ -252,6 +252,9 @@ function PackageCard({ pkg }: { pkg: Package }) {
           {event?.event_date && (
             <p className="mt-1 flex items-center gap-1 text-sm text-muted-foreground">
               <Calendar className="h-3.5 w-3.5" /> {new Date(event.event_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+              {(!event.ticket_url || event.ticket_url.includes('/search') || event.ticket_url.includes('google.com')) && (
+                <span className="ml-1 text-xs text-amber-600 font-medium">· Dates TBD</span>
+              )}
             </p>
           )}
           <div className="mt-3 flex items-end justify-between">

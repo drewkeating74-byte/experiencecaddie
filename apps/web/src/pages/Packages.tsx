@@ -236,6 +236,9 @@ export default function Packages() {
                   {pkg.events?.event_date && (
                     <p className="mt-1 flex items-center gap-1 text-sm text-muted-foreground">
                       <Calendar className="h-3.5 w-3.5" /> {new Date(pkg.events.event_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      {(!pkg.events.ticket_url || pkg.events.ticket_url.includes('/search') || pkg.events.ticket_url.includes('google.com')) && (
+                        <span className="ml-1 text-xs text-amber-600 font-medium">· Dates TBD</span>
+                      )}
                     </p>
                   )}
                   {getIncludes(pkg).length > 0 && (
