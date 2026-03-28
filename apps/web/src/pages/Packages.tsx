@@ -236,9 +236,6 @@ export default function Packages() {
                   {pkg.events?.event_date && (
                     <p className="mt-1 flex items-center gap-1 text-sm text-muted-foreground">
                       <Calendar className="h-3.5 w-3.5" /> {new Date(pkg.events.event_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                      {(!pkg.events.ticket_url || pkg.events.ticket_url.includes('/search') || pkg.events.ticket_url.includes('google.com')) && (
-                        <span className="ml-1 text-xs text-amber-600 font-medium">· Dates TBD</span>
-                      )}
                     </p>
                   )}
                   {getIncludes(pkg).length > 0 && (
@@ -269,8 +266,13 @@ export default function Packages() {
       ) : (
         <div className="mt-12 rounded-lg border border-dashed border-border bg-card p-12 text-center">
           <Music className="mx-auto h-12 w-12 text-muted-foreground/50" />
-          <h3 className="mt-4 font-serif text-xl font-semibold">No Packages Found</h3>
-          <p className="mt-2 text-muted-foreground">Check back soon for new concert + golf packages!</p>
+          <h3 className="mt-4 font-serif text-xl font-semibold">New Packages Coming Soon</h3>
+          <p className="mt-2 max-w-sm mx-auto text-muted-foreground">
+            We only publish packages tied to confirmed tour dates. In the meantime, use the planner to build a custom weekend around any artist or city.
+          </p>
+          <Button asChild size="lg" className="mt-6 rounded-full px-8">
+            <a href="/experience">Build Your Custom Weekend</a>
+          </Button>
         </div>
       )}
     </div>

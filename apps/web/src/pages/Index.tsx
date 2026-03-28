@@ -146,15 +146,20 @@ export default function Index() {
               </div>
               <div className="mt-8 text-center">
                 <Button asChild size="lg" variant="outline" className="rounded-full px-8">
-                  <Link to="/packages">Browse All 16 Packages <ArrowRight className="ml-2 h-4 w-4" /></Link>
+                  <Link to="/packages">Browse All Packages <ArrowRight className="ml-2 h-4 w-4" /></Link>
                 </Button>
               </div>
             </>
           ) : (
             <div className="mt-8 rounded-lg border border-dashed border-border bg-card p-12 text-center">
               <Music className="mx-auto h-12 w-12 text-muted-foreground/50" />
-              <h3 className="mt-4 font-serif text-xl font-semibold">Packages Coming Soon</h3>
-              <p className="mt-2 text-muted-foreground">We're curating amazing concert + golf experiences. Check back soon!</p>
+              <h3 className="mt-4 font-serif text-xl font-semibold">New Packages Coming Soon</h3>
+              <p className="mt-2 max-w-sm mx-auto text-muted-foreground">
+                We only feature packages with confirmed tour dates. In the meantime, tell us your city or artist and we'll build a custom weekend around real upcoming shows.
+              </p>
+              <Button asChild size="lg" className="mt-6 rounded-full px-8">
+                <Link to="/experience">Build Your Custom Weekend</Link>
+              </Button>
             </div>
           )}
         </div>
@@ -252,9 +257,6 @@ function PackageCard({ pkg }: { pkg: Package }) {
           {event?.event_date && (
             <p className="mt-1 flex items-center gap-1 text-sm text-muted-foreground">
               <Calendar className="h-3.5 w-3.5" /> {new Date(event.event_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-              {(!event.ticket_url || event.ticket_url.includes('/search') || event.ticket_url.includes('google.com')) && (
-                <span className="ml-1 text-xs text-amber-600 font-medium">· Dates TBD</span>
-              )}
             </p>
           )}
           <div className="mt-3 flex items-end justify-between">

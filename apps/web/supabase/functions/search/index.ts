@@ -370,10 +370,24 @@ function mapEventToResult(
 
 /**
  * Look up events from our internal catalog (the `events` table) that match the
- * requested artist and city. These are our seeded featured events and are returned
- * in preference to Ticketmaster when a match is found — they have real venue names
- * and artist-specific ticket search URLs.
+ * requested artist and city. Only events with a confirmed direct ticket URL
+ * (e.g. a real Ticketmaster event page) are returned. Events with search/fallback
+ * URLs are skipped so the caller falls through to the live Ticketmaster API.
  */
+function isConfirmedEventUrl(url: string | null | undefined): boolean {
+  if (!url) return false;
+  // Accept direct Ticketmaster or Live Nation event pages
+  // Reject search pages, Google search URLs, or missing URLs
+  if (url.includes("google.com/search")) return false;
+  if (url.includes("ticketmaster.com/search")) return false;
+  if (url.includes("livenation.com/search")) return false;
+  if (url.match(/ticketmaster\.com\/event\//)) return true;
+  if (url.match(/livenation\.com\/venue\//) || url.match(/livenation\.com\/event\//)) return true;
+  // Any other direct URL that isn't a search page is acceptable
+  if (url.includes("/search") || url.includes("?q=")) return false;
+  return true;
+}
+
 async function findCatalogEvents(
   supabase: ReturnType<typeof createClient>,
   artistName: string | undefined,
@@ -398,28 +412,27 @@ async function findCatalogEvents(
     .filter((row: any) => {
       const rowArtist = (row.artists?.name ?? "").toLowerCase();
       const rowCity = (row.venues?.city ?? "").toLowerCase();
-      // Fuzzy artist match (handles "Foo Fighters" vs "foo fighters")
       const artistMatch = rowArtist.includes(artistLower) || artistLower.includes(rowArtist);
-      // City is optional — include if it matches OR if the event has no venue city
       const cityMatch = !rowCity || rowCity.includes(cityLower) || cityLower.includes(rowCity);
-      return artistMatch && cityMatch;
+      // Only surface catalog events that have a real, confirmed ticket URL
+      const hasConfirmedUrl = isConfirmedEventUrl(row.ticket_url);
+      return artistMatch && cityMatch && hasConfirmedUrl;
     })
     .map((row: any) => {
       const artistN = row.artists?.name ?? artistName;
       const venueName = row.venues?.name ?? `${city} Live Music Venue`;
       const venueCity = row.venues?.city ?? city;
       const venueState = row.venues?.state ?? "";
-      const ticketUrl = row.ticket_url ||
-        `https://www.ticketmaster.com/search?q=${encodeURIComponent(artistN)}+${encodeURIComponent(venueCity)}`;
+      const ticketUrl = row.ticket_url!; // confirmed above
       const book_link: ConcertOutboundLink = {
         url: ticketUrl,
         provider: "Ticketmaster",
         category: "concert",
-        link_type: "provider_search",
-        label: "Search tickets on Ticketmaster",
-        is_verified: false,
-        confidence: "medium",
-        disclaimer: "Opens Ticketmaster search; confirm tour dates and availability before booking",
+        link_type: "provider_event",
+        label: "Get Tickets",
+        is_verified: true,
+        confidence: "high",
+        disclaimer: "",
       };
       const localDate = row.event_date ?? startDate;
       const localTime = row.event_time?.slice(0, 8) ?? "20:00:00";
