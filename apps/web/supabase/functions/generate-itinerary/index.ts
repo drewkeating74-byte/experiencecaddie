@@ -774,7 +774,9 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
       }
     }
 
-    // Concert URLs: replace Ticketmaster search/SeatGeek/StubHub links with Google search (aggregates vendors; avoids "no results" on Ticketmaster). Keep direct event URLs (/event/).
+    // Concert URLs: keep direct Ticketmaster event URLs and TM search URLs as-is.
+    // Replace third-party reseller links (SeatGeek, StubHub, etc.) with a Ticketmaster
+    // search so users always land on the primary ticket seller.
     const shouldReplaceConcertUrl = (url: string): boolean => {
       if (!url || typeof url !== "string") return true;
       const u = url.trim().toLowerCase();
@@ -782,10 +784,15 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
       try {
         const parsed = new URL(u);
         const host = parsed.hostname.replace(/^www\./, "");
-        const path = parsed.pathname || "";
-        if ((host === "ticketmaster.com" || host.endsWith(".ticketmaster.com")) && /\/event\//i.test(path)) return false; // keep direct event links
-        const isTicketSite = ["ticketmaster.com", "livenation.com", "seatgeek.com", "stubhub.com", "vividseats.com"].some((d) => host === d || host.endsWith("." + d));
-        return isTicketSite;
+        // Keep any Ticketmaster URL — direct event pages AND search pages
+        if (host === "ticketmaster.com" || host.endsWith(".ticketmaster.com")) return false;
+        // Keep Live Nation (same company as TM, official seller)
+        if (host === "livenation.com" || host.endsWith(".livenation.com")) return false;
+        // Replace third-party resellers with TM search
+        const isReseller = ["seatgeek.com", "stubhub.com", "vividseats.com", "axs.com"].some(
+          (d) => host === d || host.endsWith("." + d)
+        );
+        return isReseller;
       } catch {
         return true;
       }
@@ -799,10 +806,11 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
     };
     const buildConcertSearchUrl = (eventName: string, city: string): string => {
       const artist = extractArtistForSearch(eventName || "");
-      const cityPart = (city || "").trim().toLowerCase();
-      const validCity = cityPart && cityPart !== "flexible" && cityPart !== "various";
-      const q = validCity ? `${artist} tickets ${cityPart}`.trim() : `${artist} tickets`.trim();
-      const url = `https://www.google.com/search?q=${encodeURIComponent(q)}`;
+      const cityPart = (city || "").trim();
+      const validCity = cityPart && cityPart.toLowerCase() !== "flexible" && cityPart.toLowerCase() !== "various";
+      // Land users on Ticketmaster search — primary seller, best availability data
+      const q = validCity ? `${artist} ${cityPart}`.trim() : artist.trim();
+      const url = `https://www.ticketmaster.com/search?q=${encodeURIComponent(q)}`;
       console.log("[CONCERT_LINK_DEBUG] buildConcertSearchUrl", { eventName, artist, city, q, url });
       return url;
     };
