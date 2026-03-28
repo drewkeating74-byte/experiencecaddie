@@ -4,6 +4,7 @@
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { reportError } from "../_shared/monitoring.ts";
+import { METROS } from "../_shared/golfCities.ts";
 
 function json(body: unknown, status: number, headers?: Record<string, string>) {
   return new Response(JSON.stringify(body), {
@@ -180,6 +181,17 @@ type HotelResult = {
   provider: "mock";
 };
 
+type CatalogVenue = {
+  id: string;
+  name: string;
+  city: string;
+  state?: string;
+  venue_type?: string;
+  website_url?: string | null;
+  ticketmaster_url?: string | null;
+  normalized_quality_score?: number | null;
+};
+
 type SearchResponse = {
   destination: { city: string; state?: string; start_date: string; end_date: string };
   events: EventResult[];
@@ -188,6 +200,15 @@ type SearchResponse = {
   silver_golf_candidates?: GolfCourseResult[];
   gold_golf_candidates?: GolfCourseResult[];
   hotels: HotelResult[];
+  /** Catalog venues for this metro — passed to generate-itinerary as LLM context. */
+  catalog_venues?: CatalogVenue[];
+  /** Observability: tells callers how data was sourced for this request. */
+  catalog_meta?: {
+    metro_slug: string | null;
+    catalog_enabled: boolean;
+    golf_source: "catalog" | "live_api" | "mock";
+    venues_from_catalog: number;
+  };
   meta: { providers: ("ticketmaster" | "google_places" | "mock")[]; cached: boolean; generated_at: string; request_id: string };
 };
 
@@ -707,34 +728,24 @@ function applyGolfTiering(
   };
 }
 
-// --- Phase 1A: DB-first golf catalog ---
-const CITY_TO_METRO: Record<string, string> = {
-  phoenix: "Phoenix",
-  scottsdale: "Phoenix",
-  tempe: "Phoenix",
-  mesa: "Phoenix",
-  gilbert: "Phoenix",
-  nashville: "Nashville",
-  franklin: "Nashville",
-  brentwood: "Nashville",
-  austin: "Austin",
-  "round rock": "Austin",
-  "cedar park": "Austin",
-};
+// --- Catalog-first infrastructure ---
+// All 20 supported metros are derived from the shared golfCities config — no
+// parallel hardcoded list to maintain. The slug (e.g. "austin") matches
+// metro_areas.slug and the metro column stored in golf_courses / venues.
+const CITY_TO_METRO_SLUG = new Map<string, string>(
+  METROS.flatMap((m) => m.cities.map((c) => [c.toLowerCase(), m.slug]))
+);
+const METRO_SLUG_TO_STATE = new Map<string, string>(
+  METROS.map((m) => [m.slug, m.state])
+);
 
 const MIN_DB_COURSES = 8;
 const MIN_DB_TIERS = 2;
 
-const METRO_STATE: Record<string, string> = {
-  Phoenix: "AZ",
-  Nashville: "TN",
-  Austin: "TX",
-};
-
-function getMetro(city: string | undefined): string | null {
+/** Returns the metro slug (e.g. "austin") for a city, or null for unsupported cities. */
+function getMetroSlug(city: string | undefined): string | null {
   if (!city || city === "flexible" || city === "Various") return null;
-  const key = String(city).toLowerCase().trim();
-  return CITY_TO_METRO[key] ?? null;
+  return CITY_TO_METRO_SLUG.get(city.toLowerCase().trim()) ?? null;
 }
 
 function inferTierFromScore(score: number | null | undefined): TierHint {
@@ -842,6 +853,46 @@ async function enrichDbCoursesWithPlaceDetails(
   apiKey: string
 ): Promise<GolfCourseResult[]> {
   return enrichGolfCandidates(courses, apiKey);
+}
+
+/**
+ * Check whether catalog_enabled = true for a metro in the metro_areas table.
+ * When true, the itinerary builder will always prefer catalog data even if
+ * the row count is below the MIN_DB_COURSES threshold.
+ */
+async function getCatalogEnabled(
+  supabase: ReturnType<typeof createClient>,
+  slug: string
+): Promise<boolean> {
+  const { data } = await supabase
+    .from("metro_areas")
+    .select("catalog_enabled")
+    .eq("slug", slug)
+    .single();
+  return data?.catalog_enabled === true;
+}
+
+/**
+ * Load up to 10 venues from the catalog for a metro.
+ * These are passed to generate-itinerary as LLM context (known arenas/amphitheaters).
+ * Falls back to an empty array if the catalog has no venue data yet.
+ */
+async function findVenuesFromDb(
+  supabase: ReturnType<typeof createClient>,
+  metroSlug: string
+): Promise<CatalogVenue[]> {
+  const { data, error } = await supabase
+    .from("venues")
+    .select("id,name,city,state,venue_type,website_url,ticketmaster_url,normalized_quality_score")
+    .eq("metro", metroSlug)
+    .eq("active", true)
+    .order("normalized_quality_score", { ascending: false, nullsFirst: false })
+    .limit(10);
+  if (error) {
+    console.error("[CATALOG] venues DB error:", error.message);
+    return [];
+  }
+  return (data ?? []) as CatalogVenue[];
 }
 
 type PlaceNearby = {
@@ -1115,26 +1166,51 @@ Deno.serve(async (req: Request) => {
       return null;
     };
 
+    // Catalog-first state (populated below, included in the response for observability)
+    let catalogVenues: CatalogVenue[] = [];
+    let catalogEnabled = false;
+    let golfSource: "catalog" | "live_api" | "mock" = "mock";
+    const metroSlug = getMetroSlug(effectiveCity);
+
     if (googleKey) {
       try {
         const center = await resolveGolfCenter();
         if (center) {
-          const metro = getMetro(effectiveCity);
-          const state =
+          const stateCode = (
             payload.destination?.state ??
             events[0]?.venue?.state ??
-            (metro ? METRO_STATE[metro] : "");
-          const stateCode = state?.toUpperCase().slice(0, 2) || "";
+            (metroSlug ? METRO_SLUG_TO_STATE.get(metroSlug) : "")
+          )?.toUpperCase().slice(0, 2) || "";
 
           let useDbPath = false;
-          if (metro && stateCode) {
+
+          // --- Catalog-first path ---
+          // For any of the 20 supported metros, try the internal catalog before
+          // hitting live APIs. Falls through to Google Places when the catalog
+          // doesn't have enough data yet (below MIN_DB_COURSES / MIN_DB_TIERS).
+          if (metroSlug) {
             const supabaseUrl = Deno.env.get("SUPABASE_URL");
             const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
             if (supabaseUrl && supabaseKey) {
               const supabase = createClient(supabaseUrl, supabaseKey);
-              const dbRows = await findGolfFromDb(supabase, metro, stateCode);
+
+              // Fetch catalog_enabled flag, golf rows, and venue rows in parallel
+              // to minimise latency — we need all three regardless of the result.
+              const [isEnabled, dbRows, venueRows] = await Promise.all([
+                getCatalogEnabled(supabase, metroSlug),
+                findGolfFromDb(supabase, metroSlug, stateCode),
+                findVenuesFromDb(supabase, metroSlug),
+              ]);
+              catalogEnabled = isEnabled;
+              catalogVenues = venueRows;
+
+              console.log(
+                `[CATALOG] metro=${metroSlug} catalog_enabled=${isEnabled} golf_rows=${dbRows.length} venue_rows=${venueRows.length}`
+              );
+
               if (dbMeetsThreshold(dbRows)) {
                 useDbPath = true;
+                golfSource = "catalog";
                 const dbResults = dbRowsToGolfCourseResults(dbRows, center.lat, center.lng, teeWindow);
                 const enriched = await enrichDbCoursesWithPlaceDetails(dbResults, googleKey);
                 const tiered = applyGolfTiering(enriched, center.lat, center.lng, {
@@ -1145,11 +1221,21 @@ Deno.serve(async (req: Request) => {
                 bronzePool = tiered.pools.bronze;
                 silverPool = tiered.pools.silver;
                 goldPool = tiered.pools.gold;
+              } else {
+                console.log(
+                  `[CATALOG] metro=${metroSlug} — catalog insufficient (${dbRows.length} rows / ${new Set(dbRows.map((r) => r.tier_hint || "bronze")).size} tiers); falling back to Google Places`
+                );
               }
             }
+          } else {
+            console.log(`[CATALOG] city="${effectiveCity}" not in any supported metro — using live API`);
           }
 
+          // --- Live API fallback ---
+          // Unchanged from pre-Step-4 behaviour; runs for unsupported metros
+          // and for supported metros where the catalog is not yet populated.
           if (!useDbPath) {
+            golfSource = "live_api";
             const raw = await searchGolfGooglePlaces(
               center.lat,
               center.lng,
@@ -1172,6 +1258,7 @@ Deno.serve(async (req: Request) => {
             providers.push("google_places");
           }
         } else {
+          golfSource = "mock";
           golfCourses = mockGolf({
             ...payload,
             destination: { ...payload.destination, city: effectiveCity },
@@ -1180,6 +1267,7 @@ Deno.serve(async (req: Request) => {
         }
       } catch (err) {
         console.error("Google Places golf search error:", err);
+        golfSource = "mock";
         golfCourses = mockGolf({
           ...payload,
           destination: { ...payload.destination, city: effectiveCity },
@@ -1187,6 +1275,7 @@ Deno.serve(async (req: Request) => {
         silverPool = [...golfCourses];
       }
     } else {
+      golfSource = "mock";
       golfCourses = mockGolf({
         ...payload,
         destination: { ...payload.destination, city: effectiveCity },
@@ -1208,6 +1297,13 @@ Deno.serve(async (req: Request) => {
       silver_golf_candidates: silverPool.length > 0 ? silverPool : undefined,
       gold_golf_candidates: goldPool.length > 0 ? goldPool : undefined,
       hotels,
+      ...(catalogVenues.length > 0 && { catalog_venues: catalogVenues }),
+      catalog_meta: {
+        metro_slug: metroSlug,
+        catalog_enabled: catalogEnabled,
+        golf_source: golfSource,
+        venues_from_catalog: catalogVenues.length,
+      },
       meta: {
         providers,
         cached: false,

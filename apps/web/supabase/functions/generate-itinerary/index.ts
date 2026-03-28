@@ -260,6 +260,25 @@ ${artistSearch ? `- CRITICAL: All 5 must be "${artistSearch}" — different citi
       let silverGolfCandidates = Array.isArray(rawSearchResults.silver_golf_candidates) ? rawSearchResults.silver_golf_candidates : null;
       let goldGolfCandidates = Array.isArray(rawSearchResults.gold_golf_candidates) ? rawSearchResults.gold_golf_candidates : null;
       let hotels = Array.isArray(rawSearchResults.hotels) ? rawSearchResults.hotels.slice(0, 6) : [];
+      // Catalog venues from the internal catalog (arenas/amphitheaters in this metro).
+      // Passed to the LLM as context so it knows which real venues exist in this city.
+      const catalogVenuesForPrompt: Array<{ name: string; city: string; type?: string; url?: string }> =
+        Array.isArray(rawSearchResults.catalog_venues)
+          ? (rawSearchResults.catalog_venues as any[]).slice(0, 8).map((v: any) => ({
+              name: v.name,
+              city: v.city,
+              ...(v.venue_type && { type: v.venue_type }),
+              ...(v.ticketmaster_url || v.website_url
+                ? { url: v.ticketmaster_url ?? v.website_url }
+                : {}),
+            }))
+          : [];
+      const catalogMeta = rawSearchResults.catalog_meta ?? null;
+      if (catalogMeta) {
+        console.log(
+          `[CATALOG] generate-itinerary received: metro=${catalogMeta.metro_slug} golf_source=${catalogMeta.golf_source} venues=${catalogMeta.venues_from_catalog}`
+        );
+      }
 
       function buildTicketmasterSearchUrl(searchTerm: string): string {
         const q = (searchTerm || "").trim() || "concerts";
@@ -463,6 +482,17 @@ ${artistSearch ? `- CRITICAL: All 5 must be "${artistSearch}" — different citi
     const poolBronze = Array.isArray(searchResults.bronze_golf_candidates) ? searchResults.bronze_golf_candidates : null;
     const poolSilver = Array.isArray(searchResults.silver_golf_candidates) ? searchResults.silver_golf_candidates : null;
     const poolGold = Array.isArray(searchResults.gold_golf_candidates) ? searchResults.gold_golf_candidates : null;
+    const catalogVenuesForPrompt: Array<{ name: string; city: string; type?: string; url?: string }> =
+      Array.isArray(searchResults.catalog_venues)
+        ? (searchResults.catalog_venues as any[]).slice(0, 8).map((v: any) => ({
+            name: v.name,
+            city: v.city,
+            ...(v.venue_type && { type: v.venue_type }),
+            ...(v.ticketmaster_url || v.website_url
+              ? { url: v.ticketmaster_url ?? v.website_url }
+              : {}),
+          }))
+        : [];
     const toGolfEntry = (g: any) => ({
       name: g.name,
       url: g.book_url || g.source_url,
@@ -556,6 +586,7 @@ ${hasTieredGolf ? `- GOLF by tier (CRITICAL – use ONLY from the matching list 
   ${golfUnassigned.length ? `(If a tier list is empty, use from: ${JSON.stringify(golfUnassigned)})` : ""}` : ""}
 ${hasRealHotels ? `- HOTELS: ${JSON.stringify(hotels.slice(0, 6).map((h: any) => ({ name: h.name, url: h.book_url || h.source_url, price_min: h.price_min, price_max: h.price_max })))}` : ""}
 ${!hasRealHotels && hotels.length > 0 ? `- HOTELS: (none provided – SEARCH the web for real hotels in ${itinerary.city} on Expedia, Booking.com, or Hotels.com. Use actual property names as listed on those sites (e.g. "Hotel Van Zandt", "W Austin") and real booking URLs. Do not use vague names like "convenient option" or "boutique hotel near venue".)` : ""}
+${catalogVenuesForPrompt.length > 0 ? `- KNOWN CONCERT VENUES IN THIS METRO (real, confirmed venues — reference these when suggesting events or when Ticketmaster data is limited): ${JSON.stringify(catalogVenuesForPrompt)}` : ""}
 
 Use the URLs above when composing packages. Do not invent different events or links.
 PRICE RULE: When concerts or hotels include price_min/price_max, use them. For events: set price_range as a string like "$75–$250" or "From $50" using the provided numbers. For lodging: set price_per_night using the range (e.g. "$160–$320/night"). If no price data is provided, you may estimate based on the budget tier.${!hasRealHotels ? " For hotels, search the web as instructed." : ""}
