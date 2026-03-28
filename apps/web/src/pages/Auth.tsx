@@ -72,6 +72,9 @@ export default function Auth() {
               if (error) toast.error(error.message);
               else if (data?.url) {
                 sessionStorage.setItem("oauth_provider", "google");
+                // Persist the intended destination so Layout can recover it even
+                // if Supabase falls back to the site root after OAuth.
+                if (redirect !== "/") sessionStorage.setItem("post_auth_redirect", redirect);
                 window.location.href = data.url;
               }
             }}
@@ -97,6 +100,7 @@ export default function Auth() {
               if (error) toast.error(error.message);
               else if (data?.url) {
                 sessionStorage.setItem("oauth_provider", "apple");
+                if (redirect !== "/") sessionStorage.setItem("post_auth_redirect", redirect);
                 window.location.href = data.url;
               }
             }}

@@ -111,8 +111,8 @@ serve(async (req) => {
         const eventHint = artistSearch
           ? `Find 3 different tour dates for "${artistSearch}" in different cities. Each option must be this artist.`
           : isBroadDiscover
-          ? "Pick 3 high-demand upcoming arena or amphitheater concerts — any genre. Include major tours (country, rock, pop, etc.). Vary the artists and cities."
-          : (p.event_details ? `User preference: ${String(p.event_details).slice(0, 200)}. Prioritize when relevant.` : "");
+          ? "Pick 3 high-demand upcoming arena or amphitheater concerts — any genre. Include major tours (country, rock, pop, etc.). Every option must be a DIFFERENT artist."
+          : (p.event_details ? `User genre preferences: ${String(p.event_details).slice(0, 200)}. Pick a DIFFERENT artist for each option and match the listed genres where possible.` : "");
         const discoverPrompt = `Search the web for 3 REAL upcoming concerts. Return ONLY valid JSON with this exact structure (no markdown):
 
 {
@@ -130,8 +130,9 @@ Requirements:
 - Dates MUST be between ${discStart} and ${discEnd}. Use YYYY-MM-DD format for the date field.
 - ${cityHint}
 ${eventHint}
+- IMPORTANT: All 3 options must be DIFFERENT artists. Never return the same artist more than once.
 - Pick 3 different artist+city+date combinations so the user has real choices
-${artistSearch ? `- IMPORTANT: All 3 must be "${artistSearch}" — different cities and dates on their tour.` : ""}`;
+${artistSearch ? `- CRITICAL: All 3 must be "${artistSearch}" — different cities and dates on their tour.` : "- Vary the genres across the 3 picks to match the user's preferences."}`;
 
         const discRes = await fetch("https://api.perplexity.ai/chat/completions", {
           method: "POST",

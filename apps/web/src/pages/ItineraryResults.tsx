@@ -239,6 +239,19 @@ export default function ItineraryResults() {
       );
   }, [user?.id, itinerary?.id]);
 
+  // When the user signs in (or was already signed in on mount), check whether
+  // they clicked an outbound link before being asked to log in.  If so, open
+  // it automatically so they don't have to click again.
+  useEffect(() => {
+    if (!user) return;
+    const pendingLink = sessionStorage.getItem("post_auth_link");
+    if (pendingLink) {
+      sessionStorage.removeItem("post_auth_link");
+      window.open(pendingLink, "_blank", "noopener,noreferrer");
+      toast.success("Opening your link — check the new tab");
+    }
+  }, [user]);
+
   useEffect(() => {
     if (!id) return;
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -290,6 +303,8 @@ export default function ItineraryResults() {
     meta?: { provider?: string; category?: string; link_type?: string }
   ) => {
     if (!user) {
+      // Save the intended link so it auto-opens after the user signs in.
+      sessionStorage.setItem("post_auth_link", url);
       navigate(`/auth?redirect=${encodeURIComponent(window.location.pathname)}`);
       return;
     }
