@@ -119,7 +119,7 @@ export default function ExperienceBuilder() {
     // Restore to the trip fine-tuning screen with the most relevant intent preserved.
     setStep("details");
 
-    setFlexibleLocation(!isFlexibleCity);
+    setFlexibleLocation(isFlexibleCity);   // true = no specific city; false = city is set
     if (!isFlexibleCity) setCity(cityNormalized);
 
     setFlexibleDates(!useUrlDates);
