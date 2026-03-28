@@ -818,7 +818,6 @@ export default function ExperienceBuilder() {
                 <MapPin className="h-4 w-4 text-muted-foreground" />
                 <div>
                   <Label className="text-base font-medium">Destination city</Label>
-                  <p className="text-xs text-muted-foreground">Currently supporting Austin, Nashville, Las Vegas, Phoenix, Dallas, and Denver</p>
                 </div>
               </div>
               <button
