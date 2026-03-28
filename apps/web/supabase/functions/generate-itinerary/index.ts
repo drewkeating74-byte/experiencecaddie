@@ -727,13 +727,14 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
     const norm = (s: string) => (s || "").toLowerCase().replace(/\s+/g, " ").trim();
     const MIN_SUBSTRING_LEN = 15; // avoid "Golf" or "Muni" matching wrong courses
 
-    // Post-filter: remove golf courses from LLM output that match private patterns (LLM sometimes adds these from its own web search)
+    // Post-filter: remove golf courses from LLM output that match explicit private-membership patterns
+    // (LLM sometimes adds these from its own web search). "Golf Club" alone is NOT private —
+    // most bookable semi-private courses use this naming convention.
     const isLikelyPrivateGolf = (name: string): boolean => {
       const n = (name || "").toLowerCase();
       if (/municipal|muny|public\b|city\b|park\b|recreation|community\b/i.test(n)) return false;
-      if (/country club|private club|private\b|members only|members'? club|invitation only|invite only|invitational|athletic club|golf & country|golf and country|exclusive|membership|member's club|invite.?only/i.test(n)) return true;
-      if (/\bclub\b|golf club/i.test(n) && !/municipal|muny|public|city|park|recreation|community/i.test(n)) return true;
-      if (/\bclub\s+at\b|club\s+de\b|the\s+club\s+at|country\s+club/i.test(n)) return true;
+      if (/private club|private\b golf|members[- ]only|members'? club|invitation[- ]only|invite[- ]only|proprietary|exclusive\b.*club/i.test(n)) return true;
+      if (/(country club|golf & country|golf and country)\b/i.test(n) && !/resort|lodge|inn|hotel|spa/i.test(n)) return true;
       return false;
     };
     for (const pkg of parsedResult.packages || []) {

@@ -552,9 +552,9 @@ function applyQualityPreFilter(courses: GolfCourseResult[]): GolfCourseResult[] 
     if (rating > 0 && reviewCount < MIN_GOLF_REVIEW_COUNT) return false;
     return true;
   });
-  return filtered
-    .sort((a, b) => preliminaryQualityScore(b) - preliminaryQualityScore(a))
-    .slice(0, ENRICHMENT_SHORTLIST_SIZE);
+  const sorted = filtered.sort((a, b) => preliminaryQualityScore(b) - preliminaryQualityScore(a)).slice(0, ENRICHMENT_SHORTLIST_SIZE);
+  console.log(`[GOLF_PREFILTER] input=${courses.length} surviving=${sorted.length} | names=${sorted.map(c => `${c.name}(${c.public_access_confidence})`).join(", ")}`);
+  return sorted;
 }
 
 async function fetchPlaceDetails(
@@ -639,7 +639,7 @@ function assignTierHint(c: {
   // Gold: resort / destination courses, OR any well-reviewed named golf club.
   if (isTopTierPremium && !isMunicipalOrPark && rating >= 4.2 && c.quality_score >= 55) return "gold";
   if (premium >= 6 && hasStrongReviews && !isMunicipalOrPark) return "gold";
-  if (rating >= 4.5 && c.quality_score >= 55 && !isMunicipalOrPark) return "gold";
+  if (rating >= 4.5 && !isMunicipalOrPark) return "gold";
 
   // Bronze: municipal / park-named courses, unrated courses, clearly low-rated, or very low quality.
   if (isMunicipalOrPark) return "bronze";
@@ -673,6 +673,7 @@ function applyGolfTiering(
     const quality_score = (c as { quality_score?: number }).quality_score ?? computeQualityScore(c);
     const tier_hint =
       preserveTierHint && c.tier_hint ? c.tier_hint : assignTierHint({ ...c, quality_score });
+    console.log(`[GOLF_TIER] "${c.name}" | access=${c.public_access_confidence} | rating=${c.rating} | reviews=${c.user_rating_count} | premium=${namePremiumScore(c.name)} | qs=${quality_score} → ${tier_hint}`);
     return { ...c, quality_score, tier_hint };
   });
 
@@ -685,6 +686,7 @@ function applyGolfTiering(
   const bronzePool = bronze.slice(0, maxPerPool);
   const silverPool = silver.slice(0, maxPerPool);
   const goldPool = gold.slice(0, maxPerPool);
+  console.log(`[GOLF_POOLS] bronze=${bronzePool.length} silver=${silverPool.length} gold=${goldPool.length} | gold_courses=${goldPool.map(c => c.name).join(", ") || "none"}`);
 
   const result: GolfCourseResult[] = [];
   const seen = new Set<string>();
