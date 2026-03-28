@@ -547,8 +547,8 @@ ${golfCourses.length && !hasTieredGolf ? `- GOLF (all): ${JSON.stringify(golfCou
 ${hasTieredGolf ? `- GOLF by tier (CRITICAL – use ONLY from the matching list per package):
   TIER QUALITY GUIDE — use this to set green_fee and explain the "why" per course:
   * BRONZE: Affordable public/municipal courses, green fees ~$40–$90. Good for value-conscious golfers.
-  * SILVER: Well-rated public courses with better conditions and amenities, green fees ~$90–$160. Solid choice for avid golfers.
-  * GOLD: Premium, resort, or destination-quality public courses, green fees ~$150+. Exceptional conditions, scenic settings, or signature design.
+  * SILVER: Well-rated public courses with solid conditions and amenities, green fees ~$80–$150. Great choice for avid golfers.
+  * GOLD: ${goldPoolIsThin ? `Best available courses in this destination (premium resort courses are limited here). Use the courses from the GOLD list — they represent the top-rated, most recommended options in the area.` : `Premium, resort, or destination-quality public courses, green fees ~$130–$200+. Exceptional conditions, scenic settings, or signature design.`}
   When price_min/price_max are provided for a course, use those exact values in the green_fee field.
   * BRONZE package golf: ${JSON.stringify(golfBronze.length ? golfBronze : golfUnassigned)}
   * SILVER package golf: ${JSON.stringify(golfSilver.length ? golfSilver : golfUnassigned)}

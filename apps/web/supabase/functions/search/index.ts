@@ -636,9 +636,10 @@ function assignTierHint(c: {
 
   if (isLikelyPrivate) return "bronze";
 
-  // Gold: resort / destination courses with solid ratings and quality scores.
-  if (isTopTierPremium && !isMunicipalOrPark && rating >= 4.2 && c.quality_score >= 60) return "gold";
-  if ((premium >= 6 && rating >= 4.4 && hasStrongReviews) || (rating >= 4.6 && c.quality_score >= 68 && !isMunicipalOrPark)) return "gold";
+  // Gold: resort / destination courses, OR any well-reviewed named golf club.
+  if (isTopTierPremium && !isMunicipalOrPark && rating >= 4.2 && c.quality_score >= 55) return "gold";
+  if (premium >= 6 && hasStrongReviews && !isMunicipalOrPark) return "gold";
+  if (rating >= 4.5 && c.quality_score >= 55 && !isMunicipalOrPark) return "gold";
 
   // Bronze: municipal / park-named courses, unrated courses, clearly low-rated, or very low quality.
   if (isMunicipalOrPark) return "bronze";
