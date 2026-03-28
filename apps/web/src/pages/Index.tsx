@@ -8,6 +8,7 @@ import { supabase } from "@/integrations/supabase/client";
 import type { Package } from "@/types/database";
 import heroImage from "@/assets/hero-image.jpg";
 import { DEFAULT_PACKAGE_IMAGE } from "@/lib/constants";
+import { logEvent } from "@/lib/analytics";
 
 const categories = [
   { icon: Music, label: "Golf + Concert", description: "Build a weekend around a show", link: "/experience" },
@@ -44,14 +45,17 @@ export default function Index() {
             Tee Off. Rock Out.
           </h1>
           <p className="mx-auto mt-4 max-w-2xl text-lg text-white/80 opacity-0 animate-fade-in [animation-delay:200ms] md:text-xl">
-            Plan Less. Experience More.
+            Plan less. Experience more.
           </p>
-          <p className="mx-auto mt-2 max-w-2xl text-base text-white/60 opacity-0 animate-fade-in [animation-delay:300ms] md:text-lg">
-            Custom golf + concert weekends built for you.
+          <p className="mx-auto mt-2 max-w-xl text-base text-white/70 opacity-0 animate-fade-in [animation-delay:300ms]">
+            Custom golf + concert weekends for group trips, milestone birthdays, and bachelor parties.
           </p>
-          <div className="mt-8 flex flex-wrap items-center justify-center gap-4 opacity-0 animate-fade-in [animation-delay:400ms]">
+          <p className="mx-auto mt-2 max-w-xl text-sm text-white/55 opacity-0 animate-fade-in [animation-delay:380ms]">
+            Pick a city or artist and we'll pair real concerts at larger venues with public golf you can actually play.
+          </p>
+          <div className="mt-8 flex flex-wrap items-center justify-center gap-4 opacity-0 animate-fade-in [animation-delay:450ms]">
             <Button asChild size="lg" className="rounded-full bg-accent px-8 text-accent-foreground hover:bg-accent/90">
-              <Link to="/experience">Start Your Experience</Link>
+              <Link to="/experience">Start Your Weekend Plan</Link>
             </Button>
             <Button asChild variant="outline" size="lg" className="rounded-full border-white/30 bg-white/10 text-white hover:bg-white/20">
               <Link to="/packages">Browse Packages</Link>
@@ -88,9 +92,9 @@ export default function Index() {
         <div className="container mx-auto px-4">
           <div className="mx-auto grid max-w-4xl gap-8 sm:grid-cols-3">
             {[
-              { title: "Playability & Proximity", desc: "Quality public courses within easy reach of your event." },
-              { title: "Realistic Weekend Flow", desc: "Tee times, check-ins, and showtimes that actually work together." },
-              { title: "Book with Official Partners", desc: "Book directly with official venues and partners." },
+              { title: "Playability & Proximity", desc: "Quality public courses within easy reach of your show — no membership needed." },
+              { title: "Realistic Weekend Flow", desc: "Tee times, check-ins, and showtimes that actually fit a weekend." },
+              { title: "Book with Official Partners", desc: "You reserve directly with official ticket, hotel, and course partners." },
             ].map((item) => (
               <div key={item.title} className="flex flex-col items-center text-center">
                 <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-white/70 text-primary">
@@ -109,9 +113,9 @@ export default function Index() {
         <h2 className="text-center font-serif text-3xl font-bold text-foreground">How It Works</h2>
         <div className="mx-auto mt-10 grid max-w-4xl gap-10 sm:grid-cols-3">
           {[
-            { step: "1", title: "Choose Your Starting Point", desc: "Pick an artist, explore upcoming shows, or let us suggest something great." },
-            { step: "2", title: "We Curate the Weekend", desc: "We match strong public courses, realistic timing, and nearby stays." },
-            { step: "3", title: "Book with Confidence", desc: "You reserve directly with official ticket, hotel, and course providers." },
+            { step: "1", title: "Choose Your City or Artist", desc: "Pick an artist, browse upcoming shows, or tell us a city and we'll find something great." },
+            { step: "2", title: "We Build 3 Weekend Options", desc: "Bronze, Silver, and Gold — each with a public golf round, a concert, and nearby stays." },
+            { step: "3", title: "You Book What You Like", desc: "You reserve directly with official ticket, hotel, and tee-time providers." },
           ].map((item) => (
             <div key={item.step} className="flex flex-col items-center text-center">
               <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-accent/60 text-xl font-bold text-accent-foreground">
@@ -122,7 +126,7 @@ export default function Index() {
             </div>
           ))}
         </div>
-        <p className="mx-auto mt-8 text-center text-sm italic text-muted-foreground whitespace-nowrap">Designed for guys trips, milestone birthdays, bachelor parties, and long-overdue weekends.</p>
+        <p className="mx-auto mt-8 text-center text-sm italic text-muted-foreground max-w-md">Designed for group trips, milestone birthdays, bachelor parties, and long-overdue weekends.</p>
       </section>
 
       {/* Featured Packages */}
@@ -131,7 +135,7 @@ export default function Index() {
           <div className="flex items-end justify-between">
             <div>
               <h2 className="font-serif text-3xl font-bold">Featured Packages</h2>
-              <p className="mt-1 text-muted-foreground">Hand-picked golf + event combos</p>
+              <p className="mt-1 text-muted-foreground">We design the combos — you book tee times, tickets, and hotels directly with official providers.</p>
             </div>
             <Button asChild variant="ghost" className="flex">
               <Link to="/packages">View All <ArrowRight className="ml-1 h-4 w-4" /></Link>
@@ -165,10 +169,10 @@ export default function Index() {
       <section className="container mx-auto px-4 py-16 text-center">
         <h2 className="font-serif text-3xl font-bold">Plan Your Legendary Weekend</h2>
         <p className="mx-auto mt-2 max-w-lg text-muted-foreground">
-          Tell us what you're into — concerts, games, or both — and we'll build the perfect golf trip around it.
+          Tell us your city or artist and we'll build a full golf + concert weekend around it.
         </p>
         <Button asChild size="lg" className="mt-6 rounded-full px-8">
-          <Link to="/experience">Start Your Experience</Link>
+          <Link to="/experience">Start Your Weekend Plan</Link>
         </Button>
       </section>
     </>
@@ -211,9 +215,19 @@ function PackageCard({ pkg }: { pkg: Package }) {
     return `/experience?${params.toString()}`;
   }
 
+  function handleCardClick() {
+    logEvent({
+      event_type: "home_package_click",
+      package_id: pkg.id,
+      metro_slug: destination?.city?.toLowerCase().replace(/[\s/]+/g, "-") ?? undefined,
+      artist_name: event?.artists?.name ?? event?.name ?? undefined,
+    });
+    navigate(buildItineraryUrl());
+  }
+
   return (
-    <div role="button" tabIndex={0} onClick={() => navigate(buildItineraryUrl())}
-      onKeyDown={(e) => e.key === "Enter" && navigate(buildItineraryUrl())}
+    <div role="button" tabIndex={0} onClick={handleCardClick}
+      onKeyDown={(e) => e.key === "Enter" && handleCardClick()}
       className="cursor-pointer">
       <Card className="group overflow-hidden border-border/50 transition-all hover:shadow-xl">
         <div className="relative aspect-[16/10] overflow-hidden">

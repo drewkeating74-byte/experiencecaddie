@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { logEvent } from "@/lib/analytics";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -286,6 +287,14 @@ export default function ExperienceBuilder() {
   };
 
   const handleGenerate = async () => {
+    // Non-blocking funnel event
+    logEvent({
+      event_type: "package_generate_click",
+      metro_slug: city ? city.trim().toLowerCase().replace(/[\s,]+/g, "-") : "flexible",
+      artist_name: selectedEntry === "artist" ? eventInput.trim() || undefined : undefined,
+      extra: { entry_type: selectedEntry, budget },
+    });
+
     if (!flexibleLocation && !city) {
       toast.error("Enter a city or switch to flexible location");
       return;
@@ -801,12 +810,15 @@ export default function ExperienceBuilder() {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <MapPin className="h-4 w-4 text-muted-foreground" />
-                <Label className="text-base font-medium">Location</Label>
+                <div>
+                  <Label className="text-base font-medium">Destination city</Label>
+                  <p className="text-xs text-muted-foreground">Currently supporting Austin, Nashville, Las Vegas, Phoenix, Dallas, and Denver</p>
+                </div>
               </div>
               <button
                 type="button"
                 onClick={() => setFlexibleLocation(!flexibleLocation)}
-                className={`text-sm font-medium transition-colors ${
+                className={`text-sm font-medium transition-colors shrink-0 ml-4 ${
                   flexibleLocation ? "text-primary" : "text-muted-foreground hover:text-foreground"
                 }`}
               >
@@ -832,12 +844,30 @@ export default function ExperienceBuilder() {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Calendar className="h-4 w-4 text-muted-foreground" />
-                <Label className="text-base font-medium">Dates</Label>
+                <div>
+                  <Label className="text-base font-medium">Weekend dates</Label>
+                  <p className="text-xs text-muted-foreground">We'll plan golf + concert around these</p>
+                </div>
               </div>
               <button
                 type="button"
-                onClick={() => setFlexibleDates(!flexibleDates)}
-                className={`text-sm font-medium transition-colors ${
+                onClick={() => {
+                  const next = !flexibleDates;
+                  setFlexibleDates(next);
+                  // Pre-fill with the nearest upcoming Friday–Sunday when switching to specific dates
+                  if (next === false && !startDate) {
+                    const today = new Date();
+                    const dayOfWeek = today.getDay(); // 0=Sun … 6=Sat
+                    const daysUntilFriday = (5 - dayOfWeek + 7) % 7 || 7;
+                    const friday = new Date(today);
+                    friday.setDate(today.getDate() + daysUntilFriday);
+                    const sunday = new Date(friday);
+                    sunday.setDate(friday.getDate() + 2);
+                    setStartDate(friday.toISOString().slice(0, 10));
+                    setEndDate(sunday.toISOString().slice(0, 10));
+                  }
+                }}
+                className={`text-sm font-medium transition-colors shrink-0 ml-4 ${
                   flexibleDates ? "text-primary" : "text-muted-foreground hover:text-foreground"
                 }`}
               >
@@ -845,7 +875,20 @@ export default function ExperienceBuilder() {
               </button>
             </div>
             {flexibleDates && (
-              <button type="button" onClick={() => setFlexibleDates(false)} className="text-xs text-muted-foreground hover:text-primary transition-colors text-left cursor-pointer">Tap to set specific dates →</button>
+              <button type="button" onClick={() => {
+                setFlexibleDates(false);
+                if (!startDate) {
+                  const today = new Date();
+                  const dayOfWeek = today.getDay();
+                  const daysUntilFriday = (5 - dayOfWeek + 7) % 7 || 7;
+                  const friday = new Date(today);
+                  friday.setDate(today.getDate() + daysUntilFriday);
+                  const sunday = new Date(friday);
+                  sunday.setDate(friday.getDate() + 2);
+                  setStartDate(friday.toISOString().slice(0, 10));
+                  setEndDate(sunday.toISOString().slice(0, 10));
+                }
+              }} className="text-xs text-muted-foreground hover:text-primary transition-colors text-left cursor-pointer">Tap to set specific dates →</button>
             )}
             {!flexibleDates && (
               <div className="flex gap-3 animate-fade-in">

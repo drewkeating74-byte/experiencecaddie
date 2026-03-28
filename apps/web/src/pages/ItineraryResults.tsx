@@ -113,9 +113,9 @@ const TIER_STYLES: Record<string, { bg: string; border: string; badge: string }>
 };
 
 const TIER_DESCRIPTORS: Record<string, string> = {
-  BRONZE: "Best practical value — solid picks, typically lower cost.",
-  SILVER: "Balanced comfort and convenience.",
-  GOLD: "Premium stay and top-tier experience.",
+  BRONZE: "Value tee time + solid seats.",
+  SILVER: "Balanced course + good seats.",
+  GOLD: "Premium course + premium seats.",
 };
 
 /** Extract YYYY-MM-DD from date_time string, timestamp, or date-like value. Handles PostgREST, ISO, and odd formats. */
@@ -630,6 +630,9 @@ export default function ItineraryResults() {
       </div>
 
       {/* Tier Tabs */}
+      <p className="mb-4 text-center text-sm text-muted-foreground max-w-lg mx-auto">
+        We built three options for your weekend: <span className="font-medium">Bronze</span> (budget), <span className="font-medium">Silver</span> (standard), <span className="font-medium">Gold</span> (splurge). All include 1 round of golf and 1 concert.
+      </p>
       <Tabs defaultValue={packages[0]?.tier || "BRONZE"}>
         <TabsList className="mx-auto mb-6 grid w-full max-w-md grid-cols-3">
           {packages.map((pkg: any) => (
