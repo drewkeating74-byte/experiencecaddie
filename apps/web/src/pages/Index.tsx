@@ -48,10 +48,7 @@ export default function Index() {
             Plan less. Experience more.
           </p>
           <p className="mx-auto mt-2 max-w-xl text-base text-white/70 opacity-0 animate-fade-in [animation-delay:300ms]">
-            Custom golf + concert weekends for group trips, milestone birthdays, and bachelor parties.
-          </p>
-          <p className="mx-auto mt-2 max-w-xl text-sm text-white/55 opacity-0 animate-fade-in [animation-delay:380ms]">
-            Pick a city or artist and we'll pair real concerts at larger venues with public golf you can actually play.
+            Custom golf + concert weekends for group trips, bachelor parties, and milestone birthdays.
           </p>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-4 opacity-0 animate-fade-in [animation-delay:450ms]">
             <Button asChild size="lg" className="rounded-full bg-accent px-8 text-accent-foreground hover:bg-accent/90">
@@ -113,16 +110,15 @@ export default function Index() {
         <h2 className="text-center font-serif text-3xl font-bold text-foreground">How It Works</h2>
         <div className="mx-auto mt-10 grid max-w-4xl gap-10 sm:grid-cols-3">
           {[
-            { step: "1", title: "Choose Your City or Artist", desc: "Pick an artist, browse upcoming shows, or tell us a city and we'll find something great." },
-            { step: "2", title: "We Build 3 Weekend Options", desc: "Bronze, Silver, and Gold — each with a public golf round, a concert, and nearby stays." },
-            { step: "3", title: "You Book What You Like", desc: "You reserve directly with official ticket, hotel, and tee-time providers." },
+            { step: "1", title: "Choose Your City or Artist" },
+            { step: "2", title: "We Build 3 Weekend Options" },
+            { step: "3", title: "You Book What You Like" },
           ].map((item) => (
             <div key={item.step} className="flex flex-col items-center text-center">
               <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-accent/60 text-xl font-bold text-accent-foreground">
                 {item.step}
               </div>
               <h3 className="font-serif text-lg font-semibold text-foreground">{item.title}</h3>
-              <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{item.desc}</p>
             </div>
           ))}
         </div>

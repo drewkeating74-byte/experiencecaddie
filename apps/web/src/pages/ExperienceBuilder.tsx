@@ -357,10 +357,16 @@ export default function ExperienceBuilder() {
       return;
     }
 
-    // skipDiscoveryRef is set by the featured-package auto-submit path — we already
-    // know the artist + city so there's no need to run the discover_concerts step.
+    // Skip concert discovery when we already have both an artist name and a specific city.
+    // Discovery is only useful when one of those is unknown (e.g. "surprise me" or flexible location).
+    const artistAndCityKnown =
+      selectedEntry === "artist" &&
+      eventInput.trim().length > 0 &&
+      !flexibleLocation &&
+      finalCity.toLowerCase() !== "flexible";
     const useDiscoveryFlow =
       !skipDiscoveryRef.current &&
+      !artistAndCityKnown &&
       (selectedEntry === "find_concert" || selectedEntry === "surprise" || selectedEntry === "artist");
     skipDiscoveryRef.current = false; // consume the flag
     const eventDetails = getEventDetails();

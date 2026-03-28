@@ -1113,17 +1113,18 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
       });
     }
 
-    // Non-blocking funnel event — errors are caught so they never break the response
-    const metaGolfSource = rawSearchResults?.catalog_meta?.source ?? (rawSearchResults?.catalog_venues?.length ? "catalog" : "live_api");
+    // Non-blocking funnel event — only uses outer-scoped variables (itinerary, itinerary_id, isRefreshMode)
+    // so it is safe regardless of which code path (new / refresh / legacy) reached this point.
+    const catalogVenuesSrc = Array.isArray((itinerary?.search_results as any)?.catalog_venues);
     supabase.from("analytics_events").insert({
       event_type: "itinerary_generated",
-      metro_slug: (itinerary?.city ?? effectiveCity ?? "").toLowerCase().replace(/[\s,]+/g, "-").slice(0, 100) || null,
+      metro_slug: (itinerary?.city ?? "").toLowerCase().replace(/[\s,]+/g, "-").slice(0, 100) || null,
       artist_name: (itinerary?.event_details ?? "").slice(0, 200) || null,
       extra: {
         itinerary_id,
         budget_tier: itinerary?.budget_tier ?? null,
         group_size: itinerary?.group_size ?? null,
-        golf_source: metaGolfSource,
+        golf_source: catalogVenuesSrc ? "catalog" : "live_api",
         is_refresh: isRefreshMode,
       },
     }).then(() => {}).catch(() => {});
