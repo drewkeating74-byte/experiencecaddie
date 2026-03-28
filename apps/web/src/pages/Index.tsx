@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -172,9 +172,42 @@ function PackageCard({ pkg }: { pkg: Package }) {
   const event = pkg.events;
   const course = pkg.golf_courses;
   const destination = pkg.destinations;
+  const navigate = useNavigate();
+
+  function buildItineraryUrl() {
+    const city = destination?.city ?? "";
+    const artistName = event?.artists?.name ?? event?.name ?? "";
+    const eventDate = event?.event_date ?? "";
+
+    // Build a weekend around the concert: day before → day after
+    let startDate = "";
+    let endDate = "";
+    if (eventDate) {
+      const d = new Date(eventDate);
+      const before = new Date(d);
+      before.setDate(d.getDate() - 1);
+      const after = new Date(d);
+      after.setDate(d.getDate() + 1);
+      startDate = before.toISOString().slice(0, 10);
+      endDate = after.toISOString().slice(0, 10);
+    }
+
+    const params = new URLSearchParams({
+      city,
+      event_details: artistName,
+      budget_tier: "mid",
+      group_size: "2",
+      auto: "1",
+      ...(startDate && { start_date: startDate }),
+      ...(endDate && { end_date: endDate }),
+    });
+    return `/experience?${params.toString()}`;
+  }
 
   return (
-    <Link to={`/packages/${pkg.id}`}>
+    <div role="button" tabIndex={0} onClick={() => navigate(buildItineraryUrl())}
+      onKeyDown={(e) => e.key === "Enter" && navigate(buildItineraryUrl())}
+      className="cursor-pointer">
       <Card className="group overflow-hidden border-border/50 transition-all hover:shadow-xl">
         <div className="relative aspect-[16/10] overflow-hidden">
           <img
@@ -217,6 +250,6 @@ function PackageCard({ pkg }: { pkg: Package }) {
           </div>
         </CardContent>
       </Card>
-    </Link>
+    </div>
   );
 }

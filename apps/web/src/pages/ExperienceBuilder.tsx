@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -58,7 +58,11 @@ export default function ExperienceBuilder() {
   const [endDate, setEndDate] = useState("");
   const [budget, setBudget] = useState<BudgetTier>("mid");
   const [groupSize, setGroupSize] = useState(2);
-  const [generating, setGenerating] = useState(false);
+  // If coming from a featured package card (?auto=1), show the loading screen immediately
+  // so the user never sees the blank form before generation starts.
+  const [generating, setGenerating] = useState(
+    () => new URLSearchParams(window.location.search).get("auto") === "1"
+  );
 
   // Two-step flow: discover concerts → user picks → build full itinerary
   const [discoveryStep, setDiscoveryStep] = useState<"form" | "discovering" | "pick" | "building" | "no_results">("form");
@@ -68,6 +72,9 @@ export default function ExperienceBuilder() {
   const { user } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
+
+  // Guards against firing the auto-submit more than once per navigation
+  const autoSubmitFiredRef = useRef(false);
 
   // Prefill "New Trip" context when returning from an itinerary page.
   // This avoids forcing users to go back through the entire start flow.
@@ -155,6 +162,27 @@ export default function ExperienceBuilder() {
     setEventInput(eventDetailsParam);
     setSelectedGenres([]);
   }, [location.search]);
+
+  // Auto-submit: when ?auto=1 is present and the pre-fill effect has populated state,
+  // kick off generation immediately so the user lands on ItineraryResults.
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get("auto") !== "1") return;
+    if (autoSubmitFiredRef.current) return;
+    // Wait until the pre-fill effect has set a valid entry + input
+    if (step !== "details") return;
+    if (!selectedEntry) return;
+    if (selectedEntry === "artist" && !eventInput.trim()) return;
+
+    autoSubmitFiredRef.current = true;
+    // Small tick so all batched state is committed before the generator reads it
+    const timer = setTimeout(() => handleGenerate(), 50);
+    return () => clearTimeout(timer);
+    // handleGenerate reads component state via closure; we intentionally omit it
+    // from deps to avoid stale-closure warnings — the 50 ms delay guarantees
+    // the state snapshot is current by the time it runs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, selectedEntry, eventInput, location.search]);
 
   const getEventDetails = () => {
     if (selectedEntry === "artist") return eventInput;
@@ -577,18 +605,25 @@ export default function ExperienceBuilder() {
   }
 
   if (generating) {
+    const isAutoPackage = new URLSearchParams(location.search).get("auto") === "1";
+    const artistLabel = eventInput.trim() || new URLSearchParams(location.search).get("event_details") || "";
+    const cityLabel = city || new URLSearchParams(location.search).get("city") || "";
     return (
       <div className="flex min-h-[60vh] flex-col items-center justify-center gap-6">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
         <div className="text-center">
-          <h2 className="font-serif text-2xl font-bold">Crafting Your Legendary Weekend...</h2>
-          <p className="mt-2 text-muted-foreground">Our AI is finding the best options for you</p>
+          <h2 className="font-serif text-2xl font-bold">
+            {isAutoPackage && artistLabel
+              ? `Building your ${artistLabel} weekend${cityLabel ? ` in ${cityLabel}` : ""}…`
+              : "Crafting Your Legendary Weekend..."}
+          </h2>
+          <p className="mt-2 text-muted-foreground">Finding the best hotels, golf, and concert options for you</p>
           <p className="mt-1 text-xs text-muted-foreground">This usually takes 30–60 seconds</p>
           <p className="mt-1 text-xs text-muted-foreground">On mobile: keep this tab open and the screen on</p>
         </div>
         <Button
           variant="ghost"
-          onClick={() => setGenerating(false)}
+          onClick={() => { setGenerating(false); autoSubmitFiredRef.current = false; }}
           className="mt-4 text-muted-foreground"
         >
           Cancel & try again
