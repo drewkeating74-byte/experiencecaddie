@@ -240,15 +240,21 @@ export default function ItineraryResults() {
   }, [user?.id, itinerary?.id]);
 
   // When the user signs in (or was already signed in on mount), check whether
-  // they clicked an outbound link before being asked to log in.  If so, open
-  // it automatically so they don't have to click again.
+  // they clicked an outbound link before being asked to log in. If so, show a
+  // toast with a button — auto window.open() is blocked by popup blockers when
+  // not triggered by a direct user gesture.
   useEffect(() => {
     if (!user) return;
     const pendingLink = sessionStorage.getItem("post_auth_link");
     if (pendingLink) {
       sessionStorage.removeItem("post_auth_link");
-      window.open(pendingLink, "_blank", "noopener,noreferrer");
-      toast.success("Opening your link — check the new tab");
+      toast("You're signed in — ready to open your link", {
+        duration: 20000,
+        action: {
+          label: "Open now →",
+          onClick: () => window.open(pendingLink, "_blank", "noopener,noreferrer"),
+        },
+      });
     }
   }, [user]);
 
