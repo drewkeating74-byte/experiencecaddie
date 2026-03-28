@@ -23,7 +23,7 @@ export default function Index() {
       .select("*, events(*, artists(*), venues(*)), golf_courses(*), destinations(*)")
       .eq("featured", true)
       .eq("active", true)
-      .limit(18)
+      .limit(6)
       .then(({ data }) => {
         if (data) setFeaturedPackages(data as unknown as Package[]);
       });
@@ -133,17 +133,24 @@ export default function Index() {
               <h2 className="font-serif text-3xl font-bold">Featured Packages</h2>
               <p className="mt-1 text-muted-foreground">Hand-picked golf + event combos</p>
             </div>
-            <Button asChild variant="ghost" className="hidden sm:flex">
+            <Button asChild variant="ghost" className="flex">
               <Link to="/packages">View All <ArrowRight className="ml-1 h-4 w-4" /></Link>
             </Button>
           </div>
 
           {featuredPackages.length > 0 ? (
-            <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-              {featuredPackages.map((pkg) => (
-                <PackageCard key={pkg.id} pkg={pkg} />
-              ))}
-            </div>
+            <>
+              <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                {featuredPackages.map((pkg) => (
+                  <PackageCard key={pkg.id} pkg={pkg} />
+                ))}
+              </div>
+              <div className="mt-8 text-center">
+                <Button asChild size="lg" variant="outline" className="rounded-full px-8">
+                  <Link to="/packages">Browse All 16 Packages <ArrowRight className="ml-2 h-4 w-4" /></Link>
+                </Button>
+              </div>
+            </>
           ) : (
             <div className="mt-8 rounded-lg border border-dashed border-border bg-card p-12 text-center">
               <Music className="mx-auto h-12 w-12 text-muted-foreground/50" />
