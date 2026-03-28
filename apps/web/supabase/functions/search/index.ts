@@ -209,7 +209,7 @@ type SearchResponse = {
     golf_source: "catalog" | "live_api" | "mock";
     venues_from_catalog: number;
   };
-  meta: { providers: ("ticketmaster" | "google_places" | "mock")[]; cached: boolean; generated_at: string; request_id: string };
+  meta: { providers: ("ticketmaster" | "google_places" | "mock" | "catalog")[]; cached: boolean; generated_at: string; request_id: string };
 };
 
 function addDays(date: Date, days: number): Date {
@@ -368,27 +368,111 @@ function mapEventToResult(
   };
 }
 
+/**
+ * Look up events from our internal catalog (the `events` table) that match the
+ * requested artist and city. These are our seeded featured events and are returned
+ * in preference to Ticketmaster when a match is found — they have real venue names
+ * and artist-specific ticket search URLs.
+ */
+async function findCatalogEvents(
+  supabase: ReturnType<typeof createClient>,
+  artistName: string | undefined,
+  city: string,
+  startDate: string,
+  endDate: string
+): Promise<EventResult[]> {
+  if (!artistName?.trim()) return [];
+
+  const { data, error } = await supabase
+    .from("events")
+    .select("id, name, event_date, event_time, timezone, ticket_url, min_price, max_price, artists!inner(name), venues(name, city, state, lat, lng, capacity)")
+    .gte("event_date", startDate)
+    .lte("event_date", endDate);
+
+  if (error || !data?.length) return [];
+
+  const artistLower = artistName.trim().toLowerCase();
+  const cityLower = city.toLowerCase();
+
+  return data
+    .filter((row: any) => {
+      const rowArtist = (row.artists?.name ?? "").toLowerCase();
+      const rowCity = (row.venues?.city ?? "").toLowerCase();
+      // Fuzzy artist match (handles "Foo Fighters" vs "foo fighters")
+      const artistMatch = rowArtist.includes(artistLower) || artistLower.includes(rowArtist);
+      // City is optional — include if it matches OR if the event has no venue city
+      const cityMatch = !rowCity || rowCity.includes(cityLower) || cityLower.includes(rowCity);
+      return artistMatch && cityMatch;
+    })
+    .map((row: any) => {
+      const artistN = row.artists?.name ?? artistName;
+      const venueName = row.venues?.name ?? `${city} Live Music Venue`;
+      const venueCity = row.venues?.city ?? city;
+      const venueState = row.venues?.state ?? "";
+      const ticketUrl = row.ticket_url ||
+        `https://www.ticketmaster.com/search?q=${encodeURIComponent(artistN)}+${encodeURIComponent(venueCity)}`;
+      const book_link: ConcertOutboundLink = {
+        url: ticketUrl,
+        provider: "Ticketmaster",
+        category: "concert",
+        link_type: "provider_search",
+        label: "Search tickets on Ticketmaster",
+        is_verified: false,
+        confidence: "medium",
+        disclaimer: "Opens Ticketmaster search; confirm tour dates and availability before booking",
+      };
+      const localDate = row.event_date ?? startDate;
+      const localTime = row.event_time?.slice(0, 8) ?? "20:00:00";
+      return {
+        id: row.id,
+        name: row.name ?? artistN,
+        date_time: `${localDate}T${localTime}`,
+        venue: {
+          name: venueName,
+          city: venueCity,
+          state: venueState,
+          lat: row.venues?.lat ?? undefined,
+          lng: row.venues?.lng ?? undefined,
+          capacity: row.venues?.capacity ?? undefined,
+        },
+        image_url: "https://images.unsplash.com/photo-1540039155733-5bb30b53aa14?w=1200",
+        source_url: ticketUrl,
+        book_url: ticketUrl,
+        book_link,
+        price_min: row.min_price ?? undefined,
+        price_max: row.max_price ?? undefined,
+        provider: "catalog" as const,
+      } satisfies EventResult;
+    });
+}
+
 function mockEvents(request: SearchRequest, startDate: string, endDate: string): EventResult[] {
   const city = request.destination?.city || "Austin";
   const state = request.destination?.state ?? "TX";
-  const ticketUrl = "https://www.google.com/search?q=concerts+tickets";
+  const artist = request.artist?.trim() || "";
+  // Use artist name and city so the fallback is at least contextually accurate
+  const eventName = artist ? artist : "Live Concert";
+  const venueName = `${city} Live Music Venue`;
+  const ticketUrl = artist
+    ? `https://www.ticketmaster.com/search?q=${encodeURIComponent(artist)}+${encodeURIComponent(city)}`
+    : `https://www.ticketmaster.com/search?q=concerts+${encodeURIComponent(city)}`;
   const book_link: ConcertOutboundLink = {
     url: ticketUrl,
-    provider: "Google",
+    provider: "Ticketmaster",
     category: "concert",
     link_type: "provider_search",
-    label: "Search tickets",
+    label: "Search tickets on Ticketmaster",
     is_verified: false,
     confidence: "medium",
-    disclaimer: "Opens ticket search results across multiple vendors; availability is not confirmed in Experience Caddie",
+    disclaimer: "Opens Ticketmaster search; specific tour dates and availability are not confirmed in Experience Caddie",
   };
   return [
     {
       id: "event_mock_1",
-      name: "Sample Concert",
+      name: eventName,
       date_time: `${startDate}T20:00:00Z`,
-      venue: { name: "Mock Arena", city, state, capacity: 12000 },
-      image_url: "https://images.unsplash.com/flagged/photo-1578703916946-53d0d7e6bbd0?w=1200",
+      venue: { name: venueName, city, state, capacity: 12000 },
+      image_url: "https://images.unsplash.com/photo-1540039155733-5bb30b53aa14?w=1200",
       source_url: ticketUrl,
       book_url: ticketUrl,
       book_link,
@@ -1140,6 +1224,28 @@ Deno.serve(async (req: Request) => {
         endDate
       );
       providers.push("mock");
+    }
+
+    // Catalog-first events: if Ticketmaster returned nothing (or wasn't called) and
+    // an artist name was provided, look up matching events from our internal events table.
+    // This ensures featured artists (Luke Combs, Billie Eilish, etc.) return our seeded
+    // events even when Ticketmaster has no confirmed tour dates in the date range.
+    if (events.length === 0 && payload.artist?.trim()) {
+      const sbUrl = Deno.env.get("SUPABASE_URL");
+      const sbKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+      if (sbUrl && sbKey) {
+        try {
+          const sb = createClient(sbUrl, sbKey);
+          const catalogEvts = await findCatalogEvents(sb, payload.artist, effectiveCity, startDate, endDate);
+          if (catalogEvts.length > 0) {
+            events = catalogEvts;
+            (providers as string[]).push("catalog");
+            console.log(`[CATALOG] events: found ${catalogEvts.length} catalog event(s) for artist="${payload.artist}" city="${effectiveCity}"`);
+          }
+        } catch (err) {
+          console.error("[CATALOG] events lookup error:", err);
+        }
+      }
     }
 
     let golfCourses: GolfCourseResult[];

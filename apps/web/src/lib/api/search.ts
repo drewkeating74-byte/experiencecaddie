@@ -182,27 +182,33 @@ export function buildFallbackSearchResponse(request: SearchRequest): SearchRespo
   const startDate = request.dates.start_date;
   const endDate = request.dates.end_date;
   const teeWindow = request.tee_time_window ?? { start: "07:00", end: "11:00" };
+  const artist = request.artist?.trim() || "";
 
-  const ticketUrl = "https://www.google.com/search?q=concerts+tickets";
+  // Use artist name and city so the fallback is contextually accurate rather than generic
+  const eventName = artist || "Live Concert";
+  const venueName = `${city} Live Music Venue`;
+  const ticketUrl = artist
+    ? `https://www.ticketmaster.com/search?q=${encodeURIComponent(artist)}+${encodeURIComponent(city)}`
+    : `https://www.ticketmaster.com/search?q=concerts+${encodeURIComponent(city)}`;
   const concertLink: ConcertOutboundLink = {
     url: ticketUrl,
-    provider: "Google",
+    provider: "Ticketmaster",
     category: "concert",
     link_type: "provider_search",
-    label: "Search tickets",
+    label: "Search tickets on Ticketmaster",
     is_verified: false,
     confidence: "medium",
-    disclaimer: "Opens ticket search results across multiple vendors; availability is not confirmed in Experience Caddie",
+    disclaimer: "Opens Ticketmaster search; specific tour dates and availability are not confirmed in Experience Caddie",
   };
   return {
     destination: { city, state, start_date: startDate, end_date: endDate },
     events: [
       {
         id: "fallback_event_1",
-        name: "Sample Concert",
+        name: eventName,
         date_time: `${startDate}T20:00:00-05:00`,
-        venue: { name: "Mock Arena", city, state, capacity: 12000 },
-        image_url: "https://images.unsplash.com/flagged/photo-1578703916946-53d0d7e6bbd0?w=1200",
+        venue: { name: venueName, city, state, capacity: 12000 },
+        image_url: "https://images.unsplash.com/photo-1540039155733-5bb30b53aa14?w=1200",
         source_url: ticketUrl,
         book_url: ticketUrl,
         book_link: concertLink,
