@@ -113,12 +113,12 @@ serve(async (req) => {
           : isBroadDiscover
           ? "Pick 3 high-demand upcoming arena or amphitheater concerts — any genre. Include major tours (country, rock, pop, etc.). Every option must be a DIFFERENT artist."
           : (p.event_details ? `User genre preferences: ${String(p.event_details).slice(0, 200)}. Pick a DIFFERENT artist for each option and match the listed genres where possible.` : "");
-        const discoverPrompt = `Search the web for 3 REAL upcoming concerts. Return ONLY valid JSON with this exact structure (no markdown):
+        const discoverPrompt = `Search the web for 5 REAL upcoming concerts. Return ONLY valid JSON with this exact structure (no markdown):
 
 {
   "concert_options": [
     { "artist": "string", "city": "string", "venue": "string", "date": "YYYY-MM-DD", "url": "ticket purchase URL" },
-    ... (exactly 3 options)
+    ... (exactly 5 options)
   ]
 }
 
@@ -130,9 +130,9 @@ Requirements:
 - Dates MUST be between ${discStart} and ${discEnd}. Use YYYY-MM-DD format for the date field.
 - ${cityHint}
 ${eventHint}
-- IMPORTANT: All 3 options must be DIFFERENT artists. Never return the same artist more than once.
-- Pick 3 different artist+city+date combinations so the user has real choices
-${artistSearch ? `- CRITICAL: All 3 must be "${artistSearch}" — different cities and dates on their tour.` : "- Vary the genres across the 3 picks to match the user's preferences."}`;
+- IMPORTANT: All 5 options must be DIFFERENT artists. Never return the same artist more than once.
+- Pick 5 different artist+city+date combinations so the user has real choices
+${artistSearch ? `- CRITICAL: All 5 must be "${artistSearch}" — different cities and dates on their tour.` : "- Vary the genres across the picks to match the user's preferences."}`;
 
         const discRes = await fetch("https://api.perplexity.ai/chat/completions", {
           method: "POST",
@@ -186,8 +186,8 @@ ${artistSearch ? `- CRITICAL: All 3 must be "${artistSearch}" — different citi
           });
         }
 
-        // Filter out past concerts — only when we can reliably parse
-        // LLM may use date, event_date, or return "April 15, 2025"; if we can't parse, keep the concert
+        // Filter out past concerts — only when we can reliably parse.
+        // LLM may use date, event_date, or return "April 15, 2025"; if we can't parse, keep the concert.
         let opts = concertOptions.concert_options || [];
         opts = opts.filter((c: Record<string, unknown>) => {
           const raw = String(c.date || c.event_date || c.eventDate || "").trim();
@@ -204,6 +204,31 @@ ${artistSearch ? `- CRITICAL: All 3 must be "${artistSearch}" — different citi
           }
           return true; // unknown format — keep it
         });
+
+        // Deduplicate by artist (case-insensitive) — keep first occurrence.
+        const seenArtists = new Set<string>();
+        opts = opts.filter((c: Record<string, unknown>) => {
+          const artist = String(c.artist || "").toLowerCase().trim();
+          if (!artist || seenArtists.has(artist)) return false;
+          seenArtists.add(artist);
+          return true;
+        });
+
+        // Always surface at least 3 options. If the date filter or dedup removed
+        // too many, relax the date filter on the original list and backfill.
+        if (opts.length < 3) {
+          const allOpts: Record<string, unknown>[] = concertOptions.concert_options || [];
+          for (const c of allOpts) {
+            if (opts.length >= 3) break;
+            const artist = String(c.artist || "").toLowerCase().trim();
+            if (!artist || seenArtists.has(artist)) continue;
+            seenArtists.add(artist);
+            opts.push(c);
+          }
+        }
+
+        // Cap at 5 options for UI clarity.
+        opts = opts.slice(0, 5);
 
         return new Response(JSON.stringify({ success: true, concert_options: opts }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
