@@ -29,5 +29,6 @@ dist-ssr
 apps/web/supabase/.temp/
 supabase/.temp/
 .cursor/
+.claude/
 apps/web/.vercel/
 .vercel
