@@ -110,7 +110,11 @@ export interface Package {
   /** Optional curated hotel booking link (direct property / OTA). */
   hotel_url?: string | null;
   hotel_name?: string | null;
+  /** Last day the package is bookable on the site (timestamptz from DB). */
   expires_at?: string | null;
+  /** Optional Fri–Sun (or similar) window for the trip; event should fall in range. */
+  package_start_date?: string | null;
+  package_end_date?: string | null;
   created_at: string;
   updated_at: string;
   // Joined

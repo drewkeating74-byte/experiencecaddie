@@ -9,6 +9,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Music, MapPin, Calendar, Search, Check, ArrowRight, RefreshCw } from "lucide-react";
 import { DEFAULT_PACKAGE_IMAGE } from "@/lib/constants";
 import { logEvent } from "@/lib/analytics";
+import {
+  comparePublicSoonestEventFirst,
+  getPackageInventoryStatus,
+  daysUntilExpiration,
+} from "@/lib/packageFreshness";
 
 function getIncludes(pkg: Package): string[] {
   const items: string[] = [];
@@ -20,14 +25,6 @@ function getIncludes(pkg: Package): string[] {
   if (pkg.destinations) items.push("2 nights hotel");
   
   return items;
-}
-
-/** Returns true when expires_at is within the next 7 days */
-function isExpiringSoon(pkg: Package & { expires_at?: string | null }): boolean {
-  if (!pkg.expires_at) return false;
-  const exp = new Date(pkg.expires_at).getTime();
-  const now = Date.now();
-  return exp > now && exp - now < 7 * 24 * 60 * 60 * 1000;
 }
 
 export default function Packages() {
@@ -140,10 +137,7 @@ export default function Packages() {
     .sort((a, b) => {
       if (sort === "price-low") return a.price - b.price;
       if (sort === "price-high") return b.price - a.price;
-      // Default: soonest event first
-      const da = a.events?.event_date ? new Date(a.events.event_date + "T12:00:00").getTime() : Infinity;
-      const db = b.events?.event_date ? new Date(b.events.event_date + "T12:00:00").getTime() : Infinity;
-      return da - db;
+      return comparePublicSoonestEventFirst(a, b);
     });
 
   const hasActiveFilters = budgetTier !== "all" || destination !== "all" || windowFilter !== "all" || search !== "";
@@ -238,13 +232,15 @@ export default function Packages() {
         <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {filtered.map((pkg) => {
             const extPkg = pkg as Package & { expires_at?: string | null };
-            const expiringSoon = isExpiringSoon(extPkg);
+            const inv = getPackageInventoryStatus(extPkg);
+            const expiringSoon = inv === "expiring_soon";
+            const daysLeft = daysUntilExpiration(extPkg);
             return (
             <div key={pkg.id} role="button" tabIndex={0}
               onClick={() => handlePackageClick(pkg)}
               onKeyDown={(e) => e.key === "Enter" && handlePackageClick(pkg)}
               className="cursor-pointer">
-              <Card className="group overflow-hidden border-border/50 transition-all hover:shadow-xl">
+              <Card className={`group overflow-hidden border-border/50 transition-all hover:shadow-xl ${expiringSoon ? "opacity-[0.92]" : ""}`}>
                 <div className="relative aspect-[16/10] overflow-hidden">
                   <img
                     src={pkg.image_url || pkg.events?.image_url || DEFAULT_PACKAGE_IMAGE}
@@ -256,9 +252,9 @@ export default function Packages() {
                       Save ${(pkg.original_price - pkg.price).toFixed(0)}
                     </Badge>
                   )}
-                  {expiringSoon && (
+                  {expiringSoon && daysLeft !== null && (
                     <Badge className="absolute right-3 top-3 bg-orange-500 text-white">
-                      Ending soon
+                      {daysLeft === 0 ? "Expires today" : `Expires in ${daysLeft} day${daysLeft === 1 ? "" : "s"}`}
                     </Badge>
                   )}
                 </div>

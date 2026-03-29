@@ -1,2 +1,3 @@
 .vercel
 src/lib/ec-build-config.ts
+.claude/

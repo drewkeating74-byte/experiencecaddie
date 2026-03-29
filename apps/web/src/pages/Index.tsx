@@ -9,6 +9,7 @@ import type { Package } from "@/types/database";
 import heroImage from "@/assets/hero-image.jpg";
 import { DEFAULT_PACKAGE_IMAGE } from "@/lib/constants";
 import { logEvent } from "@/lib/analytics";
+import { comparePublicFeaturedThenEvent, getPackageInventoryStatus, daysUntilExpiration } from "@/lib/packageFreshness";
 
 const categories = [
   { icon: Music, label: "Golf + Concert", description: "Build a weekend around a show", link: "/experience" },
@@ -27,10 +28,13 @@ export default function Index() {
       .eq("featured", true)
       .eq("active", true)
       .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
-      .order("created_at", { ascending: false })
-      .limit(6)
+      .limit(40)
       .then(({ data }: { data: unknown }) => {
-        if (data) setFeaturedPackages(data as unknown as Package[]);
+        if (data && Array.isArray(data)) {
+          const arr = [...(data as Package[])];
+          arr.sort(comparePublicFeaturedThenEvent);
+          setFeaturedPackages(arr.slice(0, 6));
+        }
       });
   }, []);
 
@@ -230,11 +234,15 @@ function PackageCard({ pkg }: { pkg: Package }) {
     navigate(buildItineraryUrl());
   }
 
+  const inv = getPackageInventoryStatus(pkg);
+  const daysLeft = daysUntilExpiration(pkg);
+  const expiringSoon = inv === "expiring_soon";
+
   return (
     <div role="button" tabIndex={0} onClick={handleCardClick}
       onKeyDown={(e) => e.key === "Enter" && handleCardClick()}
       className="cursor-pointer">
-      <Card className="group overflow-hidden border-border/50 transition-all hover:shadow-xl">
+      <Card className={`group overflow-hidden border-border/50 transition-all hover:shadow-xl ${expiringSoon ? "opacity-[0.92]" : ""}`}>
         <div className="relative aspect-[16/10] overflow-hidden">
           <img
             src={pkg.image_url || event?.image_url || DEFAULT_PACKAGE_IMAGE}
@@ -244,6 +252,11 @@ function PackageCard({ pkg }: { pkg: Package }) {
           {pkg.original_price && pkg.original_price > pkg.price && (
             <Badge className="absolute left-3 top-3 bg-accent text-accent-foreground">
               Save ${(pkg.original_price - pkg.price).toFixed(0)}
+            </Badge>
+          )}
+          {expiringSoon && daysLeft !== null && (
+            <Badge className="absolute right-3 top-3 bg-orange-500 text-white">
+              {daysLeft === 0 ? "Expires today" : `Expires in ${daysLeft} day${daysLeft === 1 ? "" : "s"}`}
             </Badge>
           )}
         </div>
