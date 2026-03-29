@@ -292,11 +292,10 @@ Rules:
         // Replace LLM guesses with Ticketmaster-verified date, venue, and URL (US shows only).
         let verifiedOpts = await verifyDiscoveryConcertOptions(preVerifyOpts, discStart, discEnd);
 
-        // TM may drop rows — backfill with unverified LLM options up to MIN_DISCOVER_OPTIONS.
-        // Backfill pool = preVerifyOpts first, then any rawLlmOpts not already seen.
-        const backfillPool = preVerifyOpts.length > 0
-          ? preVerifyOpts
-          : rawLlmOpts;
+        // TM may drop rows, or the date filter may have removed some LLM options that could still
+        // serve as unverified fallbacks. Always backfill from the full raw LLM set so items that
+        // were filtered by date can still pad the list up to MIN_DISCOVER_OPTIONS.
+        const backfillPool = rawLlmOpts;
         if (verifiedOpts.length < MIN_DISCOVER_OPTIONS && backfillPool.length > 0) {
           const seenBackfill = new Set<string>();
           for (const v of verifiedOpts) {
