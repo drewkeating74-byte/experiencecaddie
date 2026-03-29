@@ -18,8 +18,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Hotel, Music, Utensils, ExternalLink, Copy, ArrowLeft, Loader2, Mail, Bookmark, BookmarkCheck, RefreshCw } from "lucide-react";
 import { GolfTrustPanel, EventTrustPanel, HotelTrustPanel } from "@/components/TrustPanel";
-import { normalizeOutboundLink, getOutboundLinkDisplayLabel } from "@/types/outbound-link";
-import { buildHotelUrl } from "@/lib/outboundLinks";
+import { normalizeOutboundLink, type OutboundLink } from "@/types/outbound-link";
+import {
+  buildHotelUrl,
+  getHotelOutboundCtaLabel,
+  getHotelOutboundHelperText,
+  getTicketOutboundCtaLabel,
+  getGolfOutboundCtaLabel,
+  type HotelLinkSource,
+} from "@/lib/outboundLinks";
 import { logEvent } from "@/lib/analytics";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
@@ -81,6 +88,9 @@ interface ResultItineraryDay { day: string; plan?: string[]; }
 
 interface ResultPackage {
   tier: string;
+  city?: string;
+  /** If set by backend, curated hotel booking URL for this tier */
+  hotel_url?: string;
   events?: ResultEventItem[];
   hotels?: ResultHotelItem[];
   lodging?: ResultHotelItem[];
@@ -89,6 +99,12 @@ interface ResultPackage {
   itinerary?: ResultItineraryDay[];
   estimated_total_usd?: [number, number];
   safety_notes?: string;
+}
+
+function extractEventDateIso(dateTimeStr: string | undefined): string | undefined {
+  if (!dateTimeStr) return undefined;
+  const m = String(dateTimeStr).match(/^(\d{4}-\d{2}-\d{2})/);
+  return m?.[1];
 }
 
 interface ResultSummary {
@@ -321,7 +337,14 @@ export default function ItineraryResults() {
     vendor: string,
     label: string,
     url: string,
-    meta?: { provider?: string; category?: string; link_type?: string }
+    meta?: {
+      provider?: string;
+      /** OutboundLink uses "concert" for tickets; analytics extra uses "ticket". */
+      category?: string;
+      link_type?: string;
+      hotel_link_source?: "override" | "google_hotels";
+      event_date?: string;
+    }
   ) => {
     if (!user) {
       sessionStorage.setItem("post_auth_link", url);
@@ -329,21 +352,33 @@ export default function ItineraryResults() {
       return;
     }
 
-    // Fire analytics event for monetizable outbound clicks
     const analyticsType =
       meta?.category === "hotel" ? "hotel_link_clicked" :
       meta?.category === "concert" ? "ticket_link_clicked" :
       meta?.category === "golf" ? "golf_link_clicked" : null;
     if (analyticsType) {
+      const city =
+        itinerary.city && itinerary.city !== "flexible" ? itinerary.city : undefined;
+      const catForExtra =
+        meta?.category === "concert"
+          ? "ticket"
+          : (meta?.category as "hotel" | "ticket" | "golf" | undefined);
       logEvent({
         event_type: analyticsType,
-        package_id: (itinerary as any)?.package_id ?? undefined,
+        artist_name: itinerary.event_details?.trim() || undefined,
+        metro_slug: city
+          ? city.toLowerCase().replace(/[\s,]+/g, "-")
+          : undefined,
         context: "itinerary",
         extra: {
           tier,
           provider: meta?.provider,
+          category: catForExtra,
           link_type: meta?.link_type,
           label,
+          city,
+          event_date: meta?.event_date,
+          hotel_link_source: meta?.hotel_link_source,
         },
       });
     }
@@ -726,26 +761,68 @@ export default function ItineraryResults() {
                       </CardHeader>
                       <CardContent className="space-y-3">
                         {lodgingItems.map((h: any, i: number) => {
+                          const cityDisplay =
+                            (itinerary.city && itinerary.city !== "flexible" ? itinerary.city : "") ||
+                            (pkg as ResultPackage).city ||
+                            "";
+                          const tierHotelOverride = (pkg as ResultPackage).hotel_url?.trim();
                           const rawNormalized = normalizeOutboundLink(h.link || h.url, "hotel");
-                          // Upgrade low-quality hotel URLs (generic search pages / fallbacks) to
-                          // an Expedia affiliate-aware search link with destination + dates.
-                          const shouldUpgrade =
+                          const weakLink =
                             rawNormalized.link_type === "provider_search" ||
                             rawNormalized.link_type === "manual_fallback";
-                          const hotelLink = shouldUpgrade
-                            ? {
-                                ...rawNormalized,
-                                ...buildHotelUrl({
-                                  context: "itinerary",
-                                  destination: pkg.city || itinerary?.city || "",
-                                  checkIn: itinerary?.start_date ?? undefined,
-                                  checkOut: itinerary?.end_date ?? undefined,
-                                }),
-                                // Keep the label from the normalizer
-                                label: rawNormalized.label,
-                                disclaimer: rawNormalized.disclaimer,
-                              }
-                            : rawNormalized;
+
+                          let hotelLink: OutboundLink & { hotelLinkSource?: HotelLinkSource };
+                          if (tierHotelOverride) {
+                            const b = buildHotelUrl({
+                              context: "itinerary",
+                              destination: cityDisplay || "hotels",
+                              checkIn: itinerary.start_date ?? undefined,
+                              checkOut: itinerary.end_date ?? undefined,
+                              overrideUrl: tierHotelOverride,
+                            });
+                            hotelLink = {
+                              ...rawNormalized,
+                              url: b.url,
+                              provider: b.provider,
+                              category: "hotel",
+                              link_type: "direct_listing",
+                              label: getHotelOutboundCtaLabel("override", cityDisplay),
+                              hotelLinkSource: "override",
+                            };
+                          } else if (weakLink) {
+                            const b = buildHotelUrl({
+                              context: "itinerary",
+                              destination: cityDisplay || "hotels",
+                              checkIn: itinerary.start_date ?? undefined,
+                              checkOut: itinerary.end_date ?? undefined,
+                              overrideUrl: null,
+                            });
+                            hotelLink = {
+                              ...rawNormalized,
+                              url: b.url,
+                              provider: b.provider,
+                              category: "hotel",
+                              link_type: "provider_search",
+                              label: getHotelOutboundCtaLabel("google_hotels", cityDisplay),
+                              disclaimer: rawNormalized.disclaimer,
+                              hotelLinkSource: "google_hotels",
+                            };
+                          } else {
+                            const isGoogle = rawNormalized.url.includes("google.com/travel/hotels");
+                            hotelLink = {
+                              ...rawNormalized,
+                              label: getHotelOutboundCtaLabel(isGoogle ? "google_hotels" : "override", cityDisplay),
+                              hotelLinkSource: isGoogle ? "google_hotels" : "override",
+                            };
+                          }
+
+                          const cta = getHotelOutboundCtaLabel(hotelLink.hotelLinkSource, cityDisplay);
+                          const helper = getHotelOutboundHelperText({
+                            hotelLinkSource: hotelLink.hotelLinkSource,
+                            cityDisplay,
+                            checkIn: itinerary.start_date ?? undefined,
+                            checkOut: itinerary.end_date ?? undefined,
+                          });
                           const hasUrl = hotelLink.url.trim();
                           const buttonEl = (
                             <Button
@@ -755,9 +832,10 @@ export default function ItineraryResults() {
                                 provider: hotelLink.provider,
                                 category: hotelLink.category,
                                 link_type: hotelLink.link_type,
+                                hotel_link_source: hotelLink.hotelLinkSource,
                               })}
                             >
-                              {getOutboundLinkDisplayLabel(hotelLink)} <ExternalLink className="ml-1 h-3 w-3" />
+                              {cta} <ExternalLink className="ml-1 h-3 w-3" />
                             </Button>
                           );
                           return (
@@ -777,7 +855,7 @@ export default function ItineraryResults() {
                                   {h.price_per_night && <p className="text-sm font-medium">{h.price_per_night}/night</p>}
                                 </div>
                                 {hasUrl && (
-                                  <div className="flex flex-col items-end gap-1">
+                                  <div className="flex flex-col items-end gap-1 max-w-[220px]">
                                     {hotelLink.disclaimer ? (
                                       <Tooltip>
                                         <TooltipTrigger asChild>{buttonEl}</TooltipTrigger>
@@ -787,6 +865,9 @@ export default function ItineraryResults() {
                                       </Tooltip>
                                     ) : (
                                       buttonEl
+                                    )}
+                                    {helper && (
+                                      <p className="text-xs text-muted-foreground text-right">{helper}</p>
                                     )}
                                   </div>
                                 )}
@@ -829,6 +910,8 @@ export default function ItineraryResults() {
                             {(e.url || (e.link && typeof e.link === "object" && e.link.url)) && (() => {
                               const concertLink = normalizeOutboundLink(e.link || e.url, "concert");
                               const isUnconfirmed = concertLink.link_type === "provider_search" || concertLink.link_type === "manual_fallback";
+                              const ticketCta = getTicketOutboundCtaLabel(concertLink.provider);
+                              const evDate = extractEventDateIso(e.date_time);
                               const buttonEl = (
                                 <Button
                                   size="sm"
@@ -838,11 +921,16 @@ export default function ItineraryResults() {
                                   onClick={(ev) => {
                                     const url = (ev.currentTarget as HTMLButtonElement).getAttribute("data-event-url");
                                     if (url) {
-                                      trackClick(pkg.tier, "ticket", e.name, url, { provider: concertLink.provider, category: concertLink.category, link_type: concertLink.link_type });
+                                      trackClick(pkg.tier, "ticket", e.name ?? "Event", url, {
+                                        provider: concertLink.provider,
+                                        category: concertLink.category,
+                                        link_type: concertLink.link_type,
+                                        event_date: evDate,
+                                      });
                                     }
                                   }}
                                 >
-                                  {getOutboundLinkDisplayLabel(concertLink)} <ExternalLink className="ml-1 h-3 w-3" />
+                                  {ticketCta} <ExternalLink className="ml-1 h-3 w-3" />
                                 </Button>
                               );
                               return (
@@ -857,6 +945,9 @@ export default function ItineraryResults() {
                                   ) : (
                                     buttonEl
                                   )}
+                                  <p className="text-xs text-muted-foreground text-right max-w-[200px]">
+                                    Opens the ticket provider in a new tab.
+                                  </p>
                                 </div>
                               );
                             })()}
@@ -889,6 +980,10 @@ export default function ItineraryResults() {
                       {golfItems.map((g: any, i: number) => {
                         const golfLink = normalizeOutboundLink(g.link || g.url, "golf");
                         const hasUrl = (g.link?.url || g.url || "").trim();
+                        const golfCta = getGolfOutboundCtaLabel(golfLink.provider);
+                        const tripStart = itinerary.start_date
+                          ? String(itinerary.start_date).slice(0, 10)
+                          : undefined;
                         const buttonEl = (
                           <Button
                             size="sm"
@@ -898,9 +993,10 @@ export default function ItineraryResults() {
                               provider: golfLink.provider,
                               category: golfLink.category,
                               link_type: golfLink.link_type,
+                              event_date: tripStart,
                             })}
                           >
-                            {getOutboundLinkDisplayLabel(golfLink)} <ExternalLink className="ml-1 h-3 w-3" />
+                            {golfCta} <ExternalLink className="ml-1 h-3 w-3" />
                           </Button>
                         );
                         return (
@@ -912,7 +1008,7 @@ export default function ItineraryResults() {
                               {g.green_fee && <p className="text-sm font-medium">{g.green_fee}</p>}
                             </div>
                             {hasUrl && (
-                              <div className="flex flex-col items-end gap-1">
+                              <div className="flex flex-col items-end gap-1 max-w-[220px]">
                                 {golfLink.disclaimer ? (
                                   <Tooltip>
                                     <TooltipTrigger asChild>{buttonEl}</TooltipTrigger>
@@ -923,6 +1019,9 @@ export default function ItineraryResults() {
                                 ) : (
                                   buttonEl
                                 )}
+                                <p className="text-xs text-muted-foreground text-right">
+                                  Opens the golf provider in a new tab.
+                                </p>
                               </div>
                             )}
                           </div>

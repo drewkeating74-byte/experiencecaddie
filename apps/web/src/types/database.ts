@@ -107,6 +107,10 @@ export interface Package {
   category: string | null;
   featured: boolean | null;
   active: boolean | null;
+  /** Optional curated hotel booking link (direct property / OTA). */
+  hotel_url?: string | null;
+  hotel_name?: string | null;
+  expires_at?: string | null;
   created_at: string;
   updated_at: string;
   // Joined

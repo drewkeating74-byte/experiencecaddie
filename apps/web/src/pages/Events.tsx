@@ -5,7 +5,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Music, MapPin, Calendar, Search, ExternalLink } from "lucide-react";
-import { normalizeOutboundLink, getOutboundLinkDisplayLabel } from "@/types/outbound-link";
+import { buildTicketUrl, getTicketOutboundCtaLabel } from "@/lib/outboundLinks";
+import { logEvent } from "@/lib/analytics";
 
 export default function Events() {
   const [events, setEvents] = useState<Event[]>([]);
@@ -66,11 +67,41 @@ export default function Events() {
                   <p className="mt-2 font-semibold">${event.min_price}{event.max_price ? ` – $${event.max_price}` : ""}</p>
                 )}
                 {event.ticket_url && (() => {
-                  const link = normalizeOutboundLink(event.ticket_url, "concert");
+                  const t = buildTicketUrl({
+                    context: "packages_page",
+                    url: event.ticket_url,
+                  });
+                  const vCity = event.venues?.city ?? "";
                   return (
-                    <a href={link.url} target="_blank" rel="noopener noreferrer" className="mt-2 inline-flex items-center gap-1 text-sm text-primary hover:underline">
-                      {getOutboundLinkDisplayLabel(link)} <ExternalLink className="h-3 w-3" />
-                    </a>
+                    <div className="mt-2 space-y-1">
+                      <a
+                        href={t.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
+                        onClick={() =>
+                          logEvent({
+                            event_type: "ticket_link_clicked",
+                            artist_name: event.artists?.name ?? undefined,
+                            metro_slug: vCity
+                              ? vCity.toLowerCase().replace(/[\s,]+/g, "-")
+                              : undefined,
+                            context: "packages_page",
+                            extra: {
+                              category: "ticket",
+                              provider: t.provider,
+                              city: vCity || undefined,
+                              event_date: event.event_date
+                                ? String(event.event_date).slice(0, 10)
+                                : undefined,
+                            },
+                          })
+                        }
+                      >
+                        {getTicketOutboundCtaLabel(t.provider)} <ExternalLink className="h-3 w-3" />
+                      </a>
+                      <p className="text-xs text-muted-foreground">Opens the ticket provider in a new tab.</p>
+                    </div>
                   );
                 })()}
               </CardContent>

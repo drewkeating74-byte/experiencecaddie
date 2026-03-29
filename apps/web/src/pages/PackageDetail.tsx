@@ -7,9 +7,18 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Music, MapPin, Calendar, Clock, Car, Users, ArrowLeft, ExternalLink } from "lucide-react";
-import { normalizeOutboundLink, getOutboundLinkDisplayLabel } from "@/types/outbound-link";
 import { DEFAULT_PACKAGE_IMAGE } from "@/lib/constants";
 import { toast } from "sonner";
+import {
+  buildHotelUrl,
+  buildTicketUrl,
+  buildGolfUrl,
+  getHotelOutboundCtaLabel,
+  getHotelOutboundHelperText,
+  getTicketOutboundCtaLabel,
+  getGolfOutboundCtaLabel,
+} from "@/lib/outboundLinks";
+import { logEvent } from "@/lib/analytics";
 
 export default function PackageDetail() {
   const { id } = useParams<{ id: string }>();
@@ -37,6 +46,36 @@ export default function PackageDetail() {
   const event = pkg.events;
   const course = pkg.golf_courses;
   const destination = pkg.destinations;
+  const cityLabel = destination?.city || destination?.name || "";
+  const checkIn = event?.event_date ? String(event.event_date).slice(0, 10) : undefined;
+  const checkOut = checkIn
+    ? (() => {
+        const d = new Date(checkIn + "T12:00:00");
+        d.setDate(d.getDate() + 2);
+        return d.toISOString().slice(0, 10);
+      })()
+    : undefined;
+
+  const hotelBuilt =
+    cityLabel || (pkg as { hotel_url?: string | null }).hotel_url
+      ? buildHotelUrl({
+          context: "package_card",
+          packageId: pkg.id,
+          destination: cityLabel || "hotels",
+          checkIn,
+          checkOut,
+          overrideUrl: (pkg as { hotel_url?: string | null }).hotel_url ?? null,
+        })
+      : null;
+
+  const hotelHelperText =
+    hotelBuilt &&
+    getHotelOutboundHelperText({
+      hotelLinkSource: hotelBuilt.hotelLinkSource,
+      cityDisplay: cityLabel,
+      checkIn,
+      checkOut,
+    });
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -103,11 +142,42 @@ export default function PackageDetail() {
                   </div>
                 )}
                 {event.ticket_url && (() => {
-                  const link = normalizeOutboundLink(event.ticket_url, "concert");
+                  const t = buildTicketUrl({
+                    context: "package_card",
+                    packageId: pkg.id,
+                    url: event.ticket_url,
+                  });
                   return (
-                    <a href={link.url} target="_blank" rel="noopener noreferrer" className="mt-2 inline-flex items-center gap-1 text-sm text-primary hover:underline">
-                      {getOutboundLinkDisplayLabel(link)} <ExternalLink className="h-3 w-3" />
-                    </a>
+                    <div className="mt-2 space-y-1">
+                      <a
+                        href={t.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
+                        onClick={() =>
+                          logEvent({
+                            event_type: "ticket_link_clicked",
+                            package_id: pkg.id,
+                            artist_name: event.artists?.name ?? event.name ?? undefined,
+                            metro_slug: cityLabel
+                              ? cityLabel.toLowerCase().replace(/[\s,]+/g, "-")
+                              : undefined,
+                            context: "package_card",
+                            extra: {
+                              category: "ticket",
+                              provider: t.provider,
+                              city: cityLabel || undefined,
+                              event_date: event.event_date
+                                ? String(event.event_date).slice(0, 10)
+                                : undefined,
+                            },
+                          })
+                        }
+                      >
+                        {getTicketOutboundCtaLabel(t.provider)} <ExternalLink className="h-3 w-3" />
+                      </a>
+                      <p className="text-xs text-muted-foreground">Opens the ticket provider in a new tab.</p>
+                    </div>
                   );
                 })()}
               </CardContent>
@@ -154,13 +224,89 @@ export default function PackageDetail() {
                   </div>
                 )}
                 {course.booking_url && (() => {
-                  const link = normalizeOutboundLink(course.booking_url, "golf");
+                  const g = buildGolfUrl({
+                    context: "package_card",
+                    packageId: pkg.id,
+                    url: course.booking_url,
+                  });
                   return (
-                    <a href={link.url} target="_blank" rel="noopener noreferrer" className="mt-2 inline-flex items-center gap-1 text-sm text-primary hover:underline">
-                      {getOutboundLinkDisplayLabel(link)} <ExternalLink className="h-3 w-3" />
-                    </a>
+                    <div className="mt-2 space-y-1">
+                      <a
+                        href={g.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
+                        onClick={() =>
+                          logEvent({
+                            event_type: "golf_link_clicked",
+                            package_id: pkg.id,
+                            artist_name: event?.artists?.name ?? event?.name ?? undefined,
+                            metro_slug: cityLabel
+                              ? cityLabel.toLowerCase().replace(/[\s,]+/g, "-")
+                              : undefined,
+                            context: "package_card",
+                            extra: {
+                              category: "golf",
+                              provider: g.provider,
+                              city: cityLabel || undefined,
+                              event_date: event?.event_date
+                                ? String(event.event_date).slice(0, 10)
+                                : undefined,
+                            },
+                          })
+                        }
+                      >
+                        {getGolfOutboundCtaLabel(g.provider)} <ExternalLink className="h-3 w-3" />
+                      </a>
+                      <p className="text-xs text-muted-foreground">Opens the golf provider in a new tab.</p>
+                    </div>
                   );
                 })()}
+              </CardContent>
+            </Card>
+          )}
+
+          {hotelBuilt && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 font-serif">Stay</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {(pkg as { hotel_name?: string | null }).hotel_name && (
+                  <p className="text-sm font-medium">{(pkg as { hotel_name?: string | null }).hotel_name}</p>
+                )}
+                <a
+                  href={hotelBuilt.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
+                  onClick={() =>
+                    logEvent({
+                      event_type: "hotel_link_clicked",
+                      package_id: pkg.id,
+                      artist_name: event?.artists?.name ?? event?.name ?? undefined,
+                      metro_slug: cityLabel
+                        ? cityLabel.toLowerCase().replace(/[\s,]+/g, "-")
+                        : undefined,
+                      context: "package_card",
+                      extra: {
+                        category: "hotel",
+                        provider: hotelBuilt.provider,
+                        city: cityLabel || undefined,
+                        event_date: event?.event_date
+                          ? String(event.event_date).slice(0, 10)
+                          : undefined,
+                        hotel_link_source: hotelBuilt.hotelLinkSource,
+                      },
+                    })
+                  }
+                >
+                  {getHotelOutboundCtaLabel(hotelBuilt.hotelLinkSource, cityLabel)}{" "}
+                  <ExternalLink className="h-3 w-3" />
+                </a>
+                {hotelHelperText && (
+                  <p className="text-xs text-muted-foreground">{hotelHelperText}</p>
+                )}
               </CardContent>
             </Card>
           )}

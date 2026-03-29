@@ -11,7 +11,8 @@ import { Music, Search, Sparkles, ArrowRight, ArrowLeft, Loader2, Wand2, MapPin,
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { fetchSearch, buildFallbackSearchResponse } from "@/lib/api/search";
-import { normalizeOutboundLink, getOutboundLinkDisplayLabel } from "@/types/outbound-link";
+import { normalizeOutboundLink } from "@/types/outbound-link";
+import { buildTicketUrl, getTicketOutboundCtaLabel } from "@/lib/outboundLinks";
 
 
 
@@ -428,7 +429,21 @@ export default function ExperienceBuilder() {
           toast.error(isAbort ? "Request timed out. Keep the tab open and try again." : msg);
           setDiscoveryStep("form");
         } else {
-          logEvent({ event_type: "no_results_shown", artist_name: eventInput.trim() || undefined, context: "planner_result", extra: { error: msg } });
+          logEvent({
+            event_type: "no_results_shown",
+            artist_name: eventInput.trim() || undefined,
+            metro_slug: !flexibleLocation && city.trim()
+              ? city.trim().toLowerCase().replace(/[\s,]+/g, "-")
+              : undefined,
+            context: "planner_result",
+            extra: {
+              city: flexibleLocation ? undefined : city.trim() || undefined,
+              start_date: startDate || undefined,
+              end_date: endDate || undefined,
+              entry_mode: selectedEntry ?? undefined,
+              error: msg,
+            },
+          });
           setDiscoveryStep("no_results");
         }
       }
@@ -541,10 +556,11 @@ export default function ExperienceBuilder() {
             </p>
           </div>
 
-          {/* 3 clear next actions */}
+          {/* Primary: current packages; supporting: new search paths */}
           <div className="w-full max-w-sm space-y-3">
             <Button
-              className="w-full rounded-full"
+              size="lg"
+              className="w-full rounded-full h-12 text-base shadow-sm"
               onClick={() => {
                 logEvent({ event_type: "browse_current_packages_clicked", artist_name: artistName ?? undefined, context: "planner_result" });
                 navigate("/packages");
@@ -554,7 +570,7 @@ export default function ExperienceBuilder() {
             </Button>
             <Button
               variant="outline"
-              className="w-full rounded-full"
+              className="w-full rounded-full h-11"
               onClick={() => {
                 logEvent({ event_type: "alternative_search_clicked", artist_name: artistName ?? undefined, context: "planner_result" });
                 setDiscoveryStep("form");
@@ -564,8 +580,8 @@ export default function ExperienceBuilder() {
               <Search className="mr-2 h-4 w-4" /> Try a different artist
             </Button>
             <Button
-              variant="ghost"
-              className="w-full rounded-full text-muted-foreground"
+              variant="secondary"
+              className="w-full rounded-full h-11"
               onClick={() => {
                 logEvent({ event_type: "alternative_search_clicked", artist_name: artistName ?? undefined, extra: { action: "explore_cities" }, context: "planner_result" });
                 setDiscoveryStep("form");
@@ -634,10 +650,37 @@ export default function ExperienceBuilder() {
                     </Button>
                   </div>
                   {(opt.url || (opt as { link?: { url?: string } }).link?.url) && (() => {
-                    const link = normalizeOutboundLink((opt as { link?: { url: string }; url?: string }).link || opt.url, "concert");
+                    const raw = normalizeOutboundLink((opt as { link?: { url: string }; url?: string }).link || opt.url, "concert");
+                    const t = buildTicketUrl({
+                      context: "planner_result",
+                      url: raw.url,
+                      provider: raw.provider,
+                    });
                     return (
-                      <a href={link.url} target="_blank" rel="noopener noreferrer" className="text-xs text-primary mt-2 inline-block hover:underline">
-                        {getOutboundLinkDisplayLabel(link)} →
+                      <a
+                        href={t.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-primary mt-2 inline-block hover:underline"
+                        onClick={() =>
+                          logEvent({
+                            event_type: "ticket_link_clicked",
+                            artist_name: opt.artist,
+                            metro_slug: opt.city
+                              ? opt.city.toLowerCase().replace(/[\s,]+/g, "-")
+                              : undefined,
+                            context: "planner_result",
+                            extra: {
+                              category: "ticket",
+                              provider: t.provider,
+                              city: opt.city,
+                              event_date: opt.date,
+                              label: getTicketOutboundCtaLabel(t.provider),
+                            },
+                          })
+                        }
+                      >
+                        {getTicketOutboundCtaLabel(t.provider)} →
                       </a>
                     );
                   })()}

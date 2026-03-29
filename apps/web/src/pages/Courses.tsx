@@ -5,7 +5,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { MapPin, Search, ExternalLink } from "lucide-react";
-import { normalizeOutboundLink, getOutboundLinkDisplayLabel } from "@/types/outbound-link";
+import { buildGolfUrl, getGolfOutboundCtaLabel } from "@/lib/outboundLinks";
+import { logEvent } from "@/lib/analytics";
 
 export default function Courses() {
   const [courses, setCourses] = useState<GolfCourse[]>([]);
@@ -65,11 +66,37 @@ export default function Courses() {
                   <p className="mt-2 font-semibold">${course.green_fee_min}{course.green_fee_max ? ` – $${course.green_fee_max}` : ""}</p>
                 )}
                 {course.booking_url && (() => {
-                  const link = normalizeOutboundLink(course.booking_url, "golf");
+                  const g = buildGolfUrl({
+                    context: "packages_page",
+                    url: course.booking_url,
+                  });
+                  const cityStr = [course.city, course.state].filter(Boolean).join(", ");
                   return (
-                    <a href={link.url} target="_blank" rel="noopener noreferrer" className="mt-2 inline-flex items-center gap-1 text-sm text-primary hover:underline">
-                      {getOutboundLinkDisplayLabel(link)} <ExternalLink className="h-3 w-3" />
-                    </a>
+                    <div className="mt-2 space-y-1">
+                      <a
+                        href={g.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
+                        onClick={() =>
+                          logEvent({
+                            event_type: "golf_link_clicked",
+                            metro_slug: course.city
+                              ? course.city.toLowerCase().replace(/[\s,]+/g, "-")
+                              : undefined,
+                            context: "packages_page",
+                            extra: {
+                              category: "golf",
+                              provider: g.provider,
+                              city: cityStr || undefined,
+                            },
+                          })
+                        }
+                      >
+                        {getGolfOutboundCtaLabel(g.provider)} <ExternalLink className="h-3 w-3" />
+                      </a>
+                      <p className="text-xs text-muted-foreground">Opens the golf provider in a new tab.</p>
+                    </div>
                   );
                 })()}
               </CardContent>

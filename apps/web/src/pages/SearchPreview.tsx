@@ -4,7 +4,16 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { GolfTrustPanel, EventTrustPanel } from "@/components/TrustPanel";
-import { normalizeOutboundLink, getOutboundLinkDisplayLabel } from "@/types/outbound-link";
+import { normalizeOutboundLink } from "@/types/outbound-link";
+import {
+  buildHotelUrl,
+  buildTicketUrl,
+  buildGolfUrl,
+  getHotelOutboundCtaLabel,
+  getTicketOutboundCtaLabel,
+  getGolfOutboundCtaLabel,
+} from "@/lib/outboundLinks";
+import { logEvent } from "@/lib/analytics";
 import { fetchSearch, type SearchResponse } from "@/lib/api/search";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -93,11 +102,32 @@ export default function SearchPreview() {
                       )}
                     </div>
                     {(event.book_url || event.book_link?.url) && (() => {
-                      const link = normalizeOutboundLink(event.book_link || event.book_url, "concert");
+                      const raw = normalizeOutboundLink(event.book_link || event.book_url, "concert");
+                      const t = buildTicketUrl({
+                        context: "planner_result",
+                        url: raw.url,
+                        provider: raw.provider,
+                      });
                       return (
                         <Button asChild size="sm" variant="outline" className="shrink-0">
-                          <a href={link.url} target="_blank" rel="noreferrer">
-                            {getOutboundLinkDisplayLabel(link)}
+                          <a
+                            href={t.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={() =>
+                              logEvent({
+                                event_type: "ticket_link_clicked",
+                                context: "planner_result",
+                                extra: {
+                                  category: "ticket",
+                                  provider: t.provider,
+                                  city: city,
+                                  label: getTicketOutboundCtaLabel(t.provider),
+                                },
+                              })
+                            }
+                          >
+                            {getTicketOutboundCtaLabel(t.provider)}
                           </a>
                         </Button>
                       );
@@ -170,16 +200,49 @@ export default function SearchPreview() {
             <CardContent className="space-y-3">
               {data.hotels.map((hotel) => {
                 if (!hotel.book_link?.url && !hotel.book_url) return null;
-                const link = normalizeOutboundLink(hotel.book_link || hotel.book_url, "hotel");
+                const rawH = normalizeOutboundLink(hotel.book_link || hotel.book_url, "hotel");
+                const weak =
+                  rawH.link_type === "provider_search" || rawH.link_type === "manual_fallback";
+                const h = weak
+                  ? buildHotelUrl({
+                      context: "planner_result",
+                      destination: city,
+                      checkIn: startDate,
+                      checkOut: endDate,
+                      overrideUrl: null,
+                    })
+                  : {
+                      url: rawH.url,
+                      provider: rawH.provider,
+                      hotelLinkSource: "override" as const,
+                    };
+                const cta = getHotelOutboundCtaLabel(h.hotelLinkSource ?? "override", city);
                 return (
-                  <div key={hotel.id} className="flex items-start justify-between gap-4">
+                  <div key={hotel.id} className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
                     <div>
                       <p className="font-medium">{hotel.name}</p>
                       {hotel.stars && <p className="text-sm text-muted-foreground">{hotel.stars} stars</p>}
                     </div>
-                    <Button asChild size="sm" variant="outline">
-                      <a href={link.url} target="_blank" rel="noreferrer">
-                        {getOutboundLinkDisplayLabel(link)}
+                    <Button asChild size="sm" variant="outline" className="shrink-0">
+                      <a
+                        href={h.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={() =>
+                          logEvent({
+                            event_type: "hotel_link_clicked",
+                            context: "planner_result",
+                            extra: {
+                              category: "hotel",
+                              provider: h.provider,
+                              city,
+                              hotel_link_source: h.hotelLinkSource ?? "override",
+                              label: cta,
+                            },
+                          })
+                        }
+                      >
+                        {cta}
                       </a>
                     </Button>
                   </div>

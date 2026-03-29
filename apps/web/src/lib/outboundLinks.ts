@@ -1,49 +1,41 @@
 /**
- * outboundLinks.ts — central builder for all monetizable outbound links.
+ * Outbound link architecture — apps/web/src/lib/outboundLinks.ts
  *
- * This is the single source of truth for generating hotel, ticket, and golf
- * booking URLs. Every outbound click in the app should go through one of these
- * builders so affiliate tracking, provider attribution, and analytics are
- * consistent across homepage, package cards, itinerary results, and planner output.
+ * HOTELS
+ * - Package- or admin-supplied `hotel_url` (override) wins: direct links to Booking,
+ *   Marriott, a specific property, etc. Users go straight to that page.
+ * - Otherwise we build a Google Travel Hotels search URL with destination and optional
+ *   check-in/out dates so people land on real results, not an empty storefront.
+ * - `isAffiliate` stays false until we have a partner whose deep links preserve that UX.
+ *   When we do, set `isAffiliate` / `affiliateSource` in `buildHotelUrl` only.
  *
- * ─── AFFILIATE CONFIGURATION ────────────────────────────────────────────────
+ * TICKETS & GOLF
+ * - `buildTicketUrl` / `buildGolfUrl` pass through URLs with provider inference.
+ *   `isAffiliate` is false; future ticket/golf partners wrap URLs inside these functions.
  *
- * Hotels (Expedia):
- *   Add the following to apps/web/.env.local (never commit this file):
+ * OutboundLinkContext (placement for analytics)
+ * - homepage: featured package grid on `/`
+ * - package_card: a specific package tile (e.g. homepage card; treat `/packages/:id` detail CTAs as this when linking to external booking for that package)
+ * - packages_page: `/packages` list interactions
+ * - itinerary: `/itinerary/:id` Bronze/Silver/Gold outbound buttons
+ * - planner_result: concert picker, discovery, and planner-adjacent surfaces (e.g. dev search preview)
  *
- *     # Option A — Expedia direct affiliate (AFFCID / AFFLID params appended to search URL):
- *     VITE_EXPEDIA_AFFILIATE_TYPE=direct
- *     VITE_EXPEDIA_AFFILIATE_PARAMS=AFFCID=YOUR_CODE&AFFLID=YOUR_ID
+ * Analytics: with enriched `logEvent` extras you can answer:
+ * - Which artists/cities drive the most ticket clicks? (artist_name, city, event_date in extra)
+ * - Which context produces the most hotel clicks? (extra.context)
+ * - Do package hotel_url overrides outperform generic Google Hotels? (hotel_link_source)
  *
- *     # Option B — CJ Affiliate deep-link wrapper (wraps destination URL as ?url= param):
- *     VITE_EXPEDIA_AFFILIATE_TYPE=cj
- *     VITE_EXPEDIA_AFFILIATE_BASE=https://www.tkqlhce.com/click-XXXXXXXX-XXXXXXXXXX
+ * ---------------------------------------------------------------------------
+ * TODO — future hotel affiliates (Expedia, Awin, etc.)
  *
- *     # Option C — Expedia Travel Creator (generic landing page, no deep-link support):
- *     VITE_EXPEDIA_AFFILIATE_TYPE=creator
- *     VITE_EXPEDIA_AFFILIATE_BASE=https://www.expedia.com/your-creator-link
+ * `buildHotelUrl()` is the single integration point. Add branching on env or partner
+ * config here only; do not scatter affiliate logic in UI components.
  *
- *   If no env vars are set, plain Expedia Hotel-Search URLs are returned (no affiliate).
- *   See bottom of this file for where to drop in each format.
- *
- * Tickets (Ticketmaster):
- *   No affiliate program active yet. Links are passed through unchanged and
- *   tagged as non-affiliate. When an affiliate relationship is established:
- *     VITE_TICKETMASTER_AFFILIATE_ID=your_id
- *   Update buildTicketUrl() below to wrap accordingly.
- *
- * Golf (GolfNow):
- *   No affiliate program active yet. When approved:
- *     VITE_GOLFNOW_AFFILIATE_ID=your_id
- *   Update buildGolfUrl() below to wrap accordingly.
- *
- * ─── ANALYTICS ──────────────────────────────────────────────────────────────
- *
- * Every builder accepts a context so analytics events are scoped to placement:
- *   'homepage' | 'package_card' | 'packages_page' | 'itinerary' | 'planner_result'
- *
- * The caller is responsible for firing logEvent() after click; the builder
- * returns the metadata needed for the event payload.
+ * Any affiliate URL must still give users a usable hotel search (destination + dates).
+ * Do not replace the Google Hotels fallback with a profile page or generic landing
+ * that removes search utility. If a partner only offers a weak link, keep Google Hotels
+ * as fallback or primary until a deep link exists.
+ * ---------------------------------------------------------------------------
  */
 
 export type OutboundLinkContext =
@@ -55,41 +47,35 @@ export type OutboundLinkContext =
 
 export type OutboundLinkCategory = "hotel" | "ticket" | "golf";
 
+/** How the hotel URL was produced — for analytics and CTA copy. */
+export type HotelLinkSource = "override" | "google_hotels";
+
 export interface BuiltOutboundLink {
-  /** Final URL to open in a new tab */
   url: string;
-  /** Human-readable provider name (e.g. "Expedia", "Ticketmaster") */
   provider: string;
   category: OutboundLinkCategory;
-  /** True when an affiliate parameter is embedded in the URL */
   isAffiliate: boolean;
-  /** Affiliate program identifier for reporting (e.g. "expedia_cj") */
   affiliateSource?: string;
-  /** Placement context — pass through to analytics */
   context: OutboundLinkContext;
+  /** Set for hotel category only. */
+  hotelLinkSource?: HotelLinkSource;
 }
-
-// ─── Hotel / Expedia ────────────────────────────────────────────────────────
 
 export interface HotelLinkParams {
   context: OutboundLinkContext;
   packageId?: string;
-  /** e.g. "Austin, TX" or "Nashville" */
   destination: string;
-  /** YYYY-MM-DD check-in */
   checkIn?: string;
-  /** YYYY-MM-DD check-out */
   checkOut?: string;
+  /** Reserved: omitting from search query keeps copy readable; add when UX is proven. */
   adults?: number;
-  /**
-   * Package-level hotel URL override stored in packages.hotel_url.
-   * When present this takes precedence over a generated Expedia search link.
-   */
   overrideUrl?: string | null;
 }
 
+/**
+ * Single integration point for hotel URLs (including future affiliate wrapping).
+ */
 export function buildHotelUrl(params: HotelLinkParams): BuiltOutboundLink {
-  // Package-level override wins (e.g. a specific hotel property link)
   if (params.overrideUrl) {
     return {
       url: params.overrideUrl,
@@ -97,91 +83,95 @@ export function buildHotelUrl(params: HotelLinkParams): BuiltOutboundLink {
       category: "hotel",
       isAffiliate: false,
       context: params.context,
+      hotelLinkSource: "override",
     };
   }
 
-  const searchUrl = buildExpediaSearchUrl(
+  const url = buildGoogleHotelsSearchUrl(
     params.destination,
     params.checkIn,
-    params.checkOut,
-    params.adults ?? 2
+    params.checkOut
   );
 
-  // ── Affiliate wrapping ──────────────────────────────────────────────────
-  // Read config from Vite env vars (set in .env.local — never commit)
-  const affiliateType = (import.meta.env.VITE_EXPEDIA_AFFILIATE_TYPE as string | undefined) ?? "";
-  const affiliateBase = (import.meta.env.VITE_EXPEDIA_AFFILIATE_BASE as string | undefined) ?? "";
-  const affiliateParams = (import.meta.env.VITE_EXPEDIA_AFFILIATE_PARAMS as string | undefined) ?? "";
-
-  // Option B — CJ Affiliate: wrap destination URL
-  // Set VITE_EXPEDIA_AFFILIATE_TYPE=cj
-  //     VITE_EXPEDIA_AFFILIATE_BASE=https://www.tkqlhce.com/click-XXXX-XXXX
-  if (affiliateType === "cj" && affiliateBase) {
-    return {
-      url: `${affiliateBase}?url=${encodeURIComponent(searchUrl)}`,
-      provider: "Expedia",
-      category: "hotel",
-      isAffiliate: true,
-      affiliateSource: "expedia_cj",
-      context: params.context,
-    };
-  }
-
-  // Option A — Expedia direct affiliate: append AFFCID/AFFLID params
-  // Set VITE_EXPEDIA_AFFILIATE_TYPE=direct
-  //     VITE_EXPEDIA_AFFILIATE_PARAMS=AFFCID=US.PARTNER.XXX&AFFLID=XXXXXXXX
-  if (affiliateType === "direct" && affiliateParams) {
-    const separator = searchUrl.includes("?") ? "&" : "?";
-    return {
-      url: `${searchUrl}${separator}${affiliateParams}`,
-      provider: "Expedia",
-      category: "hotel",
-      isAffiliate: true,
-      affiliateSource: "expedia_direct",
-      context: params.context,
-    };
-  }
-
-  // Option C — Expedia Travel Creator (no deep-link; use generic landing page)
-  // Set VITE_EXPEDIA_AFFILIATE_TYPE=creator
-  //     VITE_EXPEDIA_AFFILIATE_BASE=https://www.expedia.com/your-creator-link
-  if (affiliateType === "creator" && affiliateBase) {
-    return {
-      url: affiliateBase,
-      provider: "Expedia",
-      category: "hotel",
-      isAffiliate: true,
-      affiliateSource: "expedia_creator",
-      context: params.context,
-    };
-  }
-
-  // No affiliate configured — plain Expedia search (still useful, just untracked)
   return {
-    url: searchUrl,
-    provider: "Expedia",
+    url,
+    provider: "Google Hotels",
     category: "hotel",
     isAffiliate: false,
     context: params.context,
+    hotelLinkSource: "google_hotels",
   };
 }
 
-/** Builds an Expedia Hotel-Search URL with destination and optional dates. */
-function buildExpediaSearchUrl(
+/**
+ * Google Travel Hotels `q` string — examples after encoding:
+ * - destination only: "Austin hotels"
+ * - + check-in: "Austin 2026-04-11 hotels"
+ * - + range: "Austin 2026-04-11 to 2026-04-13 hotels"
+ */
+function buildGoogleHotelsSearchUrl(
   destination: string,
   checkIn?: string,
-  checkOut?: string,
-  adults = 2
+  checkOut?: string
 ): string {
-  const params = new URLSearchParams({ destination });
-  if (checkIn) params.set("startDate", checkIn);
-  if (checkOut) params.set("endDate", checkOut);
-  params.set("adults", String(adults));
-  return `https://www.expedia.com/Hotel-Search?${params.toString()}`;
+  const dest = destination.trim();
+  const base = dest ? `${dest} hotels` : "hotels";
+
+  if (checkIn && checkOut && checkOut !== checkIn) {
+    const q = `${dest ? `${dest} ` : ""}${checkIn} to ${checkOut} hotels`.trim();
+    return `https://www.google.com/travel/hotels?q=${encodeURIComponent(q)}`;
+  }
+  if (checkIn) {
+    const q = `${dest ? `${dest} ` : ""}${checkIn} hotels`.trim();
+    return `https://www.google.com/travel/hotels?q=${encodeURIComponent(q)}`;
+  }
+  return `https://www.google.com/travel/hotels?q=${encodeURIComponent(base)}`;
+}
+
+export function getHotelOutboundCtaLabel(
+  hotelLinkSource: HotelLinkSource | undefined,
+  cityDisplay: string
+): string {
+  if (hotelLinkSource === "google_hotels") {
+    const c = cityDisplay.trim();
+    return c ? `View hotels in ${c}` : "View hotels";
+  }
+  return "View recommended hotel";
+}
+
+export function getHotelOutboundHelperText(opts: {
+  hotelLinkSource: HotelLinkSource | undefined;
+  cityDisplay: string;
+  checkIn?: string;
+  checkOut?: string;
+}): string | null {
+  if (opts.hotelLinkSource !== "google_hotels") return null;
+  const c = opts.cityDisplay.trim() || "your trip";
+  if (opts.checkIn && opts.checkOut && opts.checkOut !== opts.checkIn) {
+    return `Opens Google Hotels with ${c} for your dates.`;
+  }
+  if (opts.checkIn) {
+    return `Opens Google Hotels with ${c} for your stay.`;
+  }
+  return `Opens Google Hotels for ${c}.`;
+}
+
+export function getTicketOutboundCtaLabel(provider: string): string {
+  const p = provider.trim();
+  if (p && p !== "Tickets") return `View tickets on ${p}`;
+  return "View tickets";
+}
+
+export function getGolfOutboundCtaLabel(provider: string): string {
+  const p = provider.trim().toLowerCase();
+  if (p.includes("google") && p.includes("map")) return "View golf options";
+  if (provider && provider !== "Golf") return `View tee times on ${provider}`;
+  return "View tee times";
 }
 
 function inferHotelProvider(url: string): string {
   const u = url.toLowerCase();
+  if (u.includes("google.com/travel/hotels")) return "Google Hotels";
   if (u.includes("expedia.com")) return "Expedia";
   if (u.includes("hotels.com")) return "Hotels.com";
   if (u.includes("booking.com")) return "Booking.com";
@@ -190,23 +180,14 @@ function inferHotelProvider(url: string): string {
   return "Hotel";
 }
 
-// ─── Tickets ────────────────────────────────────────────────────────────────
-
 export interface TicketLinkParams {
   context: OutboundLinkContext;
   packageId?: string;
-  /** Confirmed direct event URL (e.g. ticketmaster.com/event/...) */
   url: string;
   provider?: string;
 }
 
 export function buildTicketUrl(params: TicketLinkParams): BuiltOutboundLink {
-  // ── Future affiliate hook ───────────────────────────────────────────────
-  // When a Ticketmaster affiliate relationship is established:
-  //   const affiliateId = import.meta.env.VITE_TICKETMASTER_AFFILIATE_ID;
-  //   if (affiliateId) {
-  //     return { url: `${params.url}?wt.mc_id=${affiliateId}`, isAffiliate: true, ... };
-  //   }
   return {
     url: params.url,
     provider: params.provider ?? inferTicketProvider(params.url),
@@ -226,23 +207,14 @@ function inferTicketProvider(url: string): string {
   return "Tickets";
 }
 
-// ─── Golf ───────────────────────────────────────────────────────────────────
-
 export interface GolfLinkParams {
   context: OutboundLinkContext;
   packageId?: string;
-  /** Course booking URL from the database */
   url: string;
   provider?: string;
 }
 
 export function buildGolfUrl(params: GolfLinkParams): BuiltOutboundLink {
-  // ── Future affiliate hook ───────────────────────────────────────────────
-  // When a GolfNow affiliate relationship is established:
-  //   const affiliateId = import.meta.env.VITE_GOLFNOW_AFFILIATE_ID;
-  //   if (affiliateId && params.url.includes("golfnow.com")) {
-  //     return { url: `${params.url}?affiliateid=${affiliateId}`, isAffiliate: true, ... };
-  //   }
   return {
     url: params.url,
     provider: params.provider ?? inferGolfProvider(params.url),
@@ -260,3 +232,17 @@ function inferGolfProvider(url: string): string {
   if (u.includes("google.com/maps")) return "Google Maps";
   return "Golf";
 }
+
+/*
+ * ─── Integration notes (extend without touching call sites) ─────────────────
+ *
+ * Hotel affiliate: implement inside `buildHotelUrl()` — branch on env or config,
+ * return BuiltOutboundLink with url, isAffiliate, affiliateSource, and keep
+ * hotelLinkSource accurate for analytics.
+ *
+ * Ticket / golf affiliate: implement inside `buildTicketUrl` / `buildGolfUrl` the
+ * same way; preserve pass-through when no partner is configured.
+ *
+ * UI components should only call these builders + label helpers; never hardcode
+ * partner domains in pages.
+ */

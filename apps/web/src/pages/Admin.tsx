@@ -17,6 +17,22 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { toast } from "sonner";
 import { Plus, Trash2, Edit, Music, MapPin } from "lucide-react";
 
+/** Empty string → null; otherwise valid http(s) URL, auto-prepending https:// when missing. */
+function normalizeOptionalHttpUrl(raw: string): { ok: true; value: string | null } | { ok: false; message: string } {
+  const t = raw.trim();
+  if (!t) return { ok: true, value: null };
+  const withScheme = /^https?:\/\//i.test(t) ? t : `https://${t}`;
+  try {
+    const u = new URL(withScheme);
+    if (u.protocol !== "http:" && u.protocol !== "https:") {
+      return { ok: false, message: "URL must use http:// or https://" };
+    }
+    return { ok: true, value: u.toString() };
+  } catch {
+    return { ok: false, message: "Invalid URL" };
+  }
+}
+
 /** Union of all known table names — prevents passing typos to useCrud. */
 type KnownTable = keyof Database["public"]["Tables"];
 
@@ -280,8 +296,18 @@ function AdminEvents() {
   }, []);
 
   const save = async () => {
+    let ticket_url: string | null = form.ticket_url.trim() || null;
+    if (ticket_url) {
+      const r = normalizeOptionalHttpUrl(ticket_url);
+      if (!r.ok) {
+        toast.error(`Ticket URL: ${r.message}`);
+        return;
+      }
+      ticket_url = r.value;
+    }
     const { error } = await supabase.from("events").insert({
       ...form,
+      ticket_url,
       artist_id: form.artist_id || null,
       venue_id: form.venue_id || null,
       min_price: form.min_price ? parseFloat(form.min_price) : null,
@@ -363,8 +389,18 @@ function AdminCourses() {
   }, []);
 
   const save = async () => {
+    let booking_url: string | null = form.booking_url.trim() || null;
+    if (booking_url) {
+      const r = normalizeOptionalHttpUrl(booking_url);
+      if (!r.ok) {
+        toast.error(`Booking URL: ${r.message}`);
+        return;
+      }
+      booking_url = r.value;
+    }
     const { error } = await supabase.from("golf_courses").insert({
       ...form,
+      booking_url,
       destination_id: form.destination_id || null,
       holes: parseInt(form.holes) || 18,
       green_fee_min: form.green_fee_min ? parseFloat(form.green_fee_min) : null,
@@ -492,6 +528,24 @@ function AdminPackages() {
   };
 
   const save = async () => {
+    let hotel_url: string | null = form.hotel_url.trim() || null;
+    if (hotel_url) {
+      const hr = normalizeOptionalHttpUrl(hotel_url);
+      if (!hr.ok) {
+        toast.error(`Hotel URL: ${hr.message}`);
+        return;
+      }
+      hotel_url = hr.value;
+    }
+    let image_url: string | null = form.image_url.trim() || null;
+    if (image_url) {
+      const ir = normalizeOptionalHttpUrl(image_url);
+      if (!ir.ok) {
+        toast.error(`Image URL: ${ir.message}`);
+        return;
+      }
+      image_url = ir.value;
+    }
     const payload: Record<string, unknown> = {
       name: form.name,
       event_id: form.event_id || null,
@@ -503,9 +557,9 @@ function AdminPackages() {
       featured: form.featured,
       active: form.active,
       description: form.description || null,
-      image_url: form.image_url || null,
+      image_url,
       hotel_name: form.hotel_name || null,
-      hotel_url: form.hotel_url || null,
+      hotel_url,
       expires_at: form.expires_at ? new Date(form.expires_at + "T23:59:59").toISOString() : null,
     };
     let error: any;
