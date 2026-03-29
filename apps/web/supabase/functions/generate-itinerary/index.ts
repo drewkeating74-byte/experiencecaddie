@@ -111,7 +111,14 @@ serve(async (req) => {
         if (discEnd > maxEnd) discEnd = maxEnd;
 
         const artistSearch = p.artist_search?.trim();
-        const cityHint = p.city && p.city !== "flexible" ? `Focus on ${p.city}.` : "Search cities like Nashville, Phoenix, Austin, Las Vegas, Denver, Atlanta, Dallas — places with arenas and good golf nearby.";
+        // Support multiple cities: comma-separated string or single value
+        const rawCityInput = p.city && p.city !== "flexible" ? String(p.city).trim() : "";
+        const cityList = rawCityInput
+          ? rawCityInput.split(",").map((s: string) => s.trim()).filter(Boolean)
+          : [];
+        const cityHint = cityList.length > 0
+          ? `Prioritize these cities: ${cityList.join(", ")}. Only use other cities if you can't reach ${10} options from this list.`
+          : "Search cities like Nashville, Phoenix, Austin, Las Vegas, Denver, Atlanta, Dallas, Tampa, Charlotte, Miami — places with large arenas and good golf nearby.";
         const eventDetails = String(p.event_details || "").toLowerCase();
 
         // Extract specific genres if the user explicitly selected any (not "any")
@@ -122,12 +129,12 @@ serve(async (req) => {
         // Wide/broad flows only apply when no specific genres were chosen
         const isBroadDiscover = !artistSearch && !hasSpecificGenres && (eventDetails.includes("genres: any") || eventDetails.includes("discover for me") || !eventDetails.trim());
         const isSurpriseFlow = !artistSearch && !hasSpecificGenres && eventDetails.includes("surprise me");
-        /** Wide intent: best shows / fully flexible genres / surprise — ask for more LLM rows and return up to 8 after TM verify. */
+        /** Wide intent: best shows / fully flexible genres / surprise — ask for more LLM rows and return up to 7 after TM verify. */
         const isWideDiscover = !artistSearch && (isBroadDiscover || isSurpriseFlow);
-        // Genre-specific searches get same volume as wide searches (ask 10, return up to 7, min 5)
-        const MIN_DISCOVER_OPTIONS = hasSpecificGenres ? 5 : 3;
-        const LLM_COUNT = artistSearch ? 6 : (isWideDiscover || hasSpecificGenres) ? 10 : 7;
-        const MAX_RETURN = artistSearch ? 5 : hasSpecificGenres ? 7 : isWideDiscover ? 8 : 5;
+        // Both wide-discover and genre-specific flows target 7 options; min 5 so the picker feels substantial
+        const MIN_DISCOVER_OPTIONS = (isWideDiscover || hasSpecificGenres) ? 5 : 3;
+        const LLM_COUNT = artistSearch ? 6 : 12;
+        const MAX_RETURN = artistSearch ? 5 : 7;
         const discoverMaxTokens = (isWideDiscover || hasSpecificGenres) ? 2048 : 1400;
 
         const eventHint = artistSearch
@@ -216,22 +223,21 @@ ${artistSearch
           });
         }
 
-        // Filter out past concerts — only when we can reliably parse.
-        // LLM may use date, event_date, or return "April 15, 2025"; if we can't parse, keep the concert.
-        let opts = concertOptions.concert_options || [];
-        opts = opts.filter((c: Record<string, unknown>) => {
+        // Preserve every raw LLM row before any filtering — emergency fallback if nothing else survives.
+        const rawLlmOpts: Record<string, unknown>[] = (concertOptions.concert_options || []).map((c: Record<string, unknown>) => ({ ...c }));
+
+        // Filter out clearly past concerts. Use a 1-week grace period so dates slightly before
+        // discStart (LLM rounding) aren't thrown away.
+        const graceCutoff = new Date(discStart);
+        graceCutoff.setDate(graceCutoff.getDate() - 7);
+        const graceCutoffYmd = graceCutoff.toISOString().slice(0, 10);
+        let opts = rawLlmOpts.filter((c: Record<string, unknown>) => {
           const raw = String(c.date || c.event_date || c.eventDate || "").trim();
-          if (!raw) return true; // no date — keep it
+          if (!raw) return true;
           const isoMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
-          if (isoMatch) {
-            const d = isoMatch[0];
-            return d >= discStart;
-          }
+          if (isoMatch) return isoMatch[0] >= graceCutoffYmd;
           const parsed = new Date(raw);
-          if (!isNaN(parsed.getTime())) {
-            const d = parsed.toISOString().slice(0, 10);
-            return d >= discStart;
-          }
+          if (!isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10) >= graceCutoffYmd;
           return true; // unknown format — keep it
         });
 
@@ -240,21 +246,38 @@ ${artistSearch
         opts = opts.filter((c: Record<string, unknown>) => {
           const artist = String(c.artist || "").toLowerCase().trim();
           if (!artist) return false;
-          const city = String(c.city || "").toLowerCase().trim();
+          const cityKey = String(c.city || "").toLowerCase().trim();
           const dateKey = String(c.date || c.event_date || c.eventDate || "").trim().slice(0, 10);
-          const key = artistSearch ? `${artist}|${city}|${dateKey}` : artist;
+          const key = artistSearch ? `${artist}|${cityKey}|${dateKey}` : artist;
           if (seenKeys.has(key)) return false;
           seenKeys.add(key);
           return true;
         });
+
+        // If the date filter wiped everything, fall back to the full raw LLM set (deduplicated).
+        if (opts.length === 0 && rawLlmOpts.length > 0) {
+          console.log(`[DISCOVER] Date filter removed all ${rawLlmOpts.length} LLM options — using raw fallback`);
+          const seenFallback = new Set<string>();
+          opts = rawLlmOpts.filter((c: Record<string, unknown>) => {
+            const artist = String(c.artist || "").toLowerCase().trim();
+            if (!artist) return false;
+            if (seenFallback.has(artist)) return false;
+            seenFallback.add(artist);
+            return true;
+          });
+        }
 
         const preVerifyOpts = opts.map((c) => ({ ...c })) as Record<string, unknown>[];
 
         // Replace LLM guesses with Ticketmaster-verified date, venue, and URL (US shows only).
         let verifiedOpts = await verifyDiscoveryConcertOptions(preVerifyOpts, discStart, discEnd);
 
-        // TM may drop rows; always return at least MIN_DISCOVER_OPTIONS when the LLM gave enough distinct artists.
-        if (verifiedOpts.length < MIN_DISCOVER_OPTIONS && preVerifyOpts.length > 0) {
+        // TM may drop rows — backfill with unverified LLM options up to MIN_DISCOVER_OPTIONS.
+        // Backfill pool = preVerifyOpts first, then any rawLlmOpts not already seen.
+        const backfillPool = preVerifyOpts.length > 0
+          ? preVerifyOpts
+          : rawLlmOpts;
+        if (verifiedOpts.length < MIN_DISCOVER_OPTIONS && backfillPool.length > 0) {
           const seenBackfill = new Set<string>();
           for (const v of verifiedOpts) {
             const a = String(v.artist || "").toLowerCase().trim();
@@ -262,7 +285,7 @@ ${artistSearch
             const d = String(v.date || "").trim().slice(0, 10);
             seenBackfill.add(artistSearch ? `${a}|${c}|${d}` : a);
           }
-          for (const raw of preVerifyOpts) {
+          for (const raw of backfillPool) {
             if (verifiedOpts.length >= MIN_DISCOVER_OPTIONS) break;
             const a = String(raw.artist || "").trim();
             const keyArtist = a.toLowerCase();

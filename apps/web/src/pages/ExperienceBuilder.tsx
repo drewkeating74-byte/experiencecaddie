@@ -78,7 +78,8 @@ export default function ExperienceBuilder() {
 
   // Details
   const [flexibleLocation, setFlexibleLocation] = useState(true);
-  const [city, setCity] = useState("");
+  const [selectedCities, setSelectedCities] = useState<string[]>([]);
+  const [cityInput, setCityInput] = useState("");
   const [flexibleDates, setFlexibleDates] = useState(true);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -146,7 +147,7 @@ export default function ExperienceBuilder() {
     setStep("details");
 
     setFlexibleLocation(isFlexibleCity);   // true = no specific city; false = city is set
-    if (!isFlexibleCity) setCity(cityNormalized);
+    if (!isFlexibleCity && cityNormalized) setSelectedCities([cityNormalized]);
 
     setFlexibleDates(!useUrlDates);
     setStartDate(resolvedStart);
@@ -316,7 +317,7 @@ export default function ExperienceBuilder() {
     // Non-blocking funnel event
     logEvent({
       event_type: "package_generate_click",
-      metro_slug: city ? city.trim().toLowerCase().replace(/[\s,]+/g, "-") : "flexible",
+      metro_slug: selectedCities.length > 0 ? selectedCities[0].trim().toLowerCase().replace(/[\s,]+/g, "-") : "flexible",
       artist_name: selectedEntry === "artist" ? eventInput.trim() || undefined : undefined,
       extra: { entry_type: selectedEntry, budget },
     });
@@ -331,11 +332,10 @@ export default function ExperienceBuilder() {
     }
 
     // Client-side input validation
-    const trimmedCity = flexibleLocation ? "flexible" : city.trim().slice(0, 100);
-    if (!flexibleLocation && !/^[a-zA-Z\s\-'.,()\u00C0-\u024F]+$/.test(trimmedCity)) {
-      toast.error("City name contains invalid characters");
-      return;
-    }
+    // Build effective city: comma-separated list of selected cities, or "flexible"
+    const trimmedCity = flexibleLocation || selectedCities.length === 0
+      ? "flexible"
+      : selectedCities.join(", ");
     if (groupSize < 1 || groupSize > 20) {
       toast.error("Group size must be between 1 and 20");
       return;
@@ -457,12 +457,12 @@ export default function ExperienceBuilder() {
           logEvent({
             event_type: "no_results_shown",
             artist_name: eventInput.trim() || undefined,
-            metro_slug: !flexibleLocation && city.trim()
-              ? city.trim().toLowerCase().replace(/[\s,]+/g, "-")
+            metro_slug: !flexibleLocation && selectedCities.length > 0
+              ? selectedCities[0].trim().toLowerCase().replace(/[\s,]+/g, "-")
               : undefined,
             context: "planner_result",
             extra: {
-              city: flexibleLocation ? undefined : city.trim() || undefined,
+              city: flexibleLocation ? undefined : selectedCities.join(", ") || undefined,
               start_date: startDate || undefined,
               end_date: endDate || undefined,
               entry_mode: selectedEntry ?? undefined,
@@ -907,6 +907,9 @@ export default function ExperienceBuilder() {
             <div className="flex items-center gap-2">
               <MapPin className="h-4 w-4 text-muted-foreground" />
               <Label className="text-base font-medium">Destination city</Label>
+              {selectedCities.length > 0 && (
+                <span className="ml-auto text-xs text-muted-foreground">{selectedCities.length} selected</span>
+              )}
             </div>
             {flexibleLocation ? (
               <div className="rounded-lg border border-dashed border-border/70 bg-muted/30 px-4 py-3 flex items-center justify-between">
@@ -916,55 +919,91 @@ export default function ExperienceBuilder() {
                   onClick={() => setFlexibleLocation(false)}
                   className="text-sm font-medium text-primary hover:text-primary/80 transition-colors shrink-0 ml-4"
                 >
-                  Pick a city
+                  Pick cities
                 </button>
               </div>
             ) : (
-              <div className="space-y-2 animate-fade-in">
+              <div className="space-y-3 animate-fade-in">
+                {/* Selected city chips */}
+                {selectedCities.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {selectedCities.map((c) => (
+                      <span
+                        key={c}
+                        className="inline-flex items-center gap-1 rounded-full border border-primary bg-primary/10 px-3 py-1 text-xs font-medium text-foreground"
+                      >
+                        {c}
+                        <button
+                          type="button"
+                          onClick={() => setSelectedCities((prev) => prev.filter((x) => x !== c))}
+                          className="ml-0.5 text-muted-foreground hover:text-foreground"
+                          aria-label={`Remove ${c}`}
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {/* Quick-tap metro chips */}
+                <div className="flex flex-wrap gap-1.5">
+                  {METRO_SUGGESTIONS.map((m) => {
+                    const active = selectedCities.includes(m.city);
+                    return (
+                      <button
+                        key={m.city}
+                        type="button"
+                        onClick={() =>
+                          setSelectedCities((prev) =>
+                            active ? prev.filter((x) => x !== m.city) : [...prev, m.city]
+                          )
+                        }
+                        className={`rounded-full border px-3 py-1 text-xs transition-all ${
+                          active
+                            ? "border-primary bg-primary/10 text-foreground font-medium"
+                            : "border-border text-muted-foreground hover:border-primary/30 hover:text-foreground"
+                        }`}
+                      >
+                        {m.city}
+                      </button>
+                    );
+                  })}
+                </div>
+                {/* Free-text input for cities not in the list */}
                 <div className="relative">
                   <Input
-                    list="metro-cities"
-                    placeholder="Start typing a city…"
-                    value={city}
-                    onChange={(e) => setCity(e.target.value)}
-                    autoFocus
+                    list="metro-cities-datalist"
+                    placeholder="Or type any city and press Enter…"
+                    value={cityInput}
+                    onChange={(e) => setCityInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        const val = cityInput.trim();
+                        if (val && !selectedCities.includes(val)) {
+                          setSelectedCities((prev) => [...prev, val]);
+                        }
+                        setCityInput("");
+                      }
+                    }}
+                    onBlur={() => {
+                      const val = cityInput.trim();
+                      if (val && !selectedCities.includes(val)) {
+                        setSelectedCities((prev) => [...prev, val]);
+                      }
+                      setCityInput("");
+                    }}
                     className="pr-8"
                   />
-                  {city && (
-                    <button
-                      type="button"
-                      onClick={() => setCity("")}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                      aria-label="Clear city"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  )}
-                  <datalist id="metro-cities">
-                    {METRO_SUGGESTIONS.map((m) => (
+                  <datalist id="metro-cities-datalist">
+                    {METRO_SUGGESTIONS.filter((m) => !selectedCities.includes(m.city)).map((m) => (
                       <option key={m.city} value={m.city} label={m.display} />
                     ))}
                   </datalist>
                 </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {METRO_SUGGESTIONS.slice(0, 8).map((m) => (
-                    <button
-                      key={m.city}
-                      type="button"
-                      onClick={() => setCity(m.city)}
-                      className={`rounded-full border px-3 py-1 text-xs transition-all ${
-                        city === m.city
-                          ? "border-primary bg-primary/10 text-foreground font-medium"
-                          : "border-border text-muted-foreground hover:border-primary/30 hover:text-foreground"
-                      }`}
-                    >
-                      {m.city}
-                    </button>
-                  ))}
-                </div>
                 <button
                   type="button"
-                  onClick={() => { setFlexibleLocation(true); setCity(""); }}
+                  onClick={() => { setFlexibleLocation(true); setSelectedCities([]); setCityInput(""); }}
                   className="text-xs text-muted-foreground hover:text-primary transition-colors"
                 >
                   ← I'm flexible, show me anywhere
