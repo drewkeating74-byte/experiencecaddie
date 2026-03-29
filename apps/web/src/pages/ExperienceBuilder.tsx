@@ -745,7 +745,7 @@ export default function ExperienceBuilder() {
   if (generating) {
     const isAutoPackage = new URLSearchParams(location.search).get("auto") === "1";
     const artistLabel = eventInput.trim() || new URLSearchParams(location.search).get("event_details") || "";
-    const cityLabel = city || new URLSearchParams(location.search).get("city") || "";
+    const cityLabel = selectedCities[0] || new URLSearchParams(location.search).get("city") || "";
     return (
       <div className="flex min-h-[60vh] flex-col items-center justify-center gap-6">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
