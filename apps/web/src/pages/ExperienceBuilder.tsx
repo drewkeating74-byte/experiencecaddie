@@ -6,8 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Music, Search, Sparkles, ArrowRight, ArrowLeft, Loader2, Wand2, MapPin, Calendar } from "lucide-react";
+import { Music, Search, Sparkles, ArrowRight, ArrowLeft, Loader2, MapPin, Calendar, X } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { fetchSearch, buildFallbackSearchResponse } from "@/lib/api/search";
@@ -18,6 +17,31 @@ import { buildTicketUrl, getTicketOutboundCtaLabel } from "@/lib/outboundLinks";
 
 type EntryOption = "artist" | "find_concert" | "surprise";
 type BudgetTier = "low" | "mid" | "high";
+
+// Supported metro cities — used for city autocomplete suggestions.
+// Primary city name is first in each group; alternate names map to the same metro.
+const METRO_SUGGESTIONS = [
+  { display: "Las Vegas, NV", city: "Las Vegas" },
+  { display: "Phoenix / Scottsdale, AZ", city: "Phoenix" },
+  { display: "Dallas–Fort Worth, TX", city: "Dallas" },
+  { display: "Austin, TX", city: "Austin" },
+  { display: "Nashville, TN", city: "Nashville" },
+  { display: "Atlanta, GA", city: "Atlanta" },
+  { display: "Charlotte, NC", city: "Charlotte" },
+  { display: "Tampa / St. Petersburg, FL", city: "Tampa" },
+  { display: "Miami / Fort Lauderdale, FL", city: "Miami" },
+  { display: "San Diego, CA", city: "San Diego" },
+  { display: "Los Angeles, CA", city: "Los Angeles" },
+  { display: "San Francisco Bay Area, CA", city: "San Francisco" },
+  { display: "Denver, CO", city: "Denver" },
+  { display: "Seattle, WA", city: "Seattle" },
+  { display: "Chicago, IL", city: "Chicago" },
+  { display: "New Orleans, LA", city: "New Orleans" },
+  { display: "Boston, MA", city: "Boston" },
+  { display: "Philadelphia, PA", city: "Philadelphia" },
+  { display: "Detroit, MI", city: "Detroit" },
+  { display: "Cleveland, OH", city: "Cleveland" },
+];
 
 type ConcertOption = { artist: string; city: string; venue: string; date: string; url?: string };
 
@@ -54,7 +78,8 @@ export default function ExperienceBuilder() {
 
   // Details
   const [flexibleLocation, setFlexibleLocation] = useState(true);
-  const [city, setCity] = useState("");
+  const [selectedCities, setSelectedCities] = useState<string[]>([]);
+  const [cityInput, setCityInput] = useState("");
   const [flexibleDates, setFlexibleDates] = useState(true);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -122,7 +147,7 @@ export default function ExperienceBuilder() {
     setStep("details");
 
     setFlexibleLocation(isFlexibleCity);   // true = no specific city; false = city is set
-    if (!isFlexibleCity) setCity(cityNormalized);
+    if (!isFlexibleCity && cityNormalized) setSelectedCities([cityNormalized]);
 
     setFlexibleDates(!useUrlDates);
     setStartDate(resolvedStart);
@@ -184,10 +209,34 @@ export default function ExperienceBuilder() {
     const timer = setTimeout(() => handleGenerate(), 50);
     return () => clearTimeout(timer);
     // handleGenerate reads component state via closure; we intentionally omit it
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     // from deps to avoid stale-closure warnings — the 50 ms delay guarantees
     // the state snapshot is current by the time it runs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, selectedEntry, eventInput, location.search]);
+
+  // Global Enter key shortcut — advances the form from any step without requiring
+  // the user to click a button first. Skips when focus is inside a text input/textarea
+  // so typing doesn't accidentally submit.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Enter") return;
+      const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
+      const isTyping = tag === "textarea" || (tag === "input" && (e.target as HTMLInputElement).type !== "checkbox" && (e.target as HTMLInputElement).type !== "radio");
+      if (isTyping) return;
+      if (e.defaultPrevented) return;
+      if (step === "start" && selectedEntry) {
+        e.preventDefault();
+        handleContinue();
+      } else if (step === "details" && !generating && discoveryStep === "form") {
+        e.preventDefault();
+        handleGenerate();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, selectedEntry, generating, discoveryStep]);
 
   const getEventDetails = () => {
     if (selectedEntry === "artist") return eventInput;
@@ -292,7 +341,7 @@ export default function ExperienceBuilder() {
     // Non-blocking funnel event
     logEvent({
       event_type: "package_generate_click",
-      metro_slug: city ? city.trim().toLowerCase().replace(/[\s,]+/g, "-") : "flexible",
+      metro_slug: selectedCities.length > 0 ? selectedCities[0].trim().toLowerCase().replace(/[\s,]+/g, "-") : "flexible",
       artist_name: selectedEntry === "artist" ? eventInput.trim() || undefined : undefined,
       extra: { entry_type: selectedEntry, budget },
     });
@@ -307,11 +356,10 @@ export default function ExperienceBuilder() {
     }
 
     // Client-side input validation
-    const trimmedCity = flexibleLocation ? "flexible" : city.trim().slice(0, 100);
-    if (!flexibleLocation && !/^[a-zA-Z\s\-'.,()\u00C0-\u024F]+$/.test(trimmedCity)) {
-      toast.error("City name contains invalid characters");
-      return;
-    }
+    // Build effective city: comma-separated list of selected cities, or "flexible"
+    const trimmedCity = flexibleLocation || selectedCities.length === 0
+      ? "flexible"
+      : selectedCities.join(", ");
     if (groupSize < 1 || groupSize > 20) {
       toast.error("Group size must be between 1 and 20");
       return;
@@ -433,12 +481,12 @@ export default function ExperienceBuilder() {
           logEvent({
             event_type: "no_results_shown",
             artist_name: eventInput.trim() || undefined,
-            metro_slug: !flexibleLocation && city.trim()
-              ? city.trim().toLowerCase().replace(/[\s,]+/g, "-")
+            metro_slug: !flexibleLocation && selectedCities.length > 0
+              ? selectedCities[0].trim().toLowerCase().replace(/[\s,]+/g, "-")
               : undefined,
             context: "planner_result",
             extra: {
-              city: flexibleLocation ? undefined : city.trim() || undefined,
+              city: flexibleLocation ? undefined : selectedCities.join(", ") || undefined,
               start_date: startDate || undefined,
               end_date: endDate || undefined,
               entry_mode: selectedEntry ?? undefined,
@@ -880,128 +928,174 @@ export default function ExperienceBuilder() {
 
           {/* Location */}
           <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <MapPin className="h-4 w-4 text-muted-foreground" />
-                <div>
-                  <Label className="text-base font-medium">Destination city</Label>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setFlexibleLocation(!flexibleLocation)}
-                className={`text-sm font-medium transition-colors shrink-0 ml-4 ${
-                  flexibleLocation ? "text-primary" : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {flexibleLocation ? "I'm flexible ✓" : "Set a location"}
-              </button>
+            <div className="flex items-center gap-2">
+              <MapPin className="h-4 w-4 text-muted-foreground" />
+              <Label className="text-base font-medium">Destination city</Label>
+              {selectedCities.length > 0 && (
+                <span className="ml-auto text-xs text-muted-foreground">{selectedCities.length} selected</span>
+              )}
             </div>
-            {flexibleLocation && (
-              <button type="button" onClick={() => setFlexibleLocation(false)} className="text-xs text-muted-foreground hover:text-primary transition-colors text-left cursor-pointer">Tap to set a specific city →</button>
-            )}
-            {!flexibleLocation && (
-              <Input
-                placeholder="e.g. Austin, TX"
-                value={city}
-                onChange={(e) => setCity(e.target.value)}
-                className="animate-fade-in"
-                autoFocus
-              />
+            {flexibleLocation ? (
+              <div className="rounded-lg border border-dashed border-border/70 bg-muted/30 px-4 py-3 flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">Anywhere — we'll find the best city for your trip</span>
+                <button
+                  type="button"
+                  onClick={() => setFlexibleLocation(false)}
+                  className="text-sm font-medium text-primary hover:text-primary/80 transition-colors shrink-0 ml-4"
+                >
+                  Pick cities
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3 animate-fade-in">
+                {/* Selected city chips */}
+                {selectedCities.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {selectedCities.map((c) => (
+                      <span
+                        key={c}
+                        className="inline-flex items-center gap-1 rounded-full border border-primary bg-primary/10 px-3 py-1 text-xs font-medium text-foreground"
+                      >
+                        {c}
+                        <button
+                          type="button"
+                          onClick={() => setSelectedCities((prev) => prev.filter((x) => x !== c))}
+                          className="ml-0.5 text-muted-foreground hover:text-foreground"
+                          aria-label={`Remove ${c}`}
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {/* Quick-tap metro chips */}
+                <div className="flex flex-wrap gap-1.5">
+                  {METRO_SUGGESTIONS.map((m) => {
+                    const active = selectedCities.includes(m.city);
+                    return (
+                      <button
+                        key={m.city}
+                        type="button"
+                        onClick={() =>
+                          setSelectedCities((prev) =>
+                            active ? prev.filter((x) => x !== m.city) : [...prev, m.city]
+                          )
+                        }
+                        className={`rounded-full border px-3 py-1 text-xs transition-all ${
+                          active
+                            ? "border-primary bg-primary/10 text-foreground font-medium"
+                            : "border-border text-muted-foreground hover:border-primary/30 hover:text-foreground"
+                        }`}
+                      >
+                        {m.city}
+                      </button>
+                    );
+                  })}
+                </div>
+                {/* Free-text input for cities not in the list */}
+                <div className="relative">
+                  <Input
+                    list="metro-cities-datalist"
+                    placeholder="Or type any city and press Enter…"
+                    value={cityInput}
+                    onChange={(e) => setCityInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        const val = cityInput.trim();
+                        if (val && !selectedCities.includes(val)) {
+                          setSelectedCities((prev) => [...prev, val]);
+                        }
+                        setCityInput("");
+                      }
+                    }}
+                    onBlur={() => {
+                      const val = cityInput.trim();
+                      if (val && !selectedCities.includes(val)) {
+                        setSelectedCities((prev) => [...prev, val]);
+                      }
+                      setCityInput("");
+                    }}
+                    className="pr-8"
+                  />
+                  <datalist id="metro-cities-datalist">
+                    {METRO_SUGGESTIONS.filter((m) => !selectedCities.includes(m.city)).map((m) => (
+                      <option key={m.city} value={m.city} label={m.display} />
+                    ))}
+                  </datalist>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { setFlexibleLocation(true); setSelectedCities([]); setCityInput(""); }}
+                  className="text-xs text-muted-foreground hover:text-primary transition-colors"
+                >
+                  ← I'm flexible, show me anywhere
+                </button>
+              </div>
             )}
           </div>
 
           {/* Dates */}
           <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Calendar className="h-4 w-4 text-muted-foreground" />
-                <div>
-                  <Label className="text-base font-medium">Weekend dates</Label>
-                  <p className="text-xs text-muted-foreground">We'll plan golf + concert around these</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  const next = !flexibleDates;
-                  setFlexibleDates(next);
-                  // Pre-fill with the nearest upcoming Friday–Sunday when switching to specific dates
-                  if (next === false && !startDate) {
-                    const today = new Date();
-                    const dayOfWeek = today.getDay(); // 0=Sun … 6=Sat
-                    const daysUntilFriday = (5 - dayOfWeek + 7) % 7 || 7;
-                    const friday = new Date(today);
-                    friday.setDate(today.getDate() + daysUntilFriday);
-                    const sunday = new Date(friday);
-                    sunday.setDate(friday.getDate() + 2);
-                    setStartDate(friday.toISOString().slice(0, 10));
-                    setEndDate(sunday.toISOString().slice(0, 10));
-                  }
-                }}
-                className={`text-sm font-medium transition-colors shrink-0 ml-4 ${
-                  flexibleDates ? "text-primary" : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {flexibleDates ? "I'm flexible ✓" : "Set dates"}
-              </button>
-            </div>
-            {flexibleDates && (
-              <button type="button" onClick={() => {
-                setFlexibleDates(false);
-                if (!startDate) {
-                  const today = new Date();
-                  const dayOfWeek = today.getDay();
-                  const daysUntilFriday = (5 - dayOfWeek + 7) % 7 || 7;
-                  const friday = new Date(today);
-                  friday.setDate(today.getDate() + daysUntilFriday);
-                  const sunday = new Date(friday);
-                  sunday.setDate(friday.getDate() + 2);
-                  setStartDate(friday.toISOString().slice(0, 10));
-                  setEndDate(sunday.toISOString().slice(0, 10));
-                }
-              }} className="text-xs text-muted-foreground hover:text-primary transition-colors text-left cursor-pointer">Tap to set specific dates →</button>
-            )}
-            {!flexibleDates && (
-              <div className="flex gap-3 animate-fade-in">
-                <div className="flex-1 space-y-1">
-                  <Label htmlFor="start-date" className="text-xs text-muted-foreground">From</Label>
-                  <Input
-                    id="start-date"
-                    type="date"
-                    value={startDate}
-                    onChange={(e) => setStartDate(e.target.value)}
-                  />
-                </div>
-                <div className="flex-1 space-y-1">
-                  <Label htmlFor="end-date" className="text-xs text-muted-foreground">To</Label>
-                  <Input
-                    id="end-date"
-                    type="date"
-                    value={endDate}
-                    onChange={(e) => setEndDate(e.target.value)}
-                  />
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Budget */}
-          <div className="space-y-3">
             <div className="flex items-center gap-2">
-              <Wand2 className="h-4 w-4 text-muted-foreground" />
-              <Label className="text-base font-medium">Budget</Label>
+              <Calendar className="h-4 w-4 text-muted-foreground" />
+              <Label className="text-base font-medium">Weekend dates</Label>
             </div>
-            <Select value={budget} onValueChange={(v) => setBudget(v as BudgetTier)}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="low">Budget-friendly</SelectItem>
-                <SelectItem value="mid">Mid-range</SelectItem>
-                <SelectItem value="high">Premium</SelectItem>
-              </SelectContent>
-            </Select>
+            {flexibleDates ? (
+              <div className="rounded-lg border border-dashed border-border/70 bg-muted/30 px-4 py-3 flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">Any upcoming weekend — we'll find the best timing</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFlexibleDates(false);
+                    if (!startDate) {
+                      const today = new Date();
+                      const daysUntilFriday = (5 - today.getDay() + 7) % 7 || 7;
+                      const friday = new Date(today);
+                      friday.setDate(today.getDate() + daysUntilFriday + 14);
+                      const sunday = new Date(friday);
+                      sunday.setDate(friday.getDate() + 2);
+                      setStartDate(friday.toISOString().slice(0, 10));
+                      setEndDate(sunday.toISOString().slice(0, 10));
+                    }
+                  }}
+                  className="text-sm font-medium text-primary hover:text-primary/80 transition-colors shrink-0 ml-4"
+                >
+                  Pick dates
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-2 animate-fade-in">
+                <div className="flex gap-3">
+                  <div className="flex-1 space-y-1">
+                    <Label htmlFor="start-date" className="text-xs text-muted-foreground">Arrival</Label>
+                    <Input
+                      id="start-date"
+                      type="date"
+                      value={startDate}
+                      onChange={(e) => setStartDate(e.target.value)}
+                    />
+                  </div>
+                  <div className="flex-1 space-y-1">
+                    <Label htmlFor="end-date" className="text-xs text-muted-foreground">Departure</Label>
+                    <Input
+                      id="end-date"
+                      type="date"
+                      value={endDate}
+                      onChange={(e) => setEndDate(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { setFlexibleDates(true); setStartDate(""); setEndDate(""); }}
+                  className="text-xs text-muted-foreground hover:text-primary transition-colors"
+                >
+                  ← I'm flexible on dates
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Group size */}
