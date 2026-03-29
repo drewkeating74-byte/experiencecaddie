@@ -1,6 +1,12 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { reportError } from "../_shared/monitoring.ts";
+import {
+  buildTicketmasterSearchUrl,
+  parseFlexibleDateToYmd,
+  resolveConcertFromTicketmaster,
+  verifyDiscoveryConcertOptions,
+} from "../_shared/ticketmaster.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -214,18 +220,8 @@ ${artistSearch ? `- CRITICAL: All 5 must be "${artistSearch}" — different citi
           return true;
         });
 
-        // Always surface at least 3 options. If the date filter or dedup removed
-        // too many, relax the date filter on the original list and backfill.
-        if (opts.length < 3) {
-          const allOpts: Record<string, unknown>[] = concertOptions.concert_options || [];
-          for (const c of allOpts) {
-            if (opts.length >= 3) break;
-            const artist = String(c.artist || "").toLowerCase().trim();
-            if (!artist || seenArtists.has(artist)) continue;
-            seenArtists.add(artist);
-            opts.push(c);
-          }
-        }
+        // Replace LLM guesses with Ticketmaster-verified date, venue, and URL (US shows only).
+        opts = await verifyDiscoveryConcertOptions(opts as Record<string, unknown>[], discStart, discEnd);
 
         // Cap at 5 options for UI clarity.
         opts = opts.slice(0, 5);
@@ -280,34 +276,44 @@ ${artistSearch ? `- CRITICAL: All 5 must be "${artistSearch}" — different citi
         );
       }
 
-      function buildTicketmasterSearchUrl(searchTerm: string): string {
-        const q = (searchTerm || "").trim() || "concerts";
-        return `https://www.ticketmaster.com/search?q=${encodeURIComponent(q)}`;
-      }
-
-      // When user selected a concert, use Ticketmaster artist search URL only (reliable; avoids 404s from Perplexity/SeatGeek/event-specific URLs).
+      // When user selected a concert (e.g. from discovery), resolve date/venue against Ticketmaster — never trust LLM dates alone.
       if (selectedConcert?.artist && selectedConcert?.city) {
-        const concertUrl = buildTicketmasterSearchUrl(selectedConcert.artist);
-        const concertLink = {
-          url: concertUrl,
-          provider: "Ticketmaster",
-          category: "concert" as const,
-          link_type: "provider_search" as const,
-          label: "Find tickets",
-          is_verified: false,
-          confidence: "medium" as const,
-          disclaimer: "Opens Ticketmaster search results for this event",
-        };
-        events = [{
-          id: "selected_concert",
-          name: selectedConcert.artist,
-          date_time: selectedConcert.date ? `${selectedConcert.date}T20:00:00` : `${p.start_date}T20:00:00`,
-          venue: { name: selectedConcert.venue || "Venue", city: selectedConcert.city },
-          book_url: concertUrl,
-          source_url: concertUrl,
-          book_link: concertLink,
-          provider: "user_selected",
-        }];
+        const hint = parseFlexibleDateToYmd(String(selectedConcert.date || ""));
+        const resolved = await resolveConcertFromTicketmaster({
+          artist: String(selectedConcert.artist).trim(),
+          city: String(selectedConcert.city).trim(),
+          startDate: String(p.start_date).slice(0, 10),
+          endDate: String(p.end_date).slice(0, 10),
+          dateHintYmd: hint,
+        });
+        if (resolved) {
+          events = [{ ...resolved, provider: "user_selected" }];
+        } else {
+          const concertUrl = buildTicketmasterSearchUrl(String(selectedConcert.artist).trim());
+          const concertLink = {
+            url: concertUrl,
+            provider: "Ticketmaster",
+            category: "concert" as const,
+            link_type: "provider_search" as const,
+            label: "Find tickets",
+            is_verified: false,
+            confidence: "medium" as const,
+            disclaimer:
+              "No matching show found on Ticketmaster for this artist in this city during your trip dates — confirm schedules on Ticketmaster",
+          };
+          events = [
+            {
+              id: "selected_concert",
+              name: String(selectedConcert.artist).trim(),
+              date_time: `${String(p.start_date).slice(0, 10)}T20:00:00`,
+              venue: { name: selectedConcert.venue || "Venue TBD", city: String(selectedConcert.city).trim() },
+              book_url: concertUrl,
+              source_url: concertUrl,
+              book_link: concertLink,
+              provider: "user_selected",
+            },
+          ];
+        }
       }
 
       // Fallback mock when frontend doesn't pass search_results
@@ -871,13 +877,33 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
     };
 
     // Replace OTA / affiliate hotel URLs with Google Hotels search (direct brand sites stay).
+    // Keep in sync with apps/web/src/lib/outboundLinks.ts shouldReplaceOtaHotelUrl.
     const shouldReplaceHotelUrl = (url: string): boolean => {
       if (!url || typeof url !== "string") return true;
-      const u = url.trim().toLowerCase();
+      const raw = url.trim();
+      const u = raw.toLowerCase();
       if (!u.startsWith("http")) return true;
+      const otaInFullString =
+        /(^|\/\/|\.)(expedia\.(com|net|[a-z]{2,3})|booking\.com|hotels\.com|hotel\.com|agoda\.com|priceline\.com|orbitz\.com|travelocity\.com|trip\.com|vrbo\.com|trivago\.com|momondo\.com|kayak\.com|hometogo\.com)\b/i.test(
+          u
+        ) ||
+        /\b(awin1\.com|linksynergy\.com|shareasale\.com|anrdoezrs\.net|ojrq\.net|dpbolvw\.net|kqzyfj\.com|jdoqocy\.com|goto\.target)\b/i.test(
+          u
+        );
+      if (otaInFullString && !u.includes("google.com/travel/hotels")) return true;
       try {
-        const parsed = new URL(u);
+        const parsed = new URL(raw);
         const host = parsed.hostname.replace(/^www\./, "");
+        const brand = [
+          "marriott.com",
+          "hilton.com",
+          "hyatt.com",
+          "ihg.com",
+          "choicehotels.com",
+          "wyndhamhotels.com",
+          "bestwestern.com",
+        ];
+        if (brand.some((d) => host === d || host.endsWith("." + d))) return false;
         const ota = [
           "booking.com",
           "expedia.com",
@@ -887,10 +913,14 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
           "priceline.com",
           "orbitz.com",
           "travelocity.com",
+          "trip.com",
+          "vrbo.com",
+          "trivago.com",
         ];
         if (ota.some((d) => host === d || host.endsWith("." + d))) return true;
         if (host === "awin1.com" || host.endsWith(".awin1.com")) return true;
         if (host.includes("expedia.")) return true;
+        if (host.includes("linksynergy.com") || host.includes("shareasale.com")) return true;
         return false;
       } catch {
         return true;
@@ -964,23 +994,34 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
       return { checkin, checkout: addDays(checkin, DEFAULT_HOTEL_NIGHTS) };
     };
 
-    // Use Google Hotels search — reliable, shows real results across Booking.com, Expedia, etc. Booking.com direct search URLs often land on generic/dead-end pages.
-    const buildHotelSearchUrl = (name: string, city: string, state?: string, _startDate?: string, _endDate?: string): string => {
+    // Google Hotels search — match web client outboundLinks.buildGoogleHotelsSearchUrl (dates in q= when available).
+    const buildHotelSearchUrl = (name: string, city: string, state?: string, startDate?: string, endDate?: string): string => {
       const cleanCity = (city || "").trim().toLowerCase();
       const validCity = cleanCity && cleanCity !== "flexible" && cleanCity !== "various";
       const statePart = (state || "").trim() ? ` ${(state || "").trim()}` : "";
 
       const { searchName, isLowConfidence } = normalizeHotelNameForSearch(name || "");
-      let q: string;
+      let destPart: string;
       if (isLowConfidence || !searchName) {
-        q = validCity ? `hotels in ${cleanCity}${statePart}`.trim() : "hotels";
+        destPart = validCity ? `hotels in ${cleanCity}${statePart}`.trim() : "";
       } else {
         const nameLower = searchName.toLowerCase().trim();
         const alreadyHasCity = validCity && nameLower.includes(cleanCity);
         const locPart = validCity ? (alreadyHasCity ? "" : ` ${cleanCity}${statePart}`.trim()) : "";
-        q = `${searchName.trim()}${locPart}`.trim() || "hotels";
+        destPart = `${searchName.trim()}${locPart}`.trim();
       }
-      q = q.slice(0, 150);
+      const base = destPart ? `${destPart} hotels` : "hotels";
+      const sd = startDate && /^\d{4}-\d{2}-\d{2}$/.test(startDate) ? startDate : "";
+      const ed = endDate && /^\d{4}-\d{2}-\d{2}$/.test(endDate) ? endDate : "";
+      let q: string;
+      if (sd && ed && ed !== sd) {
+        q = destPart ? `${destPart} ${sd} to ${ed} hotels`.trim() : `${sd} to ${ed} hotels`;
+      } else if (sd) {
+        q = destPart ? `${destPart} ${sd} hotels`.trim() : `${sd} hotels`;
+      } else {
+        q = base.slice(0, 150);
+      }
+      q = q.slice(0, 200);
       const url = `https://www.google.com/travel/hotels?q=${encodeURIComponent(q)}`;
       console.log("[HOTEL_LINK_DEBUG] buildHotelSearchUrl", { query: q, url });
       return url;
@@ -1111,7 +1152,13 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
           if (isLowConfidence && (h.area || city)) {
             h.name = `Hotels in ${(h.area || city).trim()}`;
           }
-          h.url = buildHotelSearchUrl(h.name || "Hotel", city, state, hotelDateRange?.checkin, hotelDateRange?.checkout);
+          h.url = buildHotelSearchUrl(
+            h.name || "Hotel",
+            city,
+            state,
+            hotelDateRange?.checkin,
+            hotelDateRange?.checkout
+          );
         }
         h.url = sanitizeLodgingUrl(h.url || "", city, state);
         // Structured outbound link (Phase 3 hotel trust model)

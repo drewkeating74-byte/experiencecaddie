@@ -5,6 +5,14 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { reportError } from "../_shared/monitoring.ts";
 import { METROS } from "../_shared/golfCities.ts";
+import {
+  buildTicketmasterSearchUrl,
+  fetchTicketmasterEvents as searchTicketmaster,
+  mapTmEventToResult as mapEventToResult,
+  venueCityMatchesRequest,
+  venueMatchesUserCity,
+  tmEventMatchesArtistQuery,
+} from "../_shared/ticketmaster.ts";
 
 function json(body: unknown, status: number, headers?: Record<string, string>) {
   return new Response(JSON.stringify(body), {
@@ -19,34 +27,9 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const BASE_URL = "https://app.ticketmaster.com/discovery/v2";
 const DEFAULT_START_OFFSET_DAYS = 14; // Search starts 2 weeks from today
 const DEFAULT_WINDOW_MONTHS = 9; // Search spans 9 months from start
 const MAX_WINDOW_MONTHS = 12;
-
-type TMVenue = {
-  name?: string;
-  city?: { name?: string };
-  state?: { name?: string; stateCode?: string };
-  address?: { line1?: string };
-  location?: { latitude?: string; longitude?: string };
-  id?: string;
-};
-
-type TMEvent = {
-  id?: string;
-  name?: string;
-  url?: string;
-  images?: Array<{ url?: string; width?: number; ratio?: string }>;
-  dates?: { start?: { localDate?: string; localTime?: string; dateTBD?: boolean } };
-  priceRanges?: Array<{ min?: number; max?: number; currency?: string }>;
-  _embedded?: {
-    venues?: TMVenue[];
-    attractions?: Array<{ name?: string }>;
-  };
-};
-
-type TMResponse = { _embedded?: { events?: TMEvent[] }; page?: { totalElements?: number } };
 
 type SearchRequest = {
   artist?: string;
@@ -252,155 +235,6 @@ function resolveDateWindow(startDate?: string, endDate?: string): { start: strin
   const maxEnd = addMonths(start, MAX_WINDOW_MONTHS);
   if (end > maxEnd) end = maxEnd;
   return { start: toYYYYMMDD(start), end: toYYYYMMDD(end) };
-}
-
-async function searchTicketmaster(params: {
-  artist?: string;
-  city?: string;
-  state?: string;
-  startDate: string;
-  endDate: string;
-  size?: number;
-}): Promise<TMEvent[]> {
-  const apiKey = Deno.env.get("TICKETMASTER_API_KEY") || Deno.env.get("TICKETMASTER_CONSUMER_KEY");
-  if (!apiKey) throw new Error("TICKETMASTER_API_KEY or TICKETMASTER_CONSUMER_KEY not set");
-  const url = new URL(`${BASE_URL}/events.json`);
-  url.searchParams.set("apikey", apiKey);
-  url.searchParams.set("countryCode", "US");
-  url.searchParams.set("classificationName", "Music");
-  url.searchParams.set("size", String(params.size ?? 15));
-  url.searchParams.set("sort", "date,asc");
-  if (params.artist?.trim()) url.searchParams.set("keyword", params.artist.trim());
-  if (params.city?.trim() && params.city !== "flexible") url.searchParams.set("city", params.city.trim());
-  if (params.state?.trim()) url.searchParams.set("stateCode", params.state.trim().toUpperCase().slice(0, 2));
-  url.searchParams.set("startDateTime", `${params.startDate}T00:00:00Z`);
-  url.searchParams.set("endDateTime", `${params.endDate}T23:59:59Z`);
-  const res = await fetch(url.toString(), { signal: AbortSignal.timeout(10000) });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Ticketmaster API error ${res.status}: ${text.slice(0, 200)}`);
-  }
-  const data = (await res.json()) as TMResponse;
-  return data._embedded?.events ?? [];
-}
-
-/** Build a Ticketmaster search URL (reliable; avoids event-level 404s). Uses artist name only for better results. */
-function buildTicketmasterSearchUrl(searchTerm: string): string {
-  const q = (searchTerm || "").trim() || "concerts";
-  return `https://www.ticketmaster.com/search?q=${encodeURIComponent(q)}`;
-}
-
-/** Returns true if the URL looks like a valid Ticketmaster event page. */
-function isUsableTicketmasterEventUrl(url: string | undefined): boolean {
-  if (!url || typeof url !== "string") return false;
-  const u = url.trim();
-  if (!u.startsWith("https://")) return false;
-  try {
-    const parsed = new URL(u);
-    const host = parsed.hostname.replace(/^www\./, "");
-    return host === "ticketmaster.com" || host.endsWith(".ticketmaster.com");
-  } catch {
-    return false;
-  }
-}
-
-function normalizeCityToken(s: string): string {
-  return s.toLowerCase().trim().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
-}
-
-/** Drop TM rows where the venue is not in the requested metro (keyword search can return other cities). */
-function venueCityMatchesRequest(requestedCity: string, venueCity: string | undefined): boolean {
-  if (!requestedCity?.trim() || requestedCity === "flexible" || requestedCity === "Various") return true;
-  if (!venueCity?.trim()) return false;
-  const a = normalizeCityToken(requestedCity);
-  const b = normalizeCityToken(venueCity);
-  if (!a || !b) return false;
-  if (a === b) return true;
-  if (a.length >= 4 && b.includes(a)) return true;
-  if (b.length >= 4 && a.includes(b)) return true;
-  const aw = a.split(" ").filter((w) => w.length > 2);
-  const bw = b.split(" ").filter((w) => w.length > 2);
-  return aw.some((w) => bw.includes(w)) || bw.some((w) => aw.includes(w));
-}
-
-/** When the user searched by artist, require the TM event/attraction names to reference that artist. */
-function tmEventMatchesArtistQuery(event: TMEvent, artist: string | undefined): boolean {
-  if (!artist?.trim()) return true;
-  const needle = artist.trim().toLowerCase();
-  const pool: string[] = [];
-  if (event.name) pool.push(event.name);
-  for (const att of event._embedded?.attractions ?? []) {
-    if (att?.name) pool.push(att.name);
-  }
-  const hay = pool.join(" ").toLowerCase();
-  if (hay.includes(needle)) return true;
-  const tokens = needle.split(/\s+/).filter((t) => t.length > 2);
-  if (tokens.length === 0) return true;
-  return tokens.every((t) => hay.includes(t));
-}
-
-function mapEventToResult(
-  event: TMEvent,
-  fallbackCity: string,
-  fallbackState?: string
-): EventResult {
-  const venue = event._embedded?.venues?.[0];
-  const attraction = event._embedded?.attractions?.[0];
-  const eventName = event.name ?? attraction?.name ?? "Concert";
-  const artistName = attraction?.name ?? event.name ?? "Concert";
-  const localDate = event.dates?.start?.localDate ?? "";
-  const localTime = event.dates?.start?.localTime ?? "20:00:00";
-  const dateTime = localDate ? `${localDate}T${localTime}` : "";
-  const priceRange = event.priceRanges?.[0];
-  const lat = venue?.location?.latitude ? parseFloat(venue.location.latitude) : undefined;
-  const lng = venue?.location?.longitude ? parseFloat(venue.location.longitude) : undefined;
-  const city = venue?.city?.name ?? fallbackCity;
-  const state = venue?.state?.stateCode ?? venue?.state?.name ?? fallbackState;
-  const useDirectUrl = isUsableTicketmasterEventUrl(event.url);
-  const ticketUrl = useDirectUrl ? event.url!.trim() : buildTicketmasterSearchUrl(artistName);
-
-  const book_link: ConcertOutboundLink = useDirectUrl
-    ? {
-        url: ticketUrl,
-        provider: "Ticketmaster",
-        category: "concert",
-        link_type: "direct_event",
-        label: "Tickets",
-        is_verified: false,
-        confidence: "low",
-        disclaimer: undefined,
-      }
-    : {
-        url: ticketUrl,
-        provider: "Ticketmaster",
-        category: "concert",
-        link_type: "provider_search",
-        label: "Find tickets",
-        is_verified: false,
-        confidence: "medium",
-        disclaimer: "Opens Ticketmaster search results for this event",
-      };
-
-  return {
-    id: event.id ?? `tm_${Date.now()}_${Math.random().toString(36).slice(2)}`,
-    name: eventName,
-    date_time: dateTime,
-    venue: {
-      name: venue?.name ?? "Venue",
-      city,
-      state,
-      lat,
-      lng,
-      capacity: undefined,
-    },
-    image_url: event.images?.sort((a, b) => (b.width ?? 0) - (a.width ?? 0))[0]?.url,
-    source_url: ticketUrl,
-    book_url: ticketUrl,
-    book_link,
-    price_min: priceRange?.min,
-    price_max: priceRange?.max,
-    provider: "ticketmaster",
-  };
 }
 
 /**
@@ -1253,10 +1087,10 @@ Deno.serve(async (req: Request) => {
           size: 15,
         });
         const tmFiltered = tmEvents.filter((e) => {
-          const vCity = e._embedded?.venues?.[0]?.city?.name;
-          if (!venueCityMatchesRequest(effectiveCity, vCity)) {
+          const venue = e._embedded?.venues?.[0];
+          if (!venueMatchesUserCity(effectiveCity, venue)) {
             console.log(
-              `[TM] skip city mismatch: want="${effectiveCity}" got="${vCity}" event="${e.name}"`
+              `[TM] skip city mismatch: want="${effectiveCity}" got="${venue?.city?.name}" event="${e.name}"`
             );
             return false;
           }

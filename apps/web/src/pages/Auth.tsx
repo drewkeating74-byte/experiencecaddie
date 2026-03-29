@@ -7,7 +7,11 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
 import { Separator } from "@/components/ui/separator";
-import { savePostAuthReturn, buildOAuthRedirectUrl } from "@/lib/postAuthReturn";
+import {
+  savePostAuthReturn,
+  buildOAuthRedirectUrl,
+  clearPostAuthReturnIfHomeOnly,
+} from "@/lib/postAuthReturn";
 
 export default function Auth() {
   const [isLogin, setIsLogin] = useState(true);
@@ -24,6 +28,7 @@ export default function Auth() {
   // Persist return path as soon as this page loads (not only when clicking Google) so
   // Layout can recover after OAuth even if the callback lands on `/` or storage was flaky.
   useEffect(() => {
+    clearPostAuthReturnIfHomeOnly(redirect);
     savePostAuthReturn(redirect);
   }, [redirect]);
 

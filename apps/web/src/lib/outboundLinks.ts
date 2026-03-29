@@ -76,10 +76,12 @@ export interface HotelLinkParams {
  * Single integration point for hotel URLs (including future affiliate wrapping).
  */
 export function buildHotelUrl(params: HotelLinkParams): BuiltOutboundLink {
-  if (params.overrideUrl) {
+  const override = params.overrideUrl?.trim();
+  // Package/admin "hotel" links are often pasted Expedia/Booking search URLs — send users to Google Hotels instead.
+  if (override && !shouldReplaceOtaHotelUrl(override)) {
     return {
-      url: params.overrideUrl,
-      provider: inferHotelProvider(params.overrideUrl),
+      url: override,
+      provider: inferHotelProvider(override),
       category: "hotel",
       isAffiliate: false,
       context: params.context,
@@ -128,17 +130,60 @@ function buildGoogleHotelsSearchUrl(
   return `https://www.google.com/travel/hotels?q=${encodeURIComponent(base)}`;
 }
 
+/** Pass through — property or brand sites users expect to land on directly. */
+const DIRECT_HOTEL_BRAND_HOSTS = new Set([
+  "marriott.com",
+  "hilton.com",
+  "hyatt.com",
+  "ihg.com",
+  "choicehotels.com",
+  "wyndhamhotels.com",
+  "bestwestern.com",
+  "accor.com",
+  "radissonhotels.com",
+  "omnihotels.com",
+  "loewshotels.com",
+  "sonesta.com",
+]);
+
 /**
  * True when the URL should be replaced with a Google Hotels search (OTA / affiliate
  * wrappers). Direct hotel brand sites (marriott.com, hilton.com, …) stay false.
  */
 export function shouldReplaceOtaHotelUrl(url: string): boolean {
   if (!url || typeof url !== "string") return true;
-  const u = url.trim().toLowerCase();
+  const raw = url.trim();
+  const u = raw.toLowerCase();
   if (!u.startsWith("http")) return true;
+
+  // Shorteners / redirects often wrap Expedia/Booking; host alone misses these.
+  const otaInFullString =
+    /(^|\/\/|\.)(expedia\.(com|net|[a-z]{2,3})|booking\.com|hotels\.com|hotel\.com|agoda\.com|priceline\.com|orbitz\.com|travelocity\.com|trip\.com|vrbo\.com|trivago\.com|momondo\.com|kayak\.com|hometogo\.com)\b/i.test(
+      u
+    ) || /\b(awin1\.com|linksynergy\.com|shareasale\.com|anrdoezrs\.net|ojrq\.net|dpbolvw\.net|kqzyfj\.com|jdoqocy\.com|goto\.target)\b/i.test(
+      u
+    );
+  if (otaInFullString && !u.includes("google.com/travel/hotels")) {
+    try {
+      const parsed = new URL(raw);
+      const host = parsed.hostname.replace(/^www\./, "");
+      const base = host.replace(/^m\./, "");
+      if (DIRECT_HOTEL_BRAND_HOSTS.has(base) || [...DIRECT_HOTEL_BRAND_HOSTS].some((d) => base === d || base.endsWith("." + d))) {
+        return false;
+      }
+    } catch {
+      /* fall through */
+    }
+    return true;
+  }
+
   try {
-    const parsed = new URL(u);
+    const parsed = new URL(raw);
     const host = parsed.hostname.replace(/^www\./, "");
+    const base = host.replace(/^m\./, "");
+    if (DIRECT_HOTEL_BRAND_HOSTS.has(base) || [...DIRECT_HOTEL_BRAND_HOSTS].some((d) => base === d || base.endsWith("." + d))) {
+      return false;
+    }
     const ota = [
       "booking.com",
       "expedia.com",
@@ -148,10 +193,17 @@ export function shouldReplaceOtaHotelUrl(url: string): boolean {
       "priceline.com",
       "orbitz.com",
       "travelocity.com",
+      "trip.com",
+      "vrbo.com",
+      "trivago.com",
+      "momondo.com",
+      "hometogo.com",
     ];
-    if (ota.some((d) => host === d || host.endsWith("." + d))) return true;
+    if (ota.some((d) => base === d || base.endsWith("." + d))) return true;
     if (host === "awin1.com" || host.endsWith(".awin1.com")) return true;
     if (host.includes("expedia.")) return true;
+    if (host.includes("linksynergy.com") || host.includes("shareasale.com")) return true;
+    if (/^kayak\.com$/i.test(base) || base.endsWith(".kayak.com")) return true;
     return false;
   } catch {
     return true;

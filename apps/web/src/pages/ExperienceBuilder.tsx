@@ -206,6 +206,7 @@ export default function ExperienceBuilder() {
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
       const searchRequest = {
+        artist: concert.artist?.trim(),
         destination: { city: concert.city },
         dates: { start_date: savedParams.finalStart, end_date: savedParams.finalEnd },
         group_size: Math.min(Math.max(savedParams.groupSize, 1), 20),
