@@ -138,39 +138,33 @@ serve(async (req) => {
         const MAX_RETURN = artistSearch ? 5 : 7;
         const discoverMaxTokens = 2048;
 
-        const eventHint = artistSearch
-          ? `Find ${LLM_COUNT} different tour dates for "${artistSearch}" in different cities. Each option must be this artist.`
+        const genreInstruction = artistSearch
+          ? `Find up to ${LLM_COUNT} upcoming US tour dates for "${artistSearch}" across different cities.`
           : isWideDiscover
-          ? `Pick ${LLM_COUNT} high-demand upcoming arena or amphitheater concerts — mix genres (country, rock, pop, hip-hop, etc.). Every option must be a DIFFERENT artist. Spread across several cities when possible.`
+          ? `Find up to ${LLM_COUNT} high-demand upcoming US concerts across mixed genres (country, rock, pop, hip-hop, R&B, etc.). Every option must be a DIFFERENT artist.`
           : hasSpecificGenres
-          ? `User selected these genre preferences: ${specifiedGenres}. Pick ${LLM_COUNT} options — return ONLY concerts that match these genres: ${specifiedGenres}. Every option must be a DIFFERENT artist. Do NOT include concerts outside these genres.`
-          : (p.event_details
-            ? `User genre preferences: ${String(p.event_details).slice(0, 200)}. Pick ${LLM_COUNT} options with a DIFFERENT artist each and match the listed genres where possible.`
-            : "");
-        const discoverPrompt = `Search the web for ${LLM_COUNT} REAL upcoming concerts. Return ONLY valid JSON with this exact structure (no markdown):
+          ? `Find up to ${LLM_COUNT} upcoming US concerts in the ${specifiedGenres} genre(s). Every option must be a DIFFERENT artist. ONLY include artists in the ${specifiedGenres} genre(s).`
+          : p.event_details
+          ? `User preference: ${String(p.event_details).slice(0, 200)}. Find up to ${LLM_COUNT} upcoming US concerts with a DIFFERENT artist each.`
+          : `Find up to ${LLM_COUNT} upcoming US concerts.`;
 
-{
-  "concert_options": [
-    { "artist": "string", "city": "string", "venue": "string", "date": "YYYY-MM-DD", "url": "ticket purchase URL" },
-    ... (exactly ${LLM_COUNT} options)
-  ]
-}
+        const locationInstruction = cityList.length > 0
+          ? `Prioritize these cities: ${cityList.join(", ")}. Use other US cities only if needed.`
+          : `Use cities with good golf access: Nashville, Austin, Las Vegas, Phoenix, Dallas, Atlanta, Denver, Tampa, Charlotte, Miami, San Diego, Seattle, Chicago.`;
 
-Requirements:
-- Venue capacity must be at least 5,000 people (arenas, amphitheaters, large venues only)
-- Concert MUST be in the United States (US-only). Do NOT return international dates/cities.
-- Concert must be in a city with good public golf nearby (Nashville, Phoenix, Austin, Vegas, Denver, Atlanta, Dallas, etc.)
-- Use Ticketmaster, SeatGeek, StubHub, or official venue sites. Return real ticket URLs.
-- Dates MUST be between ${discStart} and ${discEnd}. Use YYYY-MM-DD format for the date field.
-- ${cityHint}
-${eventHint}
-- IMPORTANT: All ${LLM_COUNT} options must be DIFFERENT artists. Never return the same artist more than once.
-- Pick ${LLM_COUNT} different artist+city+date combinations so the user has real choices
-${artistSearch
-          ? `- CRITICAL: All ${LLM_COUNT} must be "${artistSearch}" — different cities and dates on their tour.`
-          : hasSpecificGenres
-          ? `- MANDATORY: Every concert MUST be in one of these genres: ${specifiedGenres}. Reject any result that does not match. Do not mix in other genres.`
-          : "- Vary the genres across the picks to match the user's preferences."}`;
+        const discoverPrompt = `${genreInstruction}
+
+Return ONLY a JSON object in this exact format (no markdown, no explanation):
+{"concert_options":[{"artist":"NAME","city":"CITY","venue":"VENUE","date":"YYYY-MM-DD","url":"TICKET_URL_OR_EMPTY"}]}
+
+Rules:
+- US shows only (no international dates)
+- Venue must hold at least 3,000 people
+- Dates must be between ${discStart} and ${discEnd}
+- ${locationInstruction}
+- Each entry must be a different artist${artistSearch ? ` (all must be "${artistSearch}" on different dates/cities)` : ""}
+- If you cannot find a ticket URL, use an empty string for url — do NOT omit the field
+- Return as many as you can find up to ${LLM_COUNT}; do not pad with fake concerts`;
 
         const discRes = await fetch("https://api.perplexity.ai/chat/completions", {
           method: "POST",
@@ -179,12 +173,12 @@ ${artistSearch
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            model: "sonar",
+            model: "sonar-pro",
             messages: [
-              { role: "system", content: "You return only valid JSON. No markdown, no explanation." },
+              { role: "system", content: "You are a concert data assistant. Return only valid JSON with no markdown fences, no explanation, and no extra text before or after the JSON object." },
               { role: "user", content: discoverPrompt },
             ],
-            temperature: 0.7,
+            temperature: 0.3,
             max_tokens: discoverMaxTokens,
           }),
         });
@@ -209,19 +203,41 @@ ${artistSearch
         }
         let concertOptions: any;
         try {
-          const cleaned = discContent.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+          // Strip markdown fences, then try to extract the JSON object even if surrounded by text
+          let cleaned = discContent.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+          // If not valid top-level JSON, try to find the first { ... } block
+          if (!cleaned.startsWith("{") && !cleaned.startsWith("[")) {
+            const start = cleaned.indexOf("{");
+            const end = cleaned.lastIndexOf("}");
+            if (start !== -1 && end > start) cleaned = cleaned.slice(start, end + 1);
+          }
           concertOptions = JSON.parse(cleaned);
         } catch {
           const lower = discContent.toLowerCase();
-          if (lower.includes("no upcoming") || lower.includes("couldn't find") || lower.includes("could not find") || lower.includes("not touring") || lower.includes("no concerts")) {
-            return new Response(JSON.stringify({ success: true, concert_options: [] }), {
-              headers: { ...corsHeaders, "Content-Type": "application/json" },
-            });
+          const cannotFind = [
+            "no upcoming", "couldn't find", "could not find", "not touring",
+            "no concerts", "unable to", "i don't have", "i cannot", "i'm unable",
+            "no results", "no information", "i apologize", "not available",
+          ];
+          if (cannotFind.some((kw) => lower.includes(kw))) {
+            console.log("[DISCOVER] LLM returned no-results text, triggering backfill-only path");
+            concertOptions = { concert_options: [] };
+          } else {
+            console.error("Failed to parse discovery JSON:", discContent.substring(0, 500));
+            // Try one more time — extract anything that looks like a JSON array
+            const arrStart = discContent.indexOf("[");
+            const arrEnd = discContent.lastIndexOf("]");
+            if (arrStart !== -1 && arrEnd > arrStart) {
+              try {
+                const arr = JSON.parse(discContent.slice(arrStart, arrEnd + 1));
+                concertOptions = { concert_options: arr };
+              } catch {
+                concertOptions = { concert_options: [] };
+              }
+            } else {
+              concertOptions = { concert_options: [] };
+            }
           }
-          console.error("Failed to parse discovery JSON:", discContent.substring(0, 300));
-          return new Response(JSON.stringify({ error: "Invalid discovery response format" }), {
-            status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
         }
 
         // Preserve every raw LLM row before any filtering — emergency fallback if nothing else survives.
