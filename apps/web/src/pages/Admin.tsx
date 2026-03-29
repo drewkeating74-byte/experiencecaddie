@@ -437,46 +437,136 @@ function AdminCourses() {
 
 // --- Packages ---
 function AdminPackages() {
-  const { items, loading, refresh, remove } = useCrud<any>("packages", "*, events(name), golf_courses(name), destinations(name)");
+  const [items, setItems] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const [events, setEvents] = useState<any[]>([]);
   const [courses, setCourses] = useState<any[]>([]);
   const [destinations, setDestinations] = useState<any[]>([]);
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ name: "", event_id: "", golf_course_id: "", destination_id: "", price: "", original_price: "", category: "weekend", featured: false, description: "" });
+  const [editItem, setEditItem] = useState<any | null>(null);
+  const emptyForm = {
+    name: "", event_id: "", golf_course_id: "", destination_id: "",
+    price: "", original_price: "", category: "Golf + Concert",
+    featured: false, active: true, description: "", image_url: "",
+    hotel_name: "", hotel_url: "", expires_at: "",
+  };
+  const [form, setForm] = useState<typeof emptyForm>(emptyForm);
+
+  const refresh = async () => {
+    setLoading(true);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data } = await (supabase.from("packages") as any)
+      .select("*, events(name, event_date, artists(name)), golf_courses(name), destinations(name, city)")
+      .order("expires_at", { ascending: true });
+    if (data) setItems(data);
+    setLoading(false);
+  };
 
   useEffect(() => {
-    supabase.from("events").select("id, name").then(({ data }) => { if (data) setEvents(data); });
-    supabase.from("golf_courses").select("id, name").then(({ data }) => { if (data) setCourses(data); });
-    supabase.from("destinations").select("id, name").then(({ data }) => { if (data) setDestinations(data); });
+    refresh();
+    supabase.from("events").select("id, name, event_date").order("event_date").then(({ data }) => { if (data) setEvents(data); });
+    supabase.from("golf_courses").select("id, name").order("name").then(({ data }) => { if (data) setCourses(data); });
+    supabase.from("destinations").select("id, name").order("name").then(({ data }) => { if (data) setDestinations(data); });
   }, []);
 
+  const openAdd = () => { setEditItem(null); setForm(emptyForm); setOpen(true); };
+  const openEdit = (pkg: any) => {
+    setEditItem(pkg);
+    setForm({
+      name: pkg.name ?? "",
+      event_id: pkg.event_id ?? "",
+      golf_course_id: pkg.golf_course_id ?? "",
+      destination_id: pkg.destination_id ?? "",
+      price: pkg.price?.toString() ?? "",
+      original_price: pkg.original_price?.toString() ?? "",
+      category: pkg.category ?? "Golf + Concert",
+      featured: pkg.featured ?? false,
+      active: pkg.active ?? true,
+      description: pkg.description ?? "",
+      image_url: pkg.image_url ?? "",
+      hotel_name: pkg.hotel_name ?? "",
+      hotel_url: pkg.hotel_url ?? "",
+      expires_at: pkg.expires_at ? pkg.expires_at.slice(0, 10) : "",
+    });
+    setOpen(true);
+  };
+
   const save = async () => {
-    const { error } = await supabase.from("packages").insert({
-      ...form,
+    const payload: Record<string, unknown> = {
+      name: form.name,
       event_id: form.event_id || null,
       golf_course_id: form.golf_course_id || null,
       destination_id: form.destination_id || null,
-      price: parseFloat(form.price),
+      price: parseFloat(form.price) || 0,
       original_price: form.original_price ? parseFloat(form.original_price) : null,
-    });
+      category: form.category,
+      featured: form.featured,
+      active: form.active,
+      description: form.description || null,
+      image_url: form.image_url || null,
+      hotel_name: form.hotel_name || null,
+      hotel_url: form.hotel_url || null,
+      expires_at: form.expires_at ? new Date(form.expires_at + "T23:59:59").toISOString() : null,
+    };
+    let error: any;
+    if (editItem) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ({ error } = await (supabase.from("packages") as any).update(payload).eq("id", editItem.id));
+    } else {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ({ error } = await (supabase.from("packages") as any).insert(payload));
+    }
     if (error) toast.error(error.message);
-    else { toast.success("Package added"); setOpen(false); setForm({ name: "", event_id: "", golf_course_id: "", destination_id: "", price: "", original_price: "", category: "weekend", featured: false, description: "" }); refresh(); }
+    else { toast.success(editItem ? "Package updated" : "Package created"); setOpen(false); refresh(); }
+  };
+
+  const remove = async (id: string) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error } = await (supabase.from("packages") as any).delete().eq("id", id);
+    if (error) toast.error("Delete failed: " + error.message);
+    else { toast.success("Deleted"); refresh(); }
+  };
+
+  const toggleField = async (pkg: any, field: "active" | "featured") => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (supabase.from("packages") as any).update({ [field]: !pkg[field] }).eq("id", pkg.id);
+    refresh();
+  };
+
+  const now = new Date();
+  const statusBadge = (pkg: any) => {
+    if (!pkg.active) return <Badge variant="outline" className="text-muted-foreground">Inactive</Badge>;
+    if (pkg.expires_at && new Date(pkg.expires_at) < now) return <Badge variant="destructive">Expired</Badge>;
+    if (pkg.expires_at) {
+      const daysLeft = Math.ceil((new Date(pkg.expires_at).getTime() - now.getTime()) / (86400 * 1000));
+      if (daysLeft <= 7) return <Badge className="bg-orange-500 text-white">Ends in {daysLeft}d</Badge>;
+    }
+    return <Badge className="bg-emerald-600 text-white">Live</Badge>;
   };
 
   return (
     <Card className="mt-4">
       <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle className="font-serif">Packages</CardTitle>
+        <div>
+          <CardTitle className="font-serif">Packages</CardTitle>
+          <p className="mt-0.5 text-xs text-muted-foreground">Sorted by expiration · Add a package in ~5 minutes</p>
+        </div>
         <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger asChild><Button size="sm"><Plus className="mr-1 h-4 w-4" />Add</Button></DialogTrigger>
-          <DialogContent className="max-h-[90vh] overflow-y-auto">
-            <DialogHeader><DialogTitle>Create Package</DialogTitle></DialogHeader>
-            <div className="space-y-3">
-              <div><Label>Package Name</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
-              <div><Label>Event</Label>
+          <DialogTrigger asChild>
+            <Button size="sm" onClick={openAdd}><Plus className="mr-1 h-4 w-4" />Add Package</Button>
+          </DialogTrigger>
+          <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+            <DialogHeader>
+              <DialogTitle>{editItem ? "Edit Package" : "Create Package"}</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3 pb-2">
+              <div><Label>Package Name</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Artist + Golf Course | City, ST" /></div>
+
+              {/* Core links */}
+              <div><Label>Concert / Event</Label>
                 <Select value={form.event_id} onValueChange={(v) => setForm({ ...form, event_id: v })}>
                   <SelectTrigger><SelectValue placeholder="Select event" /></SelectTrigger>
-                  <SelectContent>{events.map((e) => <SelectItem key={e.id} value={e.id}>{e.name}</SelectItem>)}</SelectContent>
+                  <SelectContent>{events.map((e) => <SelectItem key={e.id} value={e.id}>{e.name} {e.event_date ? `(${e.event_date})` : ""}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
               <div><Label>Golf Course</Label>
@@ -491,45 +581,94 @@ function AdminPackages() {
                   <SelectContent>{destinations.map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
+
+              {/* Hotel */}
+              <div className="rounded-md border border-border/60 p-3 space-y-2">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Hotel recommendation (optional)</p>
+                <div><Label>Hotel Name</Label><Input value={form.hotel_name} onChange={(e) => setForm({ ...form, hotel_name: e.target.value })} placeholder="e.g. JW Marriott Austin" /></div>
+                <div><Label>Hotel Booking URL</Label><Input value={form.hotel_url} onChange={(e) => setForm({ ...form, hotel_url: e.target.value })} placeholder="https://..." /></div>
+              </div>
+
+              {/* Pricing */}
               <div className="grid grid-cols-2 gap-2">
-                <div><Label>Price</Label><Input type="number" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} /></div>
-                <div><Label>Original Price</Label><Input type="number" value={form.original_price} onChange={(e) => setForm({ ...form, original_price: e.target.value })} /></div>
+                <div><Label>Price / person ($)</Label><Input type="number" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} /></div>
+                <div><Label>Original Price ($)</Label><Input type="number" value={form.original_price} onChange={(e) => setForm({ ...form, original_price: e.target.value })} /></div>
               </div>
               <div><Label>Category</Label>
                 <Select value={form.category} onValueChange={(v) => setForm({ ...form, category: v })}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="weekend">Weekend</SelectItem>
-                    <SelectItem value="vip">VIP</SelectItem>
-                    <SelectItem value="budget">Budget</SelectItem>
-                    <SelectItem value="midweek">Midweek</SelectItem>
+                    <SelectItem value="Golf + Concert">Golf + Concert</SelectItem>
+                    <SelectItem value="VIP">VIP</SelectItem>
+                    <SelectItem value="Budget">Budget</SelectItem>
+                    <SelectItem value="Weekend">Weekend</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
-              <div className="flex items-center gap-2">
-                <Switch checked={form.featured} onCheckedChange={(v) => setForm({ ...form, featured: v })} />
-                <Label>Featured</Label>
+
+              {/* Visibility */}
+              <div className="rounded-md border border-border/60 p-3 space-y-2">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Visibility</p>
+                <div className="flex items-center gap-6">
+                  <div className="flex items-center gap-2">
+                    <Switch checked={form.active} onCheckedChange={(v) => setForm({ ...form, active: v })} />
+                    <Label>Published</Label>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Switch checked={form.featured} onCheckedChange={(v) => setForm({ ...form, featured: v })} />
+                    <Label>Featured on homepage</Label>
+                  </div>
+                </div>
+                <div>
+                  <Label>Expires on (auto-hide after this date)</Label>
+                  <Input type="date" value={form.expires_at} onChange={(e) => setForm({ ...form, expires_at: e.target.value })} />
+                </div>
               </div>
-              <div><Label>Description</Label><Textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></div>
-              <Button onClick={save} className="w-full">Save</Button>
+
+              <div><Label>Image URL</Label><Input value={form.image_url} onChange={(e) => setForm({ ...form, image_url: e.target.value })} placeholder="https://images.unsplash.com/..." /></div>
+              <div><Label>Description</Label><Textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={3} /></div>
+
+              <Button onClick={save} className="w-full">{editItem ? "Save Changes" : "Create Package"}</Button>
             </div>
           </DialogContent>
         </Dialog>
       </CardHeader>
       <CardContent>
-        {loading ? <p>Loading...</p> : (
+        {loading ? <p className="text-sm text-muted-foreground">Loading...</p> : (
           <Table>
-            <TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Event</TableHead><TableHead>Course</TableHead><TableHead>Price</TableHead><TableHead>Category</TableHead><TableHead>Featured</TableHead><TableHead></TableHead></TableRow></TableHeader>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Package</TableHead>
+                <TableHead>Event date</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Featured</TableHead>
+                <TableHead>Price</TableHead>
+                <TableHead></TableHead>
+              </TableRow>
+            </TableHeader>
             <TableBody>
               {items.map((p: any) => (
-                <TableRow key={p.id}>
-                  <TableCell className="font-medium">{p.name}</TableCell>
-                  <TableCell>{p.events?.name}</TableCell>
-                  <TableCell>{p.golf_courses?.name}</TableCell>
-                  <TableCell>${p.price}</TableCell>
-                  <TableCell><Badge variant="secondary">{p.category}</Badge></TableCell>
-                  <TableCell>{p.featured ? "⭐" : "—"}</TableCell>
-                  <TableCell><Button variant="ghost" size="icon" onClick={() => remove(p.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button></TableCell>
+                <TableRow key={p.id} className={!p.active || (p.expires_at && new Date(p.expires_at) < now) ? "opacity-50" : ""}>
+                  <TableCell>
+                    <div className="font-medium text-sm leading-tight max-w-[220px]">{p.name}</div>
+                    <div className="text-xs text-muted-foreground">{p.golf_courses?.name}</div>
+                  </TableCell>
+                  <TableCell className="text-sm">
+                    {p.events?.event_date
+                      ? new Date(p.events.event_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+                      : "—"}
+                  </TableCell>
+                  <TableCell>{statusBadge(p)}</TableCell>
+                  <TableCell>
+                    <button title="Toggle featured" onClick={() => toggleField(p, "featured")} className="text-lg">{p.featured ? "⭐" : "☆"}</button>
+                  </TableCell>
+                  <TableCell className="text-sm">${p.price}</TableCell>
+                  <TableCell>
+                    <div className="flex gap-1">
+                      <Button variant="ghost" size="icon" title="Edit" onClick={() => openEdit(p)}><Edit className="h-4 w-4" /></Button>
+                      <Button variant="ghost" size="icon" title="Delete" onClick={() => remove(p.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                    </div>
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>

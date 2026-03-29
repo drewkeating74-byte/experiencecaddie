@@ -412,6 +412,7 @@ export default function ExperienceBuilder() {
         }
         const opts = (discData.concert_options || []) as any[];
         if (!opts.length) {
+          logEvent({ event_type: "no_results_shown", artist_name: eventInput.trim() || undefined, context: "planner_result" });
           setDiscoveryStep("no_results");
           return;
         }
@@ -427,6 +428,7 @@ export default function ExperienceBuilder() {
           toast.error(isAbort ? "Request timed out. Keep the tab open and try again." : msg);
           setDiscoveryStep("form");
         } else {
+          logEvent({ event_type: "no_results_shown", artist_name: eventInput.trim() || undefined, context: "planner_result", extra: { error: msg } });
           setDiscoveryStep("no_results");
         }
       }
@@ -528,35 +530,56 @@ export default function ExperienceBuilder() {
           <div className="space-y-2">
             <h2 className="font-serif text-2xl font-bold">
               {artistName
-                ? `No upcoming tour dates for ${artistName}`
-                : "No concerts found"}
+                ? `No verified package for ${artistName} right now`
+                : "No verified packages found"}
             </h2>
             <p className="text-muted-foreground max-w-md">
-              {artistName ? (
-                <>
-                  We couldn't find any upcoming concerts or tour dates for <strong>{artistName}</strong> in your date range.
-                  They may not be touring right now, or dates could be outside our search window.
-                </>
-              ) : (
-                "We couldn't find any concerts matching your criteria in your date range. Try broadening your search or adjusting your dates."
-              )}
+              We only show packages tied to confirmed tour dates and bookable venues.{" "}
+              {artistName
+                ? `${artistName} may not have confirmed dates in our covered cities yet.`
+                : "Try a different artist or city to find something available now."}
             </p>
           </div>
-          <div className="flex flex-wrap gap-3 justify-center">
+
+          {/* 3 clear next actions */}
+          <div className="w-full max-w-sm space-y-3">
+            <Button
+              className="w-full rounded-full"
+              onClick={() => {
+                logEvent({ event_type: "browse_current_packages_clicked", artist_name: artistName ?? undefined, context: "planner_result" });
+                navigate("/packages");
+              }}
+            >
+              <ArrowRight className="mr-2 h-4 w-4" /> Browse current verified packages
+            </Button>
             <Button
               variant="outline"
-              onClick={() => { setDiscoveryStep("form"); }}
-              className="rounded-full"
+              className="w-full rounded-full"
+              onClick={() => {
+                logEvent({ event_type: "alternative_search_clicked", artist_name: artistName ?? undefined, context: "planner_result" });
+                setDiscoveryStep("form");
+                setEventInput("");
+              }}
             >
-              <ArrowLeft className="mr-2 h-4 w-4" /> Try different dates or artist
+              <Search className="mr-2 h-4 w-4" /> Try a different artist
             </Button>
             <Button
-              onClick={() => { setStep("start"); setDiscoveryStep("form"); setSelectedEntry("find_concert"); }}
-              className="rounded-full"
+              variant="ghost"
+              className="w-full rounded-full text-muted-foreground"
+              onClick={() => {
+                logEvent({ event_type: "alternative_search_clicked", artist_name: artistName ?? undefined, extra: { action: "explore_cities" }, context: "planner_result" });
+                setDiscoveryStep("form");
+                setSelectedEntry("find_concert");
+                setEventInput("");
+              }}
             >
-              <Search className="mr-2 h-4 w-4" /> Explore other artists
+              <MapPin className="mr-2 h-4 w-4" /> Explore available cities this month
             </Button>
           </div>
+
+          <p className="text-xs text-muted-foreground max-w-xs">
+            New packages are added as confirmed tour dates are announced. We never show speculative or unconfirmed availability.
+          </p>
         </div>
       </div>
     );

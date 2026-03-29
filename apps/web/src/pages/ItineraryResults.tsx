@@ -19,6 +19,8 @@ import { Label } from "@/components/ui/label";
 import { Hotel, Music, Utensils, ExternalLink, Copy, ArrowLeft, Loader2, Mail, Bookmark, BookmarkCheck, RefreshCw } from "lucide-react";
 import { GolfTrustPanel, EventTrustPanel, HotelTrustPanel } from "@/components/TrustPanel";
 import { normalizeOutboundLink, getOutboundLinkDisplayLabel } from "@/types/outbound-link";
+import { buildHotelUrl } from "@/lib/outboundLinks";
+import { logEvent } from "@/lib/analytics";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { fetchSearch } from "@/lib/api/search";
@@ -322,10 +324,28 @@ export default function ItineraryResults() {
     meta?: { provider?: string; category?: string; link_type?: string }
   ) => {
     if (!user) {
-      // Save the intended link so it auto-opens after the user signs in.
       sessionStorage.setItem("post_auth_link", url);
       navigate(`/auth?redirect=${encodeURIComponent(window.location.pathname)}`);
       return;
+    }
+
+    // Fire analytics event for monetizable outbound clicks
+    const analyticsType =
+      meta?.category === "hotel" ? "hotel_link_clicked" :
+      meta?.category === "concert" ? "ticket_link_clicked" :
+      meta?.category === "golf" ? "golf_link_clicked" : null;
+    if (analyticsType) {
+      logEvent({
+        event_type: analyticsType,
+        package_id: (itinerary as any)?.package_id ?? undefined,
+        context: "itinerary",
+        extra: {
+          tier,
+          provider: meta?.provider,
+          link_type: meta?.link_type,
+          label,
+        },
+      });
     }
 
     const itineraryId = itinerary?.id;
@@ -706,8 +726,27 @@ export default function ItineraryResults() {
                       </CardHeader>
                       <CardContent className="space-y-3">
                         {lodgingItems.map((h: any, i: number) => {
-                          const hotelLink = normalizeOutboundLink(h.link || h.url, "hotel");
-                          const hasUrl = (h.link?.url || h.url || "").trim();
+                          const rawNormalized = normalizeOutboundLink(h.link || h.url, "hotel");
+                          // Upgrade low-quality hotel URLs (generic search pages / fallbacks) to
+                          // an Expedia affiliate-aware search link with destination + dates.
+                          const shouldUpgrade =
+                            rawNormalized.link_type === "provider_search" ||
+                            rawNormalized.link_type === "manual_fallback";
+                          const hotelLink = shouldUpgrade
+                            ? {
+                                ...rawNormalized,
+                                ...buildHotelUrl({
+                                  context: "itinerary",
+                                  destination: pkg.city || itinerary?.city || "",
+                                  checkIn: itinerary?.start_date ?? undefined,
+                                  checkOut: itinerary?.end_date ?? undefined,
+                                }),
+                                // Keep the label from the normalizer
+                                label: rawNormalized.label,
+                                disclaimer: rawNormalized.disclaimer,
+                              }
+                            : rawNormalized;
+                          const hasUrl = hotelLink.url.trim();
                           const buttonEl = (
                             <Button
                               size="sm"

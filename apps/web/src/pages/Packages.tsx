@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Music, MapPin, Calendar, Search, Check } from "lucide-react";
+import { Music, MapPin, Calendar, Search, Check, ArrowRight, RefreshCw } from "lucide-react";
 import { DEFAULT_PACKAGE_IMAGE } from "@/lib/constants";
 import { logEvent } from "@/lib/analytics";
 
@@ -22,16 +22,24 @@ function getIncludes(pkg: Package): string[] {
   return items;
 }
 
+/** Returns true when expires_at is within the next 7 days */
+function isExpiringSoon(pkg: Package & { expires_at?: string | null }): boolean {
+  if (!pkg.expires_at) return false;
+  const exp = new Date(pkg.expires_at).getTime();
+  const now = Date.now();
+  return exp > now && exp - now < 7 * 24 * 60 * 60 * 1000;
+}
+
 export default function Packages() {
   const [packages, setPackages] = useState<Package[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [searchParams] = useSearchParams();
   const categoryFilter = searchParams.get("category") || "all";
-  const [sort, setSort] = useState("date");
+  const [sort, setSort] = useState("upcoming");
   const [budgetTier, setBudgetTier] = useState("all");
   const [destination, setDestination] = useState("all");
-  const [month, setMonth] = useState("all");
+  const [windowFilter, setWindowFilter] = useState("all"); // "all" | "this-month" | "60-days"
   const navigate = useNavigate();
 
   function buildItineraryUrl(pkg: Package): string {
@@ -65,6 +73,7 @@ export default function Packages() {
       package_id: pkg.id,
       metro_slug: pkg.destinations?.city?.toLowerCase().replace(/[\s/]+/g, "-") ?? undefined,
       artist_name: pkg.events?.artists?.name ?? pkg.events?.name ?? undefined,
+      context: "packages_page",
     });
     navigate(buildItineraryUrl(pkg));
   }
@@ -78,7 +87,8 @@ export default function Packages() {
         "Authorization": `Bearer ${supabaseKey}`,
       };
       const select = "*, events(*, artists(*), venues(*)), golf_courses(*), destinations(*)";
-      let url = `${supabaseUrl}/rest/v1/packages?select=${encodeURIComponent(select)}&active=eq.true`;
+      const nowIso = new Date().toISOString();
+      let url = `${supabaseUrl}/rest/v1/packages?select=${encodeURIComponent(select)}&active=eq.true&or=(expires_at.is.null,expires_at.gt.${nowIso})`;
       if (categoryFilter !== "all") {
         url += `&category=eq.${encodeURIComponent(categoryFilter)}`;
       }
@@ -94,13 +104,12 @@ export default function Packages() {
     fetchPackages();
   }, [categoryFilter]);
 
-  // Derive filter options from data
+  // Derive destination options from data
   const destinations = [...new Set(packages.map(p => p.destinations?.name).filter(Boolean))] as string[];
-  const months = [...new Set(packages.map(p => {
-    if (!p.events?.event_date) return null;
-    const d = new Date(p.events.event_date);
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-  }).filter(Boolean))].sort() as string[];
+
+  const now = new Date();
+  const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+  const in60Days = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000);
 
   const filtered = packages
     .filter((p) => {
@@ -114,11 +123,13 @@ export default function Packages() {
         )) return false;
       }
       if (destination !== "all" && p.destinations?.name !== destination) return false;
-      if (month !== "all" && p.events?.event_date) {
-        const d = new Date(p.events.event_date);
-        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-        if (key !== month) return false;
-      } else if (month !== "all" && !p.events?.event_date) return false;
+
+      if (windowFilter !== "all" && p.events?.event_date) {
+        const d = new Date(p.events.event_date + "T12:00:00");
+        if (windowFilter === "this-month" && d > endOfMonth) return false;
+        if (windowFilter === "60-days" && d > in60Days) return false;
+      } else if (windowFilter !== "all" && !p.events?.event_date) return false;
+
       if (budgetTier !== "all") {
         if (budgetTier === "low" && p.price > 900) return false;
         if (budgetTier === "mid" && (p.price <= 900 || p.price > 1200)) return false;
@@ -129,19 +140,52 @@ export default function Packages() {
     .sort((a, b) => {
       if (sort === "price-low") return a.price - b.price;
       if (sort === "price-high") return b.price - a.price;
-      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      // Default: soonest event first
+      const da = a.events?.event_date ? new Date(a.events.event_date + "T12:00:00").getTime() : Infinity;
+      const db = b.events?.event_date ? new Date(b.events.event_date + "T12:00:00").getTime() : Infinity;
+      return da - db;
     });
+
+  const hasActiveFilters = budgetTier !== "all" || destination !== "all" || windowFilter !== "all" || search !== "";
 
   return (
     <div className="container mx-auto px-4 py-8">
-      <h1 className="font-serif text-3xl font-bold">Concert + Golf Packages</h1>
-      <p className="mt-1 text-muted-foreground">Find your perfect getaway</p>
+      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2">
+        <div>
+          <h1 className="font-serif text-3xl font-bold">Current Packages</h1>
+          <p className="mt-1 text-muted-foreground">
+            {packages.length > 0
+              ? `${packages.length} verified package${packages.length !== 1 ? "s" : ""} — bookable now`
+              : "Verified golf + concert weekends"}
+          </p>
+        </div>
+      </div>
 
-      <div className="mt-6 flex flex-wrap items-center gap-3">
+      {/* Quick date-window chips */}
+      <div className="mt-4 flex flex-wrap gap-2">
+        {(["all", "this-month", "60-days"] as const).map((key) => {
+          const labels = { "all": "All upcoming", "this-month": "This month", "60-days": "Next 60 days" };
+          return (
+            <button
+              key={key}
+              onClick={() => setWindowFilter(key)}
+              className={`rounded-full border px-4 py-1.5 text-sm font-medium transition-colors ${
+                windowFilter === key
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "border-border bg-background text-foreground hover:bg-muted"
+              }`}
+            >
+              {labels[key]}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center gap-3">
         <div className="relative w-full sm:w-auto sm:flex-1 sm:max-w-[240px]">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
-            placeholder="Search..."
+            placeholder="Artist, city, or course..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-9"
@@ -169,32 +213,21 @@ export default function Packages() {
             ))}
           </SelectContent>
         </Select>
-        <Select value={month} onValueChange={setMonth}>
-          <SelectTrigger className="w-[155px]">
-            <SelectValue placeholder="Month" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Months</SelectItem>
-            {months.map((m) => {
-              const [y, mo] = m.split("-");
-              const label = new Date(Number(y), Number(mo) - 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
-              return <SelectItem key={m} value={m}>{label}</SelectItem>;
-            })}
-          </SelectContent>
-        </Select>
         <Select value={sort} onValueChange={setSort}>
           <SelectTrigger className="w-[165px]">
             <SelectValue placeholder="Sort by" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="date">Newest</SelectItem>
+            <SelectItem value="upcoming">Soonest First</SelectItem>
             <SelectItem value="price-low">Price: Low → High</SelectItem>
             <SelectItem value="price-high">Price: High → Low</SelectItem>
           </SelectContent>
         </Select>
-        {(budgetTier !== "all" || destination !== "all" || month !== "all") && (
-          <Button variant="ghost" size="sm" onClick={() => { setBudgetTier("all"); setDestination("all"); setMonth("all"); }} className="text-muted-foreground">
-            Clear
+        {hasActiveFilters && (
+          <Button variant="ghost" size="sm"
+            onClick={() => { setBudgetTier("all"); setDestination("all"); setWindowFilter("all"); setSearch(""); }}
+            className="text-muted-foreground">
+            <RefreshCw className="mr-1 h-3.5 w-3.5" /> Reset
           </Button>
         )}
       </div>
@@ -203,7 +236,10 @@ export default function Packages() {
         <div className="mt-12 text-center text-muted-foreground">Loading packages...</div>
       ) : filtered.length > 0 ? (
         <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {filtered.map((pkg) => (
+          {filtered.map((pkg) => {
+            const extPkg = pkg as Package & { expires_at?: string | null };
+            const expiringSoon = isExpiringSoon(extPkg);
+            return (
             <div key={pkg.id} role="button" tabIndex={0}
               onClick={() => handlePackageClick(pkg)}
               onKeyDown={(e) => e.key === "Enter" && handlePackageClick(pkg)}
@@ -218,6 +254,11 @@ export default function Packages() {
                   {pkg.original_price && pkg.original_price > pkg.price && (
                     <Badge className="absolute left-3 top-3 bg-accent text-accent-foreground">
                       Save ${(pkg.original_price - pkg.price).toFixed(0)}
+                    </Badge>
+                  )}
+                  {expiringSoon && (
+                    <Badge className="absolute right-3 top-3 bg-orange-500 text-white">
+                      Ending soon
                     </Badge>
                   )}
                 </div>
@@ -261,18 +302,35 @@ export default function Packages() {
                 </CardContent>
               </Card>
             </div>
-          ))}
+            );
+          })}
         </div>
       ) : (
-        <div className="mt-12 rounded-lg border border-dashed border-border bg-card p-12 text-center">
-          <Music className="mx-auto h-12 w-12 text-muted-foreground/50" />
-          <h3 className="mt-4 font-serif text-xl font-semibold">New Packages Coming Soon</h3>
-          <p className="mt-2 max-w-sm mx-auto text-muted-foreground">
-            We only publish packages tied to confirmed tour dates. In the meantime, use the planner to build a custom weekend around any artist or city.
+        // ── Empty state ─────────────────────────────────────────────────────
+        <div className="mt-12 rounded-xl border border-dashed border-border bg-card p-10 text-center">
+          <Music className="mx-auto h-12 w-12 text-muted-foreground/40" />
+          <h3 className="mt-4 font-serif text-xl font-semibold">
+            {hasActiveFilters ? "No packages match those filters" : "No current packages"}
+          </h3>
+          <p className="mt-2 max-w-sm mx-auto text-muted-foreground text-sm">
+            {hasActiveFilters
+              ? "We only show verified packages tied to confirmed tour dates. Try adjusting your filters."
+              : "We don't have a verified package for that search right now. Browse what's available or use the planner."}
           </p>
-          <Button asChild size="lg" className="mt-6 rounded-full px-8">
-            <a href="/experience">Build Your Custom Weekend</a>
-          </Button>
+          <div className="mt-6 flex flex-col sm:flex-row gap-3 justify-center">
+            {hasActiveFilters && (
+              <Button variant="outline" className="rounded-full"
+                onClick={() => { setBudgetTier("all"); setDestination("all"); setWindowFilter("all"); setSearch(""); }}>
+                <RefreshCw className="mr-2 h-4 w-4" /> Show all current packages
+              </Button>
+            )}
+            <Button className="rounded-full" onClick={() => navigate("/experience")}>
+              Build a custom weekend <ArrowRight className="ml-2 h-4 w-4" />
+            </Button>
+          </div>
+          <p className="mt-4 text-xs text-muted-foreground">
+            New packages are added when confirmed tour dates are announced.
+          </p>
         </div>
       )}
     </div>

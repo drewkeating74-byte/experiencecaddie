@@ -19,13 +19,17 @@ export default function Index() {
   const [featuredPackages, setFeaturedPackages] = useState<Package[]>([]);
 
   useEffect(() => {
-    supabase
+    const nowIso = new Date().toISOString();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any)
       .from("packages")
       .select("*, events(*, artists(*), venues(*)), golf_courses(*), destinations(*)")
       .eq("featured", true)
       .eq("active", true)
+      .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
+      .order("created_at", { ascending: false })
       .limit(6)
-      .then(({ data }) => {
+      .then(({ data }: { data: unknown }) => {
         if (data) setFeaturedPackages(data as unknown as Package[]);
       });
   }, []);
@@ -129,8 +133,8 @@ export default function Index() {
         <div className="container mx-auto px-4">
           <div className="flex items-end justify-between">
             <div>
-              <h2 className="font-serif text-3xl font-bold">Featured Packages</h2>
-              <p className="mt-1 text-muted-foreground">We design the combos — you book tee times, tickets, and hotels directly with official providers.</p>
+              <h2 className="font-serif text-3xl font-bold">Current Packages</h2>
+              <p className="mt-1 text-muted-foreground">Verified, bookable now — golf + concert weekends tied to confirmed tour dates.</p>
             </div>
             <Button asChild variant="ghost" className="flex">
               <Link to="/packages">View All <ArrowRight className="ml-1 h-4 w-4" /></Link>
