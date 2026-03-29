@@ -131,11 +131,12 @@ serve(async (req) => {
         const isSurpriseFlow = !artistSearch && !hasSpecificGenres && eventDetails.includes("surprise me");
         /** Wide intent: best shows / fully flexible genres / surprise — ask for more LLM rows and return up to 7 after TM verify. */
         const isWideDiscover = !artistSearch && (isBroadDiscover || isSurpriseFlow);
-        // Both wide-discover and genre-specific flows target 7 options; min 5 so the picker feels substantial
-        const MIN_DISCOVER_OPTIONS = (isWideDiscover || hasSpecificGenres) ? 5 : 3;
-        const LLM_COUNT = artistSearch ? 6 : 12;
+        // All flows target at least 5 options so the picker always feels substantial.
+        // Artist search asks for 10 tour stops; discovery asks for 12 across different artists.
+        const MIN_DISCOVER_OPTIONS = 5;
+        const LLM_COUNT = artistSearch ? 10 : 12;
         const MAX_RETURN = artistSearch ? 5 : 7;
-        const discoverMaxTokens = (isWideDiscover || hasSpecificGenres) ? 2048 : 1400;
+        const discoverMaxTokens = 2048;
 
         const eventHint = artistSearch
           ? `Find ${LLM_COUNT} different tour dates for "${artistSearch}" in different cities. Each option must be this artist.`
