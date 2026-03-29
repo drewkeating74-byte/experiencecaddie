@@ -90,8 +90,8 @@ export default function SearchPreview() {
             <CardContent className="space-y-3">
               {data.events.map((event) => (
                 <div key={event.id} className="rounded-lg border border-border/50 p-4">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+                    <div className="min-w-0">
                       <p className="font-medium">{event.name}</p>
                       <p className="text-sm text-muted-foreground">
                         {event.venue?.name}
@@ -154,8 +154,8 @@ export default function SearchPreview() {
                 const link = normalizeOutboundLink(course.book_link || course.book_url, "golf");
                 return (
                 <div key={course.id} className="rounded-lg border border-border/50 p-4">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+                    <div className="min-w-0">
                       <p className="font-medium">{course.name}</p>
                       {(course.city || course.state) && (
                         <p className="text-sm text-muted-foreground">
@@ -168,7 +168,7 @@ export default function SearchPreview() {
                         </p>
                       )}
                     </div>
-                    <Button asChild size="sm" variant="outline" className="shrink-0">
+                    <Button asChild size="sm" variant="outline" className="sm:shrink-0 min-h-[44px] sm:min-h-0">
                       <a href={link.url} target="_blank" rel="noreferrer">
                         {getOutboundLinkDisplayLabel(link)}
                       </a>
