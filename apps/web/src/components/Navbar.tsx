@@ -79,25 +79,31 @@ export default function Navbar() {
         </div>
 
         {/* Mobile toggle */}
-        <button className="md:hidden" onClick={() => setMobileOpen(!mobileOpen)}>
+        <button
+          className="md:hidden inline-flex h-11 w-11 items-center justify-center rounded-md text-muted-foreground hover:text-foreground"
+          onClick={() => setMobileOpen(!mobileOpen)}
+          aria-label={mobileOpen ? "Close menu" : "Open menu"}
+        >
           {mobileOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
         </button>
       </nav>
 
       {/* Mobile menu */}
       {mobileOpen && (
-        <div className="border-t border-border bg-background p-4 md:hidden">
-          <div className="flex flex-col gap-3">
-            <Link to="/experience" onClick={() => setMobileOpen(false)} className="text-sm font-medium text-accent">Plan a Trip</Link>
-            <Link to="/packages" onClick={() => setMobileOpen(false)} className="text-sm font-medium">Packages</Link>
+        <div className="border-t border-border bg-background px-4 py-2 md:hidden">
+          <div className="flex flex-col">
+            <Link to="/experience" onClick={() => setMobileOpen(false)} className="flex min-h-[44px] items-center text-base font-medium text-accent">Plan a Trip</Link>
+            <Link to="/packages" onClick={() => setMobileOpen(false)} className="flex min-h-[44px] items-center text-base font-medium">Packages</Link>
             {user ? (
               <>
-                <Link to="/bookings" onClick={() => setMobileOpen(false)} className="text-sm font-medium">My Bookings</Link>
-                {isAdmin && <Link to="/admin" onClick={() => setMobileOpen(false)} className="text-sm font-medium">Admin Panel</Link>}
-                <button onClick={() => { signOut(); setMobileOpen(false); }} className="text-left text-sm font-medium text-destructive">Sign Out</button>
+                <Link to="/bookings" onClick={() => setMobileOpen(false)} className="flex min-h-[44px] items-center text-base font-medium">My Bookings</Link>
+                {isAdmin && <Link to="/admin" onClick={() => setMobileOpen(false)} className="flex min-h-[44px] items-center text-base font-medium">Admin Panel</Link>}
+                <button onClick={() => { signOut(); setMobileOpen(false); }} className="flex min-h-[44px] items-center text-left text-base font-medium text-destructive">Sign Out</button>
               </>
             ) : (
-              <Button onClick={() => { goSignIn(); setMobileOpen(false); }} size="sm" className="w-fit">Sign In</Button>
+              <div className="py-2">
+                <Button onClick={() => { goSignIn(); setMobileOpen(false); }} className="w-full">Sign In</Button>
+              </div>
             )}
           </div>
         </div>

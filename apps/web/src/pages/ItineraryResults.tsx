@@ -619,17 +619,18 @@ export default function ItineraryResults() {
 
   return (
     <div className="container mx-auto max-w-5xl px-4 py-8">
-      <div className="mb-6 flex items-center justify-between">
-        <Button variant="ghost" asChild>
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <Button variant="ghost" asChild className="w-fit">
           <Link to={newTripHref}><ArrowLeft className="mr-2 h-4 w-4" /> New Trip</Link>
         </Button>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={copyShareLink}>
+          <Button variant="outline" size="sm" className="flex-1 sm:flex-none min-h-[44px] sm:min-h-0" onClick={copyShareLink}>
             <Copy className="mr-2 h-4 w-4" /> Copy link
           </Button>
           <Button
             variant="outline"
             size="sm"
+            className="flex-1 sm:flex-none min-h-[44px] sm:min-h-0"
             onClick={() => {
               if (user) {
                 setShareEmailOpen(true);
@@ -713,9 +714,9 @@ export default function ItineraryResults() {
 
       {/* Tier Tabs */}
       <Tabs defaultValue={packages[0]?.tier || "BRONZE"}>
-        <TabsList className="mx-auto mb-6 grid w-full max-w-md grid-cols-3">
+        <TabsList className="mx-auto mb-6 grid w-full max-w-md grid-cols-3 h-12">
           {packages.map((pkg: any) => (
-            <TabsTrigger key={pkg.tier} value={pkg.tier} className="font-serif">
+            <TabsTrigger key={pkg.tier} value={pkg.tier} className="font-serif text-xs sm:text-sm h-full">
               {pkg.tier === "BRONZE" ? "🥉" : pkg.tier === "SILVER" ? "🥈" : "🥇"} {pkg.tier}
             </TabsTrigger>
           ))}
@@ -730,7 +731,7 @@ export default function ItineraryResults() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-8 w-8 p-0"
+                    className="h-11 w-11 p-0"
                     onClick={() => handleSave(pkg.tier)}
                     disabled={!user}
                     title={user ? (savedTiers.has(pkg.tier) ? "Remove from My Trips" : "Save to My Trips") : "Log in to save"}
@@ -842,9 +843,9 @@ export default function ItineraryResults() {
                           );
                           return (
                             <div key={i} className="rounded-lg border border-border/50 p-4">
-                              <div className="flex items-start justify-between gap-4">
-                                <div>
-                                  <div className="flex items-center gap-2">
+                              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+                                <div className="min-w-0">
+                                  <div className="flex flex-wrap items-center gap-2">
                                     <p className="font-medium">{h.name}</p>
                                     {h.type && (
                                       <Badge variant="secondary" className="text-xs">
@@ -863,7 +864,7 @@ export default function ItineraryResults() {
                                   )}
                                 </div>
                                 {hasUrl && (
-                                  <div className="flex flex-col items-end gap-1 max-w-[220px]">
+                                  <div className="flex flex-col gap-1 sm:items-end sm:shrink-0">
                                     {hotelLink.disclaimer ? (
                                       <Tooltip>
                                         <TooltipTrigger asChild>{buttonEl}</TooltipTrigger>
@@ -905,8 +906,8 @@ export default function ItineraryResults() {
                     <CardContent className="space-y-3">
                       {eventItems.map((e: any, i: number) => (
                         <div key={`${pkg.tier}-event-${i}-${String(e.name || "").slice(0, 50)}-${e.date_time || ""}`} className="rounded-lg border border-border/50 p-4">
-                          <div className="flex items-start justify-between gap-4">
-                            <div>
+                          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+                            <div className="min-w-0">
                               <p className="font-medium">{e.name}</p>
                               {e.venue && <p className="text-sm text-muted-foreground">{e.venue}</p>}
                               {e.date_time && <p className="text-sm text-muted-foreground">{e.date_time}</p>}
