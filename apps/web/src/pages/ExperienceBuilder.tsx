@@ -209,10 +209,34 @@ export default function ExperienceBuilder() {
     const timer = setTimeout(() => handleGenerate(), 50);
     return () => clearTimeout(timer);
     // handleGenerate reads component state via closure; we intentionally omit it
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     // from deps to avoid stale-closure warnings — the 50 ms delay guarantees
     // the state snapshot is current by the time it runs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, selectedEntry, eventInput, location.search]);
+
+  // Global Enter key shortcut — advances the form from any step without requiring
+  // the user to click a button first. Skips when focus is inside a text input/textarea
+  // so typing doesn't accidentally submit.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Enter") return;
+      const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
+      const isTyping = tag === "textarea" || (tag === "input" && (e.target as HTMLInputElement).type !== "checkbox" && (e.target as HTMLInputElement).type !== "radio");
+      if (isTyping) return;
+      if (e.defaultPrevented) return;
+      if (step === "start" && selectedEntry) {
+        e.preventDefault();
+        handleContinue();
+      } else if (step === "details" && !generating && discoveryStep === "form") {
+        e.preventDefault();
+        handleGenerate();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, selectedEntry, generating, discoveryStep]);
 
   const getEventDetails = () => {
     if (selectedEntry === "artist") return eventInput;
