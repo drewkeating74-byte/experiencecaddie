@@ -11,7 +11,7 @@ import {
 } from "@/lib/postAuthReturn";
 
 export default function Layout() {
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -19,7 +19,12 @@ export default function Layout() {
   // 1) `?ec_next=` on the OAuth redirect URL (works if sessionStorage was cleared on the round trip)
   // 2) localStorage + sessionStorage mirror from savePostAuthReturn()
   useEffect(() => {
-    if (!user) return;
+    if (loading || !user) return;
+
+    const hardGo = (path: string) => {
+      const p = path.startsWith("/") ? path : `/${path}`;
+      window.location.replace(`${window.location.origin}${p}`);
+    };
 
     const params = new URLSearchParams(location.search);
     const ecNextRaw = params.get("ec_next");
@@ -29,7 +34,7 @@ export default function Layout() {
 
       if (isSafeInternalReturnTarget(path)) {
         clearPostAuthReturn();
-        navigate(path, { replace: true });
+        hardGo(path);
         return;
       }
 
@@ -51,8 +56,8 @@ export default function Layout() {
     }
 
     clearPostAuthReturn();
-    navigate(normalized, { replace: true });
-  }, [user, navigate, location.pathname, location.search]);
+    hardGo(normalized);
+  }, [user, loading, navigate, location.pathname, location.search]);
 
   return (
     <div className="flex min-h-screen flex-col">

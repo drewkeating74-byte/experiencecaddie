@@ -1,4 +1,4 @@
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
 import { Menu, X, User, LogOut, Shield } from "lucide-react";
@@ -11,10 +11,24 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
+function authRedirectPath(location: ReturnType<typeof useLocation>): string {
+  if (location.pathname !== "/auth") {
+    return `${location.pathname}${location.search}`;
+  }
+  const fromQuery = new URLSearchParams(location.search).get("redirect");
+  return fromQuery && fromQuery.startsWith("/") ? fromQuery : "/";
+}
+
 export default function Navbar() {
   const { user, isAdmin, signOut } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
+
+  const goSignIn = () => {
+    const ret = authRedirectPath(location);
+    navigate(`/auth?redirect=${encodeURIComponent(ret)}`);
+  };
 
   return (
     <header className="sticky top-0 z-50 border-b border-border/50 bg-background/80 backdrop-blur-md">
@@ -58,7 +72,7 @@ export default function Navbar() {
               </DropdownMenuContent>
             </DropdownMenu>
           ) : (
-            <Button onClick={() => navigate("/auth")} size="sm">
+            <Button onClick={goSignIn} size="sm">
               Sign In
             </Button>
           )}
@@ -83,7 +97,7 @@ export default function Navbar() {
                 <button onClick={() => { signOut(); setMobileOpen(false); }} className="text-left text-sm font-medium text-destructive">Sign Out</button>
               </>
             ) : (
-              <Button onClick={() => { navigate("/auth"); setMobileOpen(false); }} size="sm" className="w-fit">Sign In</Button>
+              <Button onClick={() => { goSignIn(); setMobileOpen(false); }} size="sm" className="w-fit">Sign In</Button>
             )}
           </div>
         </div>

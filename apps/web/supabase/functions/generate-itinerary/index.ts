@@ -370,7 +370,7 @@ ${artistSearch ? `- CRITICAL: All ${LLM_COUNT} must be "${artistSearch}" — dif
           { id: "fallback_golf_1", name: "Mock Golf Club", city: fallbackCity, state: "TX", public_access: true, rating: 4.4, tee_time_window: { start: "07:00", end: "11:00" }, book_url: "https://www.golfnow.com/", source_url: "https://www.golfnow.com/", book_link: fallbackGolfLink, price_min: 80, price_max: 180, provider: "mock" },
         ];
         hotels = [
-          { id: "fallback_hotel_1", name: "Mock Boutique Hotel", city: fallbackCity, state: "TX", stars: 4, rating: 4.6, book_url: "https://www.google.com/travel/hotels?q=hotels", source_url: "https://www.google.com/travel/hotels?q=hotels", price_min: 160, price_max: 320, provider: "mock" },
+          { id: "fallback_hotel_1", name: "Mock Boutique Hotel", city: fallbackCity, state: "TX", stars: 4, rating: 4.6, book_url: "https://www.google.com/maps/search/?api=1&query=hotels", source_url: "https://www.google.com/maps/search/?api=1&query=hotels", price_min: 160, price_max: 320, provider: "mock" },
         ];
       }
       if (!events.length) {
@@ -426,8 +426,8 @@ ${artistSearch ? `- CRITICAL: All ${LLM_COUNT} must be "${artistSearch}" — dif
             state,
             stars: 4,
             rating: 4.6,
-            book_url: "https://www.google.com/travel/hotels?q=hotels",
-            source_url: "https://www.google.com/travel/hotels?q=hotels",
+            book_url: "https://www.google.com/maps/search/?api=1&query=hotels",
+            source_url: "https://www.google.com/maps/search/?api=1&query=hotels",
             price_min: 160,
             price_max: 320,
             provider: "mock",
@@ -524,7 +524,7 @@ ${artistSearch ? `- CRITICAL: All ${LLM_COUNT} must be "${artistSearch}" — dif
           { id: "fallback_golf_1", name: "Mock Golf Club", city, state: "TX", public_access: true, rating: 4.4, tee_time_window: { start: "07:00", end: "11:00" }, book_url: "https://www.golfnow.com/", source_url: "https://www.golfnow.com/", book_link: fallbackGolfLink, price_min: 80, price_max: 180, provider: "mock" },
         ],
         hotels: [
-          { id: "fallback_hotel_1", name: "Mock Boutique Hotel", city, state: "TX", stars: 4, rating: 4.6, book_url: "https://www.google.com/travel/hotels?q=hotels", source_url: "https://www.google.com/travel/hotels?q=hotels", price_min: 160, price_max: 320, provider: "mock" },
+          { id: "fallback_hotel_1", name: "Mock Boutique Hotel", city, state: "TX", stars: 4, rating: 4.6, book_url: "https://www.google.com/maps/search/?api=1&query=hotels", source_url: "https://www.google.com/maps/search/?api=1&query=hotels", price_min: 160, price_max: 320, provider: "mock" },
         ],
       };
     }
@@ -936,7 +936,14 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
         /\b(awin1\.com|linksynergy\.com|shareasale\.com|anrdoezrs\.net|ojrq\.net|dpbolvw\.net|kqzyfj\.com|jdoqocy\.com|goto\.target)\b/i.test(
           u
         );
-      if (otaInFullString && !u.includes("google.com/travel/hotels")) return true;
+      if (
+        otaInFullString &&
+        !u.includes("google.com/travel/hotels") &&
+        !u.includes("google.com/maps") &&
+        !u.includes("maps.google")
+      ) {
+        return true;
+      }
       try {
         const parsed = new URL(raw);
         const host = parsed.hostname.replace(/^www\./, "");
@@ -1040,7 +1047,7 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
       return { checkin, checkout: addDays(checkin, DEFAULT_HOTEL_NIGHTS) };
     };
 
-    // Google Hotels search — match web client outboundLinks.buildGoogleHotelsSearchUrl (dates in q= when available).
+    // Google Maps hotel search — match web client outboundLinks.buildGoogleMapsHotelSearchUrl (dates in query when available).
     const buildHotelSearchUrl = (name: string, city: string, state?: string, startDate?: string, endDate?: string): string => {
       const cleanCity = (city || "").trim().toLowerCase();
       const validCity = cleanCity && cleanCity !== "flexible" && cleanCity !== "various";
@@ -1068,7 +1075,7 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
         q = base.slice(0, 150);
       }
       q = q.slice(0, 200);
-      const url = `https://www.google.com/travel/hotels?q=${encodeURIComponent(q)}`;
+      const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`;
       console.log("[HOTEL_LINK_DEBUG] buildHotelSearchUrl", { query: q, url });
       return url;
     };
@@ -1091,7 +1098,7 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
         const city = (fallbackCity || "").trim().toLowerCase();
         const statePart = (fallbackState || "").trim() ? ` ${(fallbackState || "").trim()}` : "";
         const q = (city && city !== "flexible" && city !== "various") ? `hotels in ${city}${statePart}`.trim() : "hotels";
-        return `https://www.google.com/travel/hotels?q=${encodeURIComponent(q)}`;
+        return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`;
       }
       return u;
     };
@@ -1212,7 +1219,7 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
         if (replaced) {
           h.link = {
             url: finalUrl,
-            provider: finalUrl.includes("awin1.com") ? "Booking.com" : (finalUrl.includes("google.com/travel/hotels") ? "Google Hotels" : (finalUrl.includes("booking.com") ? "Booking.com" : "External")),
+            provider: finalUrl.includes("awin1.com") ? "Booking.com" : (finalUrl.includes("google.com/maps") || finalUrl.includes("maps.google") ? "Google Maps" : finalUrl.includes("google.com/travel/hotels") ? "Google Hotels" : (finalUrl.includes("booking.com") ? "Booking.com" : "External")),
             category: "hotel",
             link_type: "provider_search",
             label: "Search hotels",

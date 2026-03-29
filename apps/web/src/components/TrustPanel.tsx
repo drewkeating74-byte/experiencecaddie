@@ -17,6 +17,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   ticketmaster: "Ticketmaster",
   google_places: "Google Places",
   "Google Hotels": "Google Hotels",
+  "Google Maps": "Google Maps",
   "Google": "Google",
   "Booking.com": "Booking.com",
   "Expedia": "Expedia",

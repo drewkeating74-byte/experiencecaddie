@@ -24,7 +24,6 @@ import {
   getHotelOutboundCtaLabel,
   getTicketOutboundCtaLabel,
   getGolfOutboundCtaLabel,
-  shouldReplaceOtaHotelUrl,
   type HotelLinkSource,
 } from "@/lib/outboundLinks";
 import { logEvent } from "@/lib/analytics";
@@ -796,65 +795,34 @@ export default function ItineraryResults() {
                             linkObj ? { ...linkObj, url: urlString || linkObj.url || "" } : urlString,
                             "hotel"
                           );
-                          const weakLink =
-                            rawNormalized.link_type === "provider_search" ||
-                            rawNormalized.link_type === "manual_fallback" ||
-                            rawNormalized.link_type === "affiliate_redirect";
-                          const useGoogleHotelsSearch =
-                            weakLink ||
-                            shouldReplaceOtaHotelUrl(rawNormalized.url) ||
-                            (linkUrl.length > 0 && shouldReplaceOtaHotelUrl(linkUrl));
 
                           const googleHotelsDestination =
                             [h.name, cityDisplay].filter(Boolean).join(" ").trim() ||
                             cityDisplay ||
                             "hotels";
 
-                          let hotelLink: OutboundLink & { hotelLinkSource?: HotelLinkSource };
-                          if (tierHotelOverride) {
-                            const b = buildHotelUrl({
-                              context: "itinerary",
-                              destination: cityDisplay || "hotels",
-                              checkIn: itinerary.start_date ?? undefined,
-                              checkOut: itinerary.end_date ?? undefined,
-                              overrideUrl: tierHotelOverride,
-                            });
-                            const src = b.hotelLinkSource ?? "google_hotels";
-                            hotelLink = {
-                              ...rawNormalized,
-                              url: b.url,
-                              provider: b.provider,
-                              category: "hotel",
-                              link_type: src === "google_hotels" ? "provider_search" : "direct_listing",
-                              label: getHotelOutboundCtaLabel(src, cityDisplay),
-                              hotelLinkSource: src,
-                            };
-                          } else if (useGoogleHotelsSearch) {
-                            const b = buildHotelUrl({
-                              context: "itinerary",
-                              destination: googleHotelsDestination,
-                              checkIn: itinerary.start_date ?? undefined,
-                              checkOut: itinerary.end_date ?? undefined,
-                              overrideUrl: null,
-                            });
-                            hotelLink = {
-                              ...rawNormalized,
-                              url: b.url,
-                              provider: b.provider,
-                              category: "hotel",
-                              link_type: "provider_search",
-                              label: getHotelOutboundCtaLabel("google_hotels", cityDisplay),
-                              disclaimer: rawNormalized.disclaimer,
-                              hotelLinkSource: "google_hotels",
-                            };
-                          } else {
-                            const isGoogle = rawNormalized.url.includes("google.com/travel/hotels");
-                            hotelLink = {
-                              ...rawNormalized,
-                              label: getHotelOutboundCtaLabel(isGoogle ? "google_hotels" : "override", cityDisplay),
-                              hotelLinkSource: isGoogle ? "google_hotels" : "override",
-                            };
-                          }
+                          const overrideCandidate =
+                            (tierHotelOverride || urlString || "").trim() || null;
+                          const b = buildHotelUrl({
+                            context: "itinerary",
+                            destination: googleHotelsDestination,
+                            checkIn: itinerary.start_date ?? undefined,
+                            checkOut: itinerary.end_date ?? undefined,
+                            overrideUrl: overrideCandidate,
+                          });
+                          const src = b.hotelLinkSource ?? "google_hotels";
+                          const isGoogleFallback = src === "google_hotels";
+
+                          const hotelLink: OutboundLink & { hotelLinkSource?: HotelLinkSource } = {
+                            ...rawNormalized,
+                            url: b.url,
+                            provider: b.provider,
+                            category: "hotel",
+                            link_type: isGoogleFallback ? "provider_search" : "direct_listing",
+                            label: getHotelOutboundCtaLabel(src as HotelLinkSource, cityDisplay),
+                            disclaimer: rawNormalized.disclaimer,
+                            hotelLinkSource: src as HotelLinkSource,
+                          };
 
                           const cta = getHotelOutboundCtaLabel(hotelLink.hotelLinkSource, cityDisplay);
                           const hasUrl = hotelLink.url.trim();

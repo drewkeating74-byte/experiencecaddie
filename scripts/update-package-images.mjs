@@ -1,12 +1,19 @@
 /**
  * Patches all 9 featured packages with 9 unique Unsplash images.
  * Images are chosen to reflect the artist genre and city vibe.
- * Run: node scripts/update-package-images.mjs
+ * Run: node --env-file=.env scripts/update-package-images.mjs
+ *
+ * Requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (never commit these).
  */
 
-const SUPABASE_URL = "https://kxibaydbhquospzoefva.supabase.co";
-const SERVICE_ROLE_KEY =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt4aWJheWRiaHF1b3Nwem9lZnZhIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MjMxNzI3NiwiZXhwIjoyMDg3ODkzMjc2fQ.elMfxybHtpeh0vHHy9P0KmTBowyJLiYkF7WiiIcI9cw";
+const SUPABASE_URL = process.env.SUPABASE_URL?.trim();
+const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
+  console.error(
+    "Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY. Set them in the environment (e.g. .env at repo root)."
+  );
+  process.exit(1);
+}
 
 async function patchPackage(id, image_url) {
   const res = await fetch(

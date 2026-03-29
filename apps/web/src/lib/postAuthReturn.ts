@@ -11,7 +11,8 @@ const COOKIE_NAME = "ec_post_auth_return";
 function setReturnCookie(pathWithSearch: string): void {
   try {
     const enc = encodeURIComponent(pathWithSearch);
-    document.cookie = `${COOKIE_NAME}=${enc}; path=/; max-age=600; SameSite=Lax`;
+    const secure = typeof window !== "undefined" && window.location.protocol === "https:" ? "; Secure" : "";
+    document.cookie = `${COOKIE_NAME}=${enc}; path=/; max-age=600; SameSite=Lax${secure}`;
   } catch {
     /* ignore */
   }

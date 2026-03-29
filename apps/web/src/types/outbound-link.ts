@@ -33,6 +33,7 @@ export type OutboundLinkInput = string | Partial<OutboundLink> | null | undefine
 function inferProviderFromUrl(url: string, category: OutboundLinkCategory): string {
   const u = url.toLowerCase();
   if (u.includes("google.com/search") && category === "concert") return "Google";
+  if (u.includes("google.com/maps") || u.includes("maps.google")) return "Google Maps";
   if (u.includes("google.com/travel/hotels")) return "Google Hotels";
   if (u.includes("ticketmaster.com")) return "Ticketmaster";
   if (u.includes("livenation.com")) return "Live Nation";
@@ -49,7 +50,7 @@ function inferProviderFromUrl(url: string, category: OutboundLinkCategory): stri
 
 function inferLinkTypeFromUrl(url: string, category: OutboundLinkCategory): OutboundLinkType {
   const u = url.toLowerCase();
-  if (u.includes("searchresults") || u.includes("google.com/travel/hotels") || (u.includes("google.com/search") && u.includes("q=")) || (u.includes("/search") && (u.includes("q=") || u.includes("ss=")))) return "provider_search";
+  if (u.includes("searchresults") || u.includes("google.com/travel/hotels") || u.includes("google.com/maps/search") || (u.includes("google.com/search") && u.includes("q=")) || (u.includes("/search") && (u.includes("q=") || u.includes("ss=") || u.includes("query=")))) return "provider_search";
   if (u.includes("/event/") || u.includes("-tickets/")) return "direct_event";
   if (u.includes("/hotel/") && (u.includes("booking.com") || u.includes("expedia.com") || u.includes("hotels.com"))) return "direct_listing";
   if (category === "golf") {
@@ -71,8 +72,8 @@ export function normalizeOutboundLink(
 ): OutboundLink {
   if (input == null || (typeof input === "string" && !input.trim())) {
     return {
-      url: category === "concert" ? "https://www.google.com/search?q=concerts+tickets" : category === "hotel" ? "https://www.google.com/travel/hotels?q=hotels" : "https://www.golfnow.com/",
-      provider: category === "concert" ? "Google" : category === "hotel" ? "Google Hotels" : "GolfNow",
+      url: category === "concert" ? "https://www.google.com/search?q=concerts+tickets" : category === "hotel" ? "https://www.google.com/maps/search/?api=1&query=hotels" : "https://www.golfnow.com/",
+      provider: category === "concert" ? "Google" : category === "hotel" ? "Google Maps" : "GolfNow",
       category,
       link_type: "manual_fallback",
       label: category === "concert" ? "Search tickets" : category === "hotel" ? "Search hotels" : "Tee times",
@@ -156,7 +157,7 @@ export function normalizeOutboundLink(
   const categoryResolved = partial.category ?? category;
   const fallbackUrl =
     categoryResolved === "concert" ? "https://www.google.com/search?q=concerts+tickets"
-    : categoryResolved === "hotel" ? "https://www.google.com/travel/hotels?q=hotels"
+    : categoryResolved === "hotel" ? "https://www.google.com/maps/search/?api=1&query=hotels"
     : "https://www.golfnow.com/";
   const url = (typeof partial.url === "string" ? partial.url : "").trim() || fallbackUrl;
 
@@ -189,7 +190,7 @@ export function getOutboundLinkDisplayLabel(link: OutboundLink): string {
       return `Find tickets on ${p}`;
     case "hotel":
       if (link.link_type === "provider_search") return "Search hotels";
-      if (p === "Google Hotels") return "Check rates";
+      if (p === "Google Hotels" || p === "Google Maps") return "Check rates";
       return `Check rates on ${p}`;
     case "golf":
       if (p === "Google Maps") return "Open in Google Maps";

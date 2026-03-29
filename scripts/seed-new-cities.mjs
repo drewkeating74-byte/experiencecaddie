@@ -8,12 +8,19 @@
  *   Dallas   — Waterchase Golf Club:     7cce4b09-9e7b-4f1c-9e7d-374551b518a5
  *   Denver   — Red Hawk Ridge GC:        02a07bc1-c7b7-4595-8ba8-d96b5cde9e48
  *
- * Run: node scripts/seed-new-cities.mjs
+ * Run: node --env-file=.env scripts/seed-new-cities.mjs
+ *
+ * Requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (never commit these).
  */
 
-const SUPABASE_URL = "https://kxibaydbhquospzoefva.supabase.co";
-const SERVICE_KEY =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt4aWJheWRiaHF1b3Nwem9lZnZhIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MjMxNzI3NiwiZXhwIjoyMDg3ODkzMjc2fQ.elMfxybHtpeh0vHHy9P0KmTBowyJLiYkF7WiiIcI9cw";
+const SUPABASE_URL = process.env.SUPABASE_URL?.trim();
+const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+if (!SUPABASE_URL || !SERVICE_KEY) {
+  console.error(
+    "Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY. Set them in the environment (e.g. .env at repo root)."
+  );
+  process.exit(1);
+}
 
 const HEADERS = {
   apikey: SERVICE_KEY,

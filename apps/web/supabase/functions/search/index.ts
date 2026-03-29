@@ -978,10 +978,10 @@ async function searchGolfGooglePlaces(
 function mockHotels(request: SearchRequest): HotelResult[] {
   const city = request.destination?.city || "Austin";
   const state = request.destination?.state ?? "TX";
-  const bookUrl = "https://www.google.com/travel/hotels?q=hotels";
+  const bookUrl = "https://www.google.com/maps/search/?api=1&query=hotels";
   const bookLink: HotelOutboundLink = {
     url: bookUrl,
-    provider: "Google Hotels",
+    provider: "Google Maps",
     category: "hotel",
     link_type: "provider_search",
     label: "Search hotels",

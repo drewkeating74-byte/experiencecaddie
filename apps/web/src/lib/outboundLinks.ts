@@ -4,8 +4,8 @@
  * HOTELS
  * - Package- or admin-supplied `hotel_url` (override) wins: direct links to Booking,
  *   Marriott, a specific property, etc. Users go straight to that page.
- * - Otherwise we build a Google Travel Hotels search URL with destination and optional
- *   check-in/out dates so people land on real results, not an empty storefront.
+ * - Otherwise we build a Google Maps search URL (property + city + optional dates) so
+ *   people land on Google’s place/listing experience, not OTAs like Expedia.
  * - `isAffiliate` stays false until we have a partner whose deep links preserve that UX.
  *   When we do, set `isAffiliate` / `affiliateSource` in `buildHotelUrl` only.
  *
@@ -32,7 +32,7 @@
  * config here only; do not scatter affiliate logic in UI components.
  *
  * Any affiliate URL must still give users a usable hotel search (destination + dates).
- * Do not replace the Google Hotels fallback with a profile page or generic landing
+ * Do not replace the Google Maps fallback with a profile page or generic landing
  * that removes search utility. If a partner only offers a weak link, keep Google Hotels
  * as fallback or primary until a deep link exists.
  * ---------------------------------------------------------------------------
@@ -89,7 +89,7 @@ export function buildHotelUrl(params: HotelLinkParams): BuiltOutboundLink {
     };
   }
 
-  const url = buildGoogleHotelsSearchUrl(
+  const url = buildGoogleMapsHotelSearchUrl(
     params.destination,
     params.checkIn,
     params.checkOut
@@ -97,7 +97,7 @@ export function buildHotelUrl(params: HotelLinkParams): BuiltOutboundLink {
 
   return {
     url,
-    provider: "Google Hotels",
+    provider: "Google Maps",
     category: "hotel",
     isAffiliate: false,
     context: params.context,
@@ -106,12 +106,12 @@ export function buildHotelUrl(params: HotelLinkParams): BuiltOutboundLink {
 }
 
 /**
- * Google Travel Hotels `q` string — examples after encoding:
+ * Google Maps hotel discovery — `query` examples after encoding:
  * - destination only: "Austin hotels"
  * - + check-in: "Austin 2026-04-11 hotels"
  * - + range: "Austin 2026-04-11 to 2026-04-13 hotels"
  */
-function buildGoogleHotelsSearchUrl(
+function buildGoogleMapsHotelSearchUrl(
   destination: string,
   checkIn?: string,
   checkOut?: string
@@ -121,13 +121,13 @@ function buildGoogleHotelsSearchUrl(
 
   if (checkIn && checkOut && checkOut !== checkIn) {
     const q = `${dest ? `${dest} ` : ""}${checkIn} to ${checkOut} hotels`.trim();
-    return `https://www.google.com/travel/hotels?q=${encodeURIComponent(q)}`;
+    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`;
   }
   if (checkIn) {
     const q = `${dest ? `${dest} ` : ""}${checkIn} hotels`.trim();
-    return `https://www.google.com/travel/hotels?q=${encodeURIComponent(q)}`;
+    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`;
   }
-  return `https://www.google.com/travel/hotels?q=${encodeURIComponent(base)}`;
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(base)}`;
 }
 
 /** Pass through — property or brand sites users expect to land on directly. */
@@ -163,7 +163,12 @@ export function shouldReplaceOtaHotelUrl(url: string): boolean {
     ) || /\b(awin1\.com|linksynergy\.com|shareasale\.com|anrdoezrs\.net|ojrq\.net|dpbolvw\.net|kqzyfj\.com|jdoqocy\.com|goto\.target)\b/i.test(
       u
     );
-  if (otaInFullString && !u.includes("google.com/travel/hotels")) {
+  if (
+    otaInFullString &&
+    !u.includes("google.com/travel/hotels") &&
+    !u.includes("google.com/maps") &&
+    !u.includes("maps.google")
+  ) {
     try {
       const parsed = new URL(raw);
       const host = parsed.hostname.replace(/^www\./, "");
@@ -234,6 +239,7 @@ export function getGolfOutboundCtaLabel(_provider: string): string {
 
 function inferHotelProvider(url: string): string {
   const u = url.toLowerCase();
+  if (u.includes("google.com/maps") || u.includes("maps.google")) return "Google Maps";
   if (u.includes("google.com/travel/hotels")) return "Google Hotels";
   if (u.includes("expedia.com")) return "Expedia";
   if (u.includes("hotels.com")) return "Hotels.com";

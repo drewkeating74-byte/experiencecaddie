@@ -200,23 +200,23 @@ export default function SearchPreview() {
             <CardContent className="space-y-3">
               {data.hotels.map((hotel) => {
                 if (!hotel.book_link?.url && !hotel.book_url) return null;
-                const rawH = normalizeOutboundLink(hotel.book_link || hotel.book_url, "hotel");
-                const weak =
-                  rawH.link_type === "provider_search" || rawH.link_type === "manual_fallback";
-                const h = weak
-                  ? buildHotelUrl({
-                      context: "planner_result",
-                      destination: city,
-                      checkIn: startDate,
-                      checkOut: endDate,
-                      overrideUrl: null,
-                    })
-                  : {
-                      url: rawH.url,
-                      provider: rawH.provider,
-                      hotelLinkSource: "override" as const,
-                    };
-                const cta = getHotelOutboundCtaLabel(h.hotelLinkSource ?? "override", city);
+                const rawUrl =
+                  (typeof hotel.book_url === "string" && hotel.book_url.trim()
+                    ? hotel.book_url.trim()
+                    : typeof hotel.book_link?.url === "string"
+                      ? hotel.book_link.url.trim()
+                      : "") || null;
+                const destination =
+                  [hotel.name, city].filter(Boolean).join(" ").trim() || city || "hotels";
+                const b = buildHotelUrl({
+                  context: "planner_result",
+                  destination,
+                  checkIn: startDate,
+                  checkOut: endDate,
+                  overrideUrl: rawUrl,
+                });
+                const h = { url: b.url, provider: b.provider, hotelLinkSource: b.hotelLinkSource ?? "google_hotels" };
+                const cta = getHotelOutboundCtaLabel(h.hotelLinkSource, city);
                 return (
                   <div key={hotel.id} className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
                     <div>
