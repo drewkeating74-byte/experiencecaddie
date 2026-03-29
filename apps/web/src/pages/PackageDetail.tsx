@@ -14,7 +14,6 @@ import {
   buildTicketUrl,
   buildGolfUrl,
   getHotelOutboundCtaLabel,
-  getHotelOutboundHelperText,
   getTicketOutboundCtaLabel,
   getGolfOutboundCtaLabel,
 } from "@/lib/outboundLinks";
@@ -67,15 +66,6 @@ export default function PackageDetail() {
           overrideUrl: (pkg as { hotel_url?: string | null }).hotel_url ?? null,
         })
       : null;
-
-  const hotelHelperText =
-    hotelBuilt &&
-    getHotelOutboundHelperText({
-      hotelLinkSource: hotelBuilt.hotelLinkSource,
-      cityDisplay: cityLabel,
-      checkIn,
-      checkOut,
-    });
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -304,9 +294,6 @@ export default function PackageDetail() {
                   {getHotelOutboundCtaLabel(hotelBuilt.hotelLinkSource, cityLabel)}{" "}
                   <ExternalLink className="h-3 w-3" />
                 </a>
-                {hotelHelperText && (
-                  <p className="text-xs text-muted-foreground">{hotelHelperText}</p>
-                )}
               </CardContent>
             </Card>
           )}

@@ -128,45 +128,26 @@ function buildGoogleHotelsSearchUrl(
   return `https://www.google.com/travel/hotels?q=${encodeURIComponent(base)}`;
 }
 
+/** Single label for all hotel outbound buttons (city/search details stay in the URL). */
 export function getHotelOutboundCtaLabel(
-  hotelLinkSource: HotelLinkSource | undefined,
-  cityDisplay: string
+  _hotelLinkSource: HotelLinkSource | undefined,
+  _cityDisplay: string
 ): string {
-  if (hotelLinkSource === "google_hotels") {
-    const c = cityDisplay.trim();
-    return c ? `View hotels in ${c}` : "View hotels";
-  }
-  return "View recommended hotel";
+  void _hotelLinkSource;
+  void _cityDisplay;
+  return "View hotels";
 }
 
-export function getHotelOutboundHelperText(opts: {
-  hotelLinkSource: HotelLinkSource | undefined;
-  cityDisplay: string;
-  checkIn?: string;
-  checkOut?: string;
-}): string | null {
-  if (opts.hotelLinkSource !== "google_hotels") return null;
-  const c = opts.cityDisplay.trim() || "your trip";
-  if (opts.checkIn && opts.checkOut && opts.checkOut !== opts.checkIn) {
-    return `Opens Google Hotels with ${c} for your dates.`;
-  }
-  if (opts.checkIn) {
-    return `Opens Google Hotels with ${c} for your stay.`;
-  }
-  return `Opens Google Hotels for ${c}.`;
-}
-
-export function getTicketOutboundCtaLabel(provider: string): string {
-  const p = provider.trim();
-  if (p && p !== "Tickets") return `View tickets on ${p}`;
+/** Short, consistent label; destination stays in the URL. */
+export function getTicketOutboundCtaLabel(_provider: string): string {
+  void _provider;
   return "View tickets";
 }
 
-export function getGolfOutboundCtaLabel(provider: string): string {
-  const p = provider.trim().toLowerCase();
-  if (p.includes("google") && p.includes("map")) return "View golf options";
-  if (provider && provider !== "Golf") return `View tee times on ${provider}`;
-  return "View tee times";
+/** Short, consistent label; destination stays in the URL. */
+export function getGolfOutboundCtaLabel(_provider: string): string {
+  void _provider;
+  return "View golf";
 }
 
 function inferHotelProvider(url: string): string {

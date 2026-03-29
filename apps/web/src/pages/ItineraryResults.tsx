@@ -22,7 +22,6 @@ import { normalizeOutboundLink, type OutboundLink } from "@/types/outbound-link"
 import {
   buildHotelUrl,
   getHotelOutboundCtaLabel,
-  getHotelOutboundHelperText,
   getTicketOutboundCtaLabel,
   getGolfOutboundCtaLabel,
   type HotelLinkSource,
@@ -347,8 +346,10 @@ export default function ItineraryResults() {
     }
   ) => {
     if (!user) {
+      const returnTo = `${window.location.pathname}${window.location.search}`;
       sessionStorage.setItem("post_auth_link", url);
-      navigate(`/auth?redirect=${encodeURIComponent(window.location.pathname)}`);
+      sessionStorage.setItem("post_auth_redirect", returnTo);
+      navigate(`/auth?redirect=${encodeURIComponent(returnTo)}`);
       return;
     }
 
@@ -414,7 +415,9 @@ export default function ItineraryResults() {
   const handleSave = async (tier: string) => {
     if (!user || !itinerary?.id) {
       toast.error("Log in to save this package");
-      navigate(`/auth?redirect=${encodeURIComponent(window.location.pathname)}`);
+      const returnTo = `${location.pathname}${location.search}`;
+      sessionStorage.setItem("post_auth_redirect", returnTo);
+      navigate(`/auth?redirect=${encodeURIComponent(returnTo)}`);
       return;
     }
     // user_saved_packages is a pending DB migration — not yet in generated types, hence the cast.
@@ -626,7 +629,17 @@ export default function ItineraryResults() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => (user ? setShareEmailOpen(true) : navigate(`/auth?redirect=${encodeURIComponent(window.location.pathname + "?open=share-email")}`))}
+            onClick={() => {
+              if (user) {
+                setShareEmailOpen(true);
+                return;
+              }
+              const params = new URLSearchParams(location.search);
+              params.set("open", "share-email");
+              const returnTo = `${location.pathname}${params.toString() ? `?${params.toString()}` : ""}`;
+              sessionStorage.setItem("post_auth_redirect", returnTo);
+              navigate(`/auth?redirect=${encodeURIComponent(returnTo)}`);
+            }}
           >
             <Mail className="mr-2 h-4 w-4" /> Share via email
           </Button>
@@ -734,7 +747,11 @@ export default function ItineraryResults() {
                     <button
                       type="button"
                       className="text-xs text-amber-600 hover:underline"
-                      onClick={() => navigate(`/auth?redirect=${encodeURIComponent(window.location.pathname)}`)}
+                      onClick={() => {
+                        const returnTo = `${location.pathname}${location.search}`;
+                        sessionStorage.setItem("post_auth_redirect", returnTo);
+                        navigate(`/auth?redirect=${encodeURIComponent(returnTo)}`);
+                      }}
                     >
                       Log in to share, save, or book
                     </button>
@@ -817,12 +834,6 @@ export default function ItineraryResults() {
                           }
 
                           const cta = getHotelOutboundCtaLabel(hotelLink.hotelLinkSource, cityDisplay);
-                          const helper = getHotelOutboundHelperText({
-                            hotelLinkSource: hotelLink.hotelLinkSource,
-                            cityDisplay,
-                            checkIn: itinerary.start_date ?? undefined,
-                            checkOut: itinerary.end_date ?? undefined,
-                          });
                           const hasUrl = hotelLink.url.trim();
                           const buttonEl = (
                             <Button
@@ -852,7 +863,13 @@ export default function ItineraryResults() {
                                   </div>
                                   {h.area && <p className="text-sm text-muted-foreground">{h.area}</p>}
                                   {h.why && <p className="text-sm text-muted-foreground"><span className="font-medium">Why we picked it:</span> <span className="italic">{h.why}</span></p>}
-                                  {h.price_per_night && <p className="text-sm font-medium">{h.price_per_night}/night</p>}
+                                  {h.price_per_night && (
+                                    <p className="text-sm font-medium">
+                                      {/\bnight\b/i.test(String(h.price_per_night))
+                                        ? h.price_per_night
+                                        : `${h.price_per_night}/night`}
+                                    </p>
+                                  )}
                                 </div>
                                 {hasUrl && (
                                   <div className="flex flex-col items-end gap-1 max-w-[220px]">
@@ -865,9 +882,6 @@ export default function ItineraryResults() {
                                       </Tooltip>
                                     ) : (
                                       buttonEl
-                                    )}
-                                    {helper && (
-                                      <p className="text-xs text-muted-foreground text-right">{helper}</p>
                                     )}
                                   </div>
                                 )}

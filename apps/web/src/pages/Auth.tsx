@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,14 @@ export default function Auth() {
   const [searchParams] = useSearchParams();
   const rawRedirect = searchParams.get("redirect") || "/";
   const redirect = rawRedirect.startsWith("/") ? rawRedirect : `/${rawRedirect}`;
+
+  // Persist return path as soon as this page loads (not only when clicking Google) so
+  // Layout can recover after OAuth even if the callback lands on `/` or storage was flaky.
+  useEffect(() => {
+    if (redirect !== "/") {
+      sessionStorage.setItem("post_auth_redirect", redirect);
+    }
+  }, [redirect]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Outlet, useNavigate } from "react-router-dom";
+import { Outlet, useNavigate, useLocation } from "react-router-dom";
 import Navbar from "@/components/Navbar";
 import ScrollToTop from "@/components/ScrollToTop";
 import { useAuth } from "@/hooks/useAuth";
@@ -7,18 +7,26 @@ import { useAuth } from "@/hooks/useAuth";
 export default function Layout() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
-  // After OAuth sign-in, Supabase sometimes redirects to the site root instead of
-  // the intended deep-link. We save the target path to sessionStorage before the
-  // OAuth redirect in Auth.tsx and recover it here once the user is authenticated.
+  // After OAuth sign-in, Supabase sometimes redirects to `/` instead of the deep link.
+  // `post_auth_redirect` is set when requiring login (ItineraryResults) and when Auth loads / Google OAuth starts.
   useEffect(() => {
     if (!user) return;
     const pending = sessionStorage.getItem("post_auth_redirect");
-    if (pending) {
+    if (!pending) return;
+
+    const normalized = pending.startsWith("/") ? pending : `/${pending}`;
+    const here = `${location.pathname}${location.search}`;
+    const pendingPath = normalized.split("?")[0];
+    if (here === normalized || location.pathname === pendingPath) {
       sessionStorage.removeItem("post_auth_redirect");
-      navigate(pending, { replace: true });
+      return;
     }
-  }, [user, navigate]);
+
+    sessionStorage.removeItem("post_auth_redirect");
+    navigate(normalized, { replace: true });
+  }, [user, navigate, location.pathname, location.search]);
 
   return (
     <div className="flex min-h-screen flex-col">

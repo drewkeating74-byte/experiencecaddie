@@ -680,7 +680,7 @@ export default function ExperienceBuilder() {
                           })
                         }
                       >
-                        {getTicketOutboundCtaLabel(t.provider)} →
+                        {getTicketOutboundCtaLabel(t.provider)}
                       </a>
                     );
                   })()}
