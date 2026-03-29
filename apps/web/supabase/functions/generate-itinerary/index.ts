@@ -138,36 +138,43 @@ serve(async (req) => {
         const MAX_RETURN = artistSearch ? 5 : 7;
         const discoverMaxTokens = 2048;
 
-        const CITY_POOL = "Nashville, Austin, Las Vegas, Phoenix, Dallas, Atlanta, Denver, Tampa, Charlotte, Miami, San Diego, Los Angeles, Seattle, Chicago, New Orleans, Boston";
+        // Ordered city slots — model fills one per slot; we enforce uniqueness in code too.
+        const DEFAULT_CITY_SLOTS = [
+          "Nashville", "Austin", "Las Vegas", "Phoenix", "Dallas",
+          "Atlanta", "Denver", "Tampa", "Charlotte", "Miami",
+          "San Diego", "Los Angeles", "Seattle", "Chicago",
+        ];
+        const citySlots = cityList.length > 0 ? cityList : DEFAULT_CITY_SLOTS;
+        // Ask for enough slots to reach LLM_COUNT, cycling through the list if needed
+        const slotsNeeded = Math.min(LLM_COUNT, citySlots.length);
+        const assignedSlots = citySlots.slice(0, slotsNeeded);
 
-        const genreInstruction = artistSearch
-          ? `Find up to ${LLM_COUNT} upcoming US tour dates for "${artistSearch}" across different cities. Spread across as many different cities as possible.`
+        const genreDescription = artistSearch
+          ? `"${artistSearch}" concert`
           : isWideDiscover
-          ? `Find up to ${LLM_COUNT} high-demand upcoming US concerts. Mix genres freely (pop, country, rock, hip-hop, R&B, Latin, etc.). Every option must be a DIFFERENT artist in a DIFFERENT city.`
+          ? "a high-demand concert (any genre — pop, country, rock, hip-hop, R&B, Latin, etc.)"
           : hasSpecificGenres
-          ? `Find up to ${LLM_COUNT} upcoming US concerts by ${specifiedGenres} artists. Think broadly — include mainstream ${specifiedGenres} acts, rising ${specifiedGenres} stars, and well-known ${specifiedGenres} touring artists. Every option must be a DIFFERENT artist performing in a DIFFERENT city.`
+          ? `a ${specifiedGenres} concert (think broadly: mainstream acts, rising stars, any well-known touring ${specifiedGenres} artist)`
           : p.event_details
-          ? `User preference: ${String(p.event_details).slice(0, 200)}. Find up to ${LLM_COUNT} upcoming US concerts — a DIFFERENT artist in a DIFFERENT city each time.`
-          : `Find up to ${LLM_COUNT} upcoming US concerts with a different artist in a different city each time.`;
+          ? `a concert matching: ${String(p.event_details).slice(0, 150)}`
+          : "a popular concert";
 
-        const locationInstruction = cityList.length > 0
-          ? `Prioritize these cities: ${cityList.join(", ")}. Spread across as many of these cities as possible; use other US cities only when you've exhausted this list.`
-          : `Spread across these cities (use each city at most once): ${CITY_POOL}.`;
+        const slotLines = assignedSlots.map((c, i) => `  ${i + 1}. City: ${c} — find ${genreDescription} happening there between ${discStart} and ${discEnd}`).join("\n");
 
-        const discoverPrompt = `${genreInstruction}
+        const discoverPrompt = `I need a concert recommendation for each city listed below. For each city, find ONE real upcoming concert.
 
-Return ONLY a JSON object in this exact format (no markdown, no explanation):
+${slotLines}
+
+Return ONLY a JSON object (no markdown, no explanation, no text before or after):
 {"concert_options":[{"artist":"NAME","city":"CITY","venue":"VENUE","date":"YYYY-MM-DD","url":"TICKET_URL_OR_EMPTY"}]}
 
-Rules:
-- US shows only (no international dates)
-- Venue must hold at least 3,000 people
-- Dates must be between ${discStart} and ${discEnd}
-- ${locationInstruction}
-- NO two concerts in the same city
-- Each entry must be a different artist${artistSearch ? ` (all must be "${artistSearch}" on different tour dates/cities)` : ""}
-- If you cannot find a ticket URL, use an empty string — do NOT omit the field
-- Return as many as you can confirm, up to ${LLM_COUNT} — do not invent concerts`;
+Requirements for every entry:
+- Must be a real confirmed US show at that city (not international)
+- Venue holds at least 3,000 people
+- Date between ${discStart} and ${discEnd} in YYYY-MM-DD format
+- Each artist must appear only once across all entries
+- If no ticket URL is available, use an empty string — do NOT omit the field
+- Skip a city slot only if you genuinely cannot find any matching concert there${artistSearch ? `\n- All entries must be "${artistSearch}" on different tour dates` : ""}`;
 
         const discRes = await fetch("https://api.perplexity.ai/chat/completions", {
           method: "POST",
@@ -261,7 +268,7 @@ Rules:
           return true; // unknown format — keep it
         });
 
-        // Deduplicate: multi-artist flows → by artist; single-artist tour → by artist+city+date so every stop stays.
+        // Deduplicate by artist (and by artist+city+date for single-artist tour searches).
         const seenKeys = new Set<string>();
         opts = opts.filter((c: Record<string, unknown>) => {
           const artist = String(c.artist || "").toLowerCase().trim();
@@ -274,15 +281,31 @@ Rules:
           return true;
         });
 
-        // If the date filter wiped everything, fall back to the full raw LLM set (deduplicated).
+        // Enforce one concert per city (LLM often ignores this constraint).
+        // For single-artist tour searches every city slot is intentional, so skip.
+        if (!artistSearch) {
+          const seenCities = new Set<string>();
+          opts = opts.filter((c: Record<string, unknown>) => {
+            const cityNorm = String(c.city || "").toLowerCase().trim();
+            if (!cityNorm || seenCities.has(cityNorm)) return false;
+            seenCities.add(cityNorm);
+            return true;
+          });
+        }
+
+        // If the date filter wiped everything, fall back to the full raw LLM set (deduplicated by artist + city).
         if (opts.length === 0 && rawLlmOpts.length > 0) {
           console.log(`[DISCOVER] Date filter removed all ${rawLlmOpts.length} LLM options — using raw fallback`);
-          const seenFallback = new Set<string>();
+          const seenArtist = new Set<string>();
+          const seenCity = new Set<string>();
           opts = rawLlmOpts.filter((c: Record<string, unknown>) => {
             const artist = String(c.artist || "").toLowerCase().trim();
+            const city = String(c.city || "").toLowerCase().trim();
             if (!artist) return false;
-            if (seenFallback.has(artist)) return false;
-            seenFallback.add(artist);
+            if (seenArtist.has(artist)) return false;
+            if (!artistSearch && city && seenCity.has(city)) return false;
+            seenArtist.add(artist);
+            if (city) seenCity.add(city);
             return true;
           });
         }
