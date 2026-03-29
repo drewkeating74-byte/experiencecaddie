@@ -89,7 +89,7 @@ serve(async (req) => {
       if (!validPaths.includes(p.path)) p.path = "golf_music";
       if (!validBudgets.includes(p.budget_tier)) p.budget_tier = "mid";
 
-      // Stage 1: Concert discovery only — return 3 options for user to pick
+      // Stage 1: Concert discovery — min 3 picks; up to 8 for wide "best shows" / surprise flows
       if (p.discover_concerts) {
         if (!p.start_date || !p.end_date) {
           return new Response(JSON.stringify({ error: "Missing start_date or end_date" }), {
@@ -114,17 +114,27 @@ serve(async (req) => {
         const cityHint = p.city && p.city !== "flexible" ? `Focus on ${p.city}.` : "Search cities like Nashville, Phoenix, Austin, Las Vegas, Denver, Atlanta, Dallas — places with arenas and good golf nearby.";
         const eventDetails = String(p.event_details || "").toLowerCase();
         const isBroadDiscover = !artistSearch && (eventDetails.includes("genres: any") || eventDetails.includes("discover for me") || !eventDetails.trim());
+        const isSurpriseFlow = !artistSearch && eventDetails.includes("surprise me");
+        /** Wide intent: best shows / flexible genres / surprise — ask for more LLM rows and return up to 8 after TM verify. */
+        const isWideDiscover = !artistSearch && (isBroadDiscover || isSurpriseFlow);
+        const MIN_DISCOVER_OPTIONS = 3;
+        const LLM_COUNT = artistSearch ? 6 : isWideDiscover ? 10 : 7;
+        const MAX_RETURN = artistSearch ? 5 : isWideDiscover ? 8 : 5;
+        const discoverMaxTokens = isWideDiscover ? 2048 : 1400;
+
         const eventHint = artistSearch
-          ? `Find 3 different tour dates for "${artistSearch}" in different cities. Each option must be this artist.`
-          : isBroadDiscover
-          ? "Pick 3 high-demand upcoming arena or amphitheater concerts — any genre. Include major tours (country, rock, pop, etc.). Every option must be a DIFFERENT artist."
-          : (p.event_details ? `User genre preferences: ${String(p.event_details).slice(0, 200)}. Pick a DIFFERENT artist for each option and match the listed genres where possible.` : "");
-        const discoverPrompt = `Search the web for 5 REAL upcoming concerts. Return ONLY valid JSON with this exact structure (no markdown):
+          ? `Find ${LLM_COUNT} different tour dates for "${artistSearch}" in different cities. Each option must be this artist.`
+          : isWideDiscover
+          ? `Pick ${LLM_COUNT} high-demand upcoming arena or amphitheater concerts — mix genres (country, rock, pop, hip-hop, etc.). Every option must be a DIFFERENT artist. Spread across several cities when possible.`
+          : (p.event_details
+            ? `User genre preferences: ${String(p.event_details).slice(0, 200)}. Pick ${LLM_COUNT} options with a DIFFERENT artist each and match the listed genres where possible.`
+            : "");
+        const discoverPrompt = `Search the web for ${LLM_COUNT} REAL upcoming concerts. Return ONLY valid JSON with this exact structure (no markdown):
 
 {
   "concert_options": [
     { "artist": "string", "city": "string", "venue": "string", "date": "YYYY-MM-DD", "url": "ticket purchase URL" },
-    ... (exactly 5 options)
+    ... (exactly ${LLM_COUNT} options)
   ]
 }
 
@@ -136,9 +146,9 @@ Requirements:
 - Dates MUST be between ${discStart} and ${discEnd}. Use YYYY-MM-DD format for the date field.
 - ${cityHint}
 ${eventHint}
-- IMPORTANT: All 5 options must be DIFFERENT artists. Never return the same artist more than once.
-- Pick 5 different artist+city+date combinations so the user has real choices
-${artistSearch ? `- CRITICAL: All 5 must be "${artistSearch}" — different cities and dates on their tour.` : "- Vary the genres across the picks to match the user's preferences."}`;
+- IMPORTANT: All ${LLM_COUNT} options must be DIFFERENT artists. Never return the same artist more than once.
+- Pick ${LLM_COUNT} different artist+city+date combinations so the user has real choices
+${artistSearch ? `- CRITICAL: All ${LLM_COUNT} must be "${artistSearch}" — different cities and dates on their tour.` : "- Vary the genres across the picks to match the user's preferences."}`;
 
         const discRes = await fetch("https://api.perplexity.ai/chat/completions", {
           method: "POST",
@@ -153,7 +163,7 @@ ${artistSearch ? `- CRITICAL: All 5 must be "${artistSearch}" — different citi
               { role: "user", content: discoverPrompt },
             ],
             temperature: 0.7,
-            max_tokens: 1024,
+            max_tokens: discoverMaxTokens,
           }),
         });
         if (!discRes.ok) {
@@ -211,20 +221,56 @@ ${artistSearch ? `- CRITICAL: All 5 must be "${artistSearch}" — different citi
           return true; // unknown format — keep it
         });
 
-        // Deduplicate by artist (case-insensitive) — keep first occurrence.
-        const seenArtists = new Set<string>();
+        // Deduplicate: multi-artist flows → by artist; single-artist tour → by artist+city+date so every stop stays.
+        const seenKeys = new Set<string>();
         opts = opts.filter((c: Record<string, unknown>) => {
           const artist = String(c.artist || "").toLowerCase().trim();
-          if (!artist || seenArtists.has(artist)) return false;
-          seenArtists.add(artist);
+          if (!artist) return false;
+          const city = String(c.city || "").toLowerCase().trim();
+          const dateKey = String(c.date || c.event_date || c.eventDate || "").trim().slice(0, 10);
+          const key = artistSearch ? `${artist}|${city}|${dateKey}` : artist;
+          if (seenKeys.has(key)) return false;
+          seenKeys.add(key);
           return true;
         });
 
-        // Replace LLM guesses with Ticketmaster-verified date, venue, and URL (US shows only).
-        opts = await verifyDiscoveryConcertOptions(opts as Record<string, unknown>[], discStart, discEnd);
+        const preVerifyOpts = opts.map((c) => ({ ...c })) as Record<string, unknown>[];
 
-        // Cap at 5 options for UI clarity.
-        opts = opts.slice(0, 5);
+        // Replace LLM guesses with Ticketmaster-verified date, venue, and URL (US shows only).
+        let verifiedOpts = await verifyDiscoveryConcertOptions(preVerifyOpts, discStart, discEnd);
+
+        // TM may drop rows; always return at least MIN_DISCOVER_OPTIONS when the LLM gave enough distinct artists.
+        if (verifiedOpts.length < MIN_DISCOVER_OPTIONS && preVerifyOpts.length > 0) {
+          const seenBackfill = new Set<string>();
+          for (const v of verifiedOpts) {
+            const a = String(v.artist || "").toLowerCase().trim();
+            const c = String(v.city || "").toLowerCase().trim();
+            const d = String(v.date || "").trim().slice(0, 10);
+            seenBackfill.add(artistSearch ? `${a}|${c}|${d}` : a);
+          }
+          for (const raw of preVerifyOpts) {
+            if (verifiedOpts.length >= MIN_DISCOVER_OPTIONS) break;
+            const a = String(raw.artist || "").trim();
+            const keyArtist = a.toLowerCase();
+            const cityK = String(raw.city || "").toLowerCase().trim();
+            const dateK = String(raw.date || raw.event_date || raw.eventDate || "").trim().slice(0, 10);
+            const key = artistSearch ? `${keyArtist}|${cityK}|${dateK}` : keyArtist;
+            if (!keyArtist || seenBackfill.has(key)) continue;
+            seenBackfill.add(key);
+            const dateRaw = String(raw.date || raw.event_date || raw.eventDate || "").trim();
+            const ymd = parseFlexibleDateToYmd(dateRaw) || (dateRaw.match(/^(\d{4}-\d{2}-\d{2})/)?.[0] ?? "");
+            verifiedOpts.push({
+              artist: a,
+              city: String(raw.city || "").trim() || "Various",
+              venue: String(raw.venue || "").trim() || "Venue TBD",
+              date: ymd || dateRaw.slice(0, 10),
+              url: buildTicketmasterSearchUrl(a),
+              _verified_ticketmaster: false,
+            });
+          }
+        }
+
+        opts = verifiedOpts.slice(0, MAX_RETURN);
 
         return new Response(JSON.stringify({ success: true, concert_options: opts }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
