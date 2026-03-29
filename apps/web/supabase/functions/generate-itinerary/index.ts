@@ -138,19 +138,21 @@ serve(async (req) => {
         const MAX_RETURN = artistSearch ? 5 : 7;
         const discoverMaxTokens = 2048;
 
+        const CITY_POOL = "Nashville, Austin, Las Vegas, Phoenix, Dallas, Atlanta, Denver, Tampa, Charlotte, Miami, San Diego, Los Angeles, Seattle, Chicago, New Orleans, Boston";
+
         const genreInstruction = artistSearch
-          ? `Find up to ${LLM_COUNT} upcoming US tour dates for "${artistSearch}" across different cities.`
+          ? `Find up to ${LLM_COUNT} upcoming US tour dates for "${artistSearch}" across different cities. Spread across as many different cities as possible.`
           : isWideDiscover
-          ? `Find up to ${LLM_COUNT} high-demand upcoming US concerts across mixed genres (country, rock, pop, hip-hop, R&B, etc.). Every option must be a DIFFERENT artist.`
+          ? `Find up to ${LLM_COUNT} high-demand upcoming US concerts. Mix genres freely (pop, country, rock, hip-hop, R&B, Latin, etc.). Every option must be a DIFFERENT artist in a DIFFERENT city.`
           : hasSpecificGenres
-          ? `Find up to ${LLM_COUNT} upcoming US concerts in the ${specifiedGenres} genre(s). Every option must be a DIFFERENT artist. ONLY include artists in the ${specifiedGenres} genre(s).`
+          ? `Find up to ${LLM_COUNT} upcoming US concerts by ${specifiedGenres} artists. Think broadly — include mainstream ${specifiedGenres} acts, rising ${specifiedGenres} stars, and well-known ${specifiedGenres} touring artists. Every option must be a DIFFERENT artist performing in a DIFFERENT city.`
           : p.event_details
-          ? `User preference: ${String(p.event_details).slice(0, 200)}. Find up to ${LLM_COUNT} upcoming US concerts with a DIFFERENT artist each.`
-          : `Find up to ${LLM_COUNT} upcoming US concerts.`;
+          ? `User preference: ${String(p.event_details).slice(0, 200)}. Find up to ${LLM_COUNT} upcoming US concerts — a DIFFERENT artist in a DIFFERENT city each time.`
+          : `Find up to ${LLM_COUNT} upcoming US concerts with a different artist in a different city each time.`;
 
         const locationInstruction = cityList.length > 0
-          ? `Prioritize these cities: ${cityList.join(", ")}. Use other US cities only if needed.`
-          : `Use cities with good golf access: Nashville, Austin, Las Vegas, Phoenix, Dallas, Atlanta, Denver, Tampa, Charlotte, Miami, San Diego, Seattle, Chicago.`;
+          ? `Prioritize these cities: ${cityList.join(", ")}. Spread across as many of these cities as possible; use other US cities only when you've exhausted this list.`
+          : `Spread across these cities (use each city at most once): ${CITY_POOL}.`;
 
         const discoverPrompt = `${genreInstruction}
 
@@ -162,9 +164,10 @@ Rules:
 - Venue must hold at least 3,000 people
 - Dates must be between ${discStart} and ${discEnd}
 - ${locationInstruction}
-- Each entry must be a different artist${artistSearch ? ` (all must be "${artistSearch}" on different dates/cities)` : ""}
-- If you cannot find a ticket URL, use an empty string for url — do NOT omit the field
-- Return as many as you can find up to ${LLM_COUNT}; do not pad with fake concerts`;
+- NO two concerts in the same city
+- Each entry must be a different artist${artistSearch ? ` (all must be "${artistSearch}" on different tour dates/cities)` : ""}
+- If you cannot find a ticket URL, use an empty string — do NOT omit the field
+- Return as many as you can confirm, up to ${LLM_COUNT} — do not invent concerts`;
 
         const discRes = await fetch("https://api.perplexity.ai/chat/completions", {
           method: "POST",
