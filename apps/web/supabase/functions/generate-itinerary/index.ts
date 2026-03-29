@@ -124,10 +124,11 @@ serve(async (req) => {
         const isSurpriseFlow = !artistSearch && !hasSpecificGenres && eventDetails.includes("surprise me");
         /** Wide intent: best shows / fully flexible genres / surprise — ask for more LLM rows and return up to 8 after TM verify. */
         const isWideDiscover = !artistSearch && (isBroadDiscover || isSurpriseFlow);
-        const MIN_DISCOVER_OPTIONS = 3;
-        const LLM_COUNT = artistSearch ? 6 : isWideDiscover ? 10 : 7;
-        const MAX_RETURN = artistSearch ? 5 : isWideDiscover ? 8 : 5;
-        const discoverMaxTokens = isWideDiscover ? 2048 : 1400;
+        // Genre-specific searches get same volume as wide searches (ask 10, return up to 7, min 5)
+        const MIN_DISCOVER_OPTIONS = hasSpecificGenres ? 5 : 3;
+        const LLM_COUNT = artistSearch ? 6 : (isWideDiscover || hasSpecificGenres) ? 10 : 7;
+        const MAX_RETURN = artistSearch ? 5 : hasSpecificGenres ? 7 : isWideDiscover ? 8 : 5;
+        const discoverMaxTokens = (isWideDiscover || hasSpecificGenres) ? 2048 : 1400;
 
         const eventHint = artistSearch
           ? `Find ${LLM_COUNT} different tour dates for "${artistSearch}" in different cities. Each option must be this artist.`
@@ -338,6 +339,33 @@ ${artistSearch
           }];
         }
         console.log("[CONCERT_LOCK] selected_concert locked to single event", { artist: selectedConcert.artist, date: selDate, tmMatch: !!tmMatch });
+      }
+
+      // Stage 2 dedup: if TM returned multiple dates for the same artist in the same city
+      // (happens when artist has multiple upcoming shows), keep only the earliest per artist+city
+      // so the LLM can't assign different dates to Bronze/Silver/Gold tiers.
+      if (events.length > 1) {
+        const artistCityMap = new Map<string, any>();
+        for (const e of events) {
+          const rawName = String(e.name || "").toLowerCase();
+          // Strip "at Venue" / "- City" suffixes to get the artist portion
+          const artist = rawName.split(/\s+(?:at|@|-)\s+/)[0].trim() || rawName;
+          const city = String(e.venue?.city || "").toLowerCase().trim();
+          const key = `${artist}|${city}`;
+          const eDate = String(e.date_time || "").slice(0, 10);
+          if (!artistCityMap.has(key)) {
+            artistCityMap.set(key, e);
+          } else {
+            const existingDate = String(artistCityMap.get(key).date_time || "").slice(0, 10);
+            if (eDate && existingDate && eDate < existingDate) {
+              artistCityMap.set(key, e);
+            }
+          }
+        }
+        if (artistCityMap.size < events.length) {
+          console.log(`[CONCERT_DEDUP] Reduced ${events.length} events → ${artistCityMap.size} by artist+city`);
+          events = Array.from(artistCityMap.values());
+        }
       }
 
       console.log("[TM_LINK_DEBUG] generate-itinerary input events", events.map((e: any) => ({ name: e.name, book_url: e.book_url, source_url: e.source_url })));
