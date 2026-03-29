@@ -128,6 +128,36 @@ function buildGoogleHotelsSearchUrl(
   return `https://www.google.com/travel/hotels?q=${encodeURIComponent(base)}`;
 }
 
+/**
+ * True when the URL should be replaced with a Google Hotels search (OTA / affiliate
+ * wrappers). Direct hotel brand sites (marriott.com, hilton.com, …) stay false.
+ */
+export function shouldReplaceOtaHotelUrl(url: string): boolean {
+  if (!url || typeof url !== "string") return true;
+  const u = url.trim().toLowerCase();
+  if (!u.startsWith("http")) return true;
+  try {
+    const parsed = new URL(u);
+    const host = parsed.hostname.replace(/^www\./, "");
+    const ota = [
+      "booking.com",
+      "expedia.com",
+      "hotels.com",
+      "hotel.com",
+      "agoda.com",
+      "priceline.com",
+      "orbitz.com",
+      "travelocity.com",
+    ];
+    if (ota.some((d) => host === d || host.endsWith("." + d))) return true;
+    if (host === "awin1.com" || host.endsWith(".awin1.com")) return true;
+    if (host.includes("expedia.")) return true;
+    return false;
+  } catch {
+    return true;
+  }
+}
+
 /** Single label for all hotel outbound buttons (city/search details stay in the URL). */
 export function getHotelOutboundCtaLabel(
   _hotelLinkSource: HotelLinkSource | undefined,

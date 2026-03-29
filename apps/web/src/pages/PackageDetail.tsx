@@ -138,7 +138,7 @@ export default function PackageDetail() {
                     url: event.ticket_url,
                   });
                   return (
-                    <div className="mt-2 space-y-1">
+                    <div className="mt-2">
                       <a
                         href={t.url}
                         target="_blank"
@@ -166,7 +166,6 @@ export default function PackageDetail() {
                       >
                         {getTicketOutboundCtaLabel(t.provider)} <ExternalLink className="h-3 w-3" />
                       </a>
-                      <p className="text-xs text-muted-foreground">Opens the ticket provider in a new tab.</p>
                     </div>
                   );
                 })()}
@@ -220,7 +219,7 @@ export default function PackageDetail() {
                     url: course.booking_url,
                   });
                   return (
-                    <div className="mt-2 space-y-1">
+                    <div className="mt-2">
                       <a
                         href={g.url}
                         target="_blank"
@@ -248,7 +247,6 @@ export default function PackageDetail() {
                       >
                         {getGolfOutboundCtaLabel(g.provider)} <ExternalLink className="h-3 w-3" />
                       </a>
-                      <p className="text-xs text-muted-foreground">Opens the golf provider in a new tab.</p>
                     </div>
                   );
                 })()}

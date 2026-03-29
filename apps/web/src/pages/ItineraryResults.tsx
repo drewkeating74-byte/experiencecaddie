@@ -24,9 +24,11 @@ import {
   getHotelOutboundCtaLabel,
   getTicketOutboundCtaLabel,
   getGolfOutboundCtaLabel,
+  shouldReplaceOtaHotelUrl,
   type HotelLinkSource,
 } from "@/lib/outboundLinks";
 import { logEvent } from "@/lib/analytics";
+import { savePostAuthReturn } from "@/lib/postAuthReturn";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { fetchSearch } from "@/lib/api/search";
@@ -348,7 +350,7 @@ export default function ItineraryResults() {
     if (!user) {
       const returnTo = `${window.location.pathname}${window.location.search}`;
       sessionStorage.setItem("post_auth_link", url);
-      sessionStorage.setItem("post_auth_redirect", returnTo);
+      savePostAuthReturn(returnTo);
       navigate(`/auth?redirect=${encodeURIComponent(returnTo)}`);
       return;
     }
@@ -416,7 +418,7 @@ export default function ItineraryResults() {
     if (!user || !itinerary?.id) {
       toast.error("Log in to save this package");
       const returnTo = `${location.pathname}${location.search}`;
-      sessionStorage.setItem("post_auth_redirect", returnTo);
+      savePostAuthReturn(returnTo);
       navigate(`/auth?redirect=${encodeURIComponent(returnTo)}`);
       return;
     }
@@ -637,7 +639,7 @@ export default function ItineraryResults() {
               const params = new URLSearchParams(location.search);
               params.set("open", "share-email");
               const returnTo = `${location.pathname}${params.toString() ? `?${params.toString()}` : ""}`;
-              sessionStorage.setItem("post_auth_redirect", returnTo);
+              savePostAuthReturn(returnTo);
               navigate(`/auth?redirect=${encodeURIComponent(returnTo)}`);
             }}
           >
@@ -749,7 +751,7 @@ export default function ItineraryResults() {
                       className="text-xs text-amber-600 hover:underline"
                       onClick={() => {
                         const returnTo = `${location.pathname}${location.search}`;
-                        sessionStorage.setItem("post_auth_redirect", returnTo);
+                        savePostAuthReturn(returnTo);
                         navigate(`/auth?redirect=${encodeURIComponent(returnTo)}`);
                       }}
                     >
@@ -783,10 +785,26 @@ export default function ItineraryResults() {
                             (pkg as ResultPackage).city ||
                             "";
                           const tierHotelOverride = (pkg as ResultPackage).hotel_url?.trim();
-                          const rawNormalized = normalizeOutboundLink(h.link || h.url, "hotel");
+                          const urlFromRow =
+                            typeof h.url === "string" && h.url.trim()
+                              ? h.url.trim()
+                              : "";
+                          const linkObj = typeof h.link === "object" && h.link ? (h.link as { url?: string }) : null;
+                          const urlString = urlFromRow || (linkObj?.url ? String(linkObj.url).trim() : "");
+                          const rawNormalized = normalizeOutboundLink(
+                            linkObj ? { ...linkObj, url: urlString || linkObj.url || "" } : urlString,
+                            "hotel"
+                          );
                           const weakLink =
                             rawNormalized.link_type === "provider_search" ||
                             rawNormalized.link_type === "manual_fallback";
+                          const useGoogleHotelsSearch =
+                            weakLink || shouldReplaceOtaHotelUrl(rawNormalized.url);
+
+                          const googleHotelsDestination =
+                            [h.name, cityDisplay].filter(Boolean).join(" ").trim() ||
+                            cityDisplay ||
+                            "hotels";
 
                           let hotelLink: OutboundLink & { hotelLinkSource?: HotelLinkSource };
                           if (tierHotelOverride) {
@@ -806,10 +824,10 @@ export default function ItineraryResults() {
                               label: getHotelOutboundCtaLabel("override", cityDisplay),
                               hotelLinkSource: "override",
                             };
-                          } else if (weakLink) {
+                          } else if (useGoogleHotelsSearch) {
                             const b = buildHotelUrl({
                               context: "itinerary",
-                              destination: cityDisplay || "hotels",
+                              destination: googleHotelsDestination,
                               checkIn: itinerary.start_date ?? undefined,
                               checkOut: itinerary.end_date ?? undefined,
                               overrideUrl: null,
@@ -948,7 +966,7 @@ export default function ItineraryResults() {
                                 </Button>
                               );
                               return (
-                                <div className="flex flex-col items-end gap-1">
+                                <div className="flex flex-col items-end">
                                   {concertLink.disclaimer ? (
                                     <Tooltip>
                                       <TooltipTrigger asChild>{buttonEl}</TooltipTrigger>
@@ -959,9 +977,6 @@ export default function ItineraryResults() {
                                   ) : (
                                     buttonEl
                                   )}
-                                  <p className="text-xs text-muted-foreground text-right max-w-[200px]">
-                                    Opens the ticket provider in a new tab.
-                                  </p>
                                 </div>
                               );
                             })()}
@@ -1022,7 +1037,7 @@ export default function ItineraryResults() {
                               {g.green_fee && <p className="text-sm font-medium">{g.green_fee}</p>}
                             </div>
                             {hasUrl && (
-                              <div className="flex flex-col items-end gap-1 max-w-[220px]">
+                              <div className="flex flex-col items-end max-w-[220px]">
                                 {golfLink.disclaimer ? (
                                   <Tooltip>
                                     <TooltipTrigger asChild>{buttonEl}</TooltipTrigger>
@@ -1033,9 +1048,6 @@ export default function ItineraryResults() {
                                 ) : (
                                   buttonEl
                                 )}
-                                <p className="text-xs text-muted-foreground text-right">
-                                  Opens the golf provider in a new tab.
-                                </p>
                               </div>
                             )}
                           </div>

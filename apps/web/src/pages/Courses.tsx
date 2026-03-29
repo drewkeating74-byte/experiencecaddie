@@ -72,7 +72,7 @@ export default function Courses() {
                   });
                   const cityStr = [course.city, course.state].filter(Boolean).join(", ");
                   return (
-                    <div className="mt-2 space-y-1">
+                    <div className="mt-2">
                       <a
                         href={g.url}
                         target="_blank"
@@ -95,7 +95,6 @@ export default function Courses() {
                       >
                         {getGolfOutboundCtaLabel(g.provider)} <ExternalLink className="h-3 w-3" />
                       </a>
-                      <p className="text-xs text-muted-foreground">Opens the golf provider in a new tab.</p>
                     </div>
                   );
                 })()}

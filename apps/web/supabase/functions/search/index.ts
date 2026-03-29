@@ -304,6 +304,41 @@ function isUsableTicketmasterEventUrl(url: string | undefined): boolean {
   }
 }
 
+function normalizeCityToken(s: string): string {
+  return s.toLowerCase().trim().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+/** Drop TM rows where the venue is not in the requested metro (keyword search can return other cities). */
+function venueCityMatchesRequest(requestedCity: string, venueCity: string | undefined): boolean {
+  if (!requestedCity?.trim() || requestedCity === "flexible" || requestedCity === "Various") return true;
+  if (!venueCity?.trim()) return false;
+  const a = normalizeCityToken(requestedCity);
+  const b = normalizeCityToken(venueCity);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  if (a.length >= 4 && b.includes(a)) return true;
+  if (b.length >= 4 && a.includes(b)) return true;
+  const aw = a.split(" ").filter((w) => w.length > 2);
+  const bw = b.split(" ").filter((w) => w.length > 2);
+  return aw.some((w) => bw.includes(w)) || bw.some((w) => aw.includes(w));
+}
+
+/** When the user searched by artist, require the TM event/attraction names to reference that artist. */
+function tmEventMatchesArtistQuery(event: TMEvent, artist: string | undefined): boolean {
+  if (!artist?.trim()) return true;
+  const needle = artist.trim().toLowerCase();
+  const pool: string[] = [];
+  if (event.name) pool.push(event.name);
+  for (const att of event._embedded?.attractions ?? []) {
+    if (att?.name) pool.push(att.name);
+  }
+  const hay = pool.join(" ").toLowerCase();
+  if (hay.includes(needle)) return true;
+  const tokens = needle.split(/\s+/).filter((t) => t.length > 2);
+  if (tokens.length === 0) return true;
+  return tokens.every((t) => hay.includes(t));
+}
+
 function mapEventToResult(
   event: TMEvent,
   fallbackCity: string,
@@ -411,9 +446,9 @@ async function findCatalogEvents(
   return data
     .filter((row: any) => {
       const rowArtist = (row.artists?.name ?? "").toLowerCase();
-      const rowCity = (row.venues?.city ?? "").toLowerCase();
+      const rowCity = row.venues?.city ?? "";
       const artistMatch = rowArtist.includes(artistLower) || artistLower.includes(rowArtist);
-      const cityMatch = !rowCity || rowCity.includes(cityLower) || cityLower.includes(rowCity);
+      const cityMatch = venueCityMatchesRequest(city, rowCity);
       // Only surface catalog events that have a real, confirmed ticket URL
       const hasConfirmedUrl = isConfirmedEventUrl(row.ticket_url);
       return artistMatch && cityMatch && hasConfirmedUrl;
@@ -1217,7 +1252,21 @@ Deno.serve(async (req: Request) => {
           endDate,
           size: 15,
         });
-        events = tmEvents.map((e) =>
+        const tmFiltered = tmEvents.filter((e) => {
+          const vCity = e._embedded?.venues?.[0]?.city?.name;
+          if (!venueCityMatchesRequest(effectiveCity, vCity)) {
+            console.log(
+              `[TM] skip city mismatch: want="${effectiveCity}" got="${vCity}" event="${e.name}"`
+            );
+            return false;
+          }
+          if (!tmEventMatchesArtistQuery(e, payload.artist)) {
+            console.log(`[TM] skip artist mismatch: artist="${payload.artist}" event="${e.name}"`);
+            return false;
+          }
+          return true;
+        });
+        events = tmFiltered.map((e) =>
           mapEventToResult(e, effectiveCity, payload.destination?.state)
         );
         if (events.length > 0) providers.push("ticketmaster");

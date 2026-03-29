@@ -73,7 +73,7 @@ export default function Events() {
                   });
                   const vCity = event.venues?.city ?? "";
                   return (
-                    <div className="mt-2 space-y-1">
+                    <div className="mt-2">
                       <a
                         href={t.url}
                         target="_blank"
@@ -100,7 +100,6 @@ export default function Events() {
                       >
                         {getTicketOutboundCtaLabel(t.provider)} <ExternalLink className="h-3 w-3" />
                       </a>
-                      <p className="text-xs text-muted-foreground">Opens the ticket provider in a new tab.</p>
                     </div>
                   );
                 })()}

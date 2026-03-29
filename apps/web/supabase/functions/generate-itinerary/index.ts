@@ -754,6 +754,54 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
       }
     }
 
+    // Overwrite LLM concert rows with canonical search_results.events. The model often drifts on
+    // date/city/venue even when REAL DATA was provided in the prompt.
+    const nonMockEvents = (events || []).filter(
+      (e: any) => e && e.provider && e.provider !== "mock"
+    );
+    if (nonMockEvents.length > 0 && Array.isArray(parsedResult.packages)) {
+      const formatSearchEventForPackage = (e: any) => {
+        const v = e.venue || {};
+        const venueLine = [v.name, v.city].filter(Boolean).join(", ");
+        let dateTimeStr = String(e.date_time || "");
+        if (dateTimeStr.includes("T")) {
+          try {
+            const d = new Date(dateTimeStr);
+            if (!isNaN(d.getTime())) {
+              dateTimeStr = d.toLocaleString("en-US", {
+                weekday: "short",
+                month: "short",
+                day: "numeric",
+                year: "numeric",
+                hour: "numeric",
+                minute: "2-digit",
+              });
+            }
+          } catch {
+            /* keep raw */
+          }
+        }
+        const pr =
+          e.price_min != null && e.price_max != null
+            ? `$${e.price_min}–$${e.price_max}`
+            : e.price_min != null
+              ? `From $${e.price_min}`
+              : "";
+        return {
+          name: e.name,
+          venue: venueLine || "Venue TBD",
+          date_time: dateTimeStr,
+          url: e.book_url || e.source_url || "",
+          price_range: pr,
+        };
+      };
+      const rows = nonMockEvents.slice(0, 3).map(formatSearchEventForPackage);
+      for (const pkg of parsedResult.packages) {
+        pkg.events = rows.map((r) => ({ ...r }));
+      }
+      console.log(`[CONCERT] clamped package.events to search_results (n=${nonMockEvents.length})`);
+    }
+
     // Enrich packages with trust metadata from search_results (match by name)
     const norm = (s: string) => (s || "").toLowerCase().replace(/\s+/g, " ").trim();
     const MIN_SUBSTRING_LEN = 15; // avoid "Golf" or "Muni" matching wrong courses
@@ -822,7 +870,7 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
       return url;
     };
 
-    // Always replace OTA hotel URLs with our hotel search link so users get a consistent, working experience
+    // Replace OTA / affiliate hotel URLs with Google Hotels search (direct brand sites stay).
     const shouldReplaceHotelUrl = (url: string): boolean => {
       if (!url || typeof url !== "string") return true;
       const u = url.trim().toLowerCase();
@@ -830,9 +878,20 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
       try {
         const parsed = new URL(u);
         const host = parsed.hostname.replace(/^www\./, "");
-        const isOta = ["booking.com", "expedia.com", "hotels.com", "hotel.com"].some((d) => host === d || host.endsWith("." + d));
-        if (isOta) return true; // always replace OTA links with our search URL (LLM links often 404 or go to generic page)
-        return false; // keep non-OTA URLs (e.g. a hotel's own site)
+        const ota = [
+          "booking.com",
+          "expedia.com",
+          "hotels.com",
+          "hotel.com",
+          "agoda.com",
+          "priceline.com",
+          "orbitz.com",
+          "travelocity.com",
+        ];
+        if (ota.some((d) => host === d || host.endsWith("." + d))) return true;
+        if (host === "awin1.com" || host.endsWith(".awin1.com")) return true;
+        if (host.includes("expedia.")) return true;
+        return false;
       } catch {
         return true;
       }

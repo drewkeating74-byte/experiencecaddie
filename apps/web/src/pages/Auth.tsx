@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
 import { Separator } from "@/components/ui/separator";
+import { savePostAuthReturn, buildOAuthRedirectUrl } from "@/lib/postAuthReturn";
 
 export default function Auth() {
   const [isLogin, setIsLogin] = useState(true);
@@ -23,9 +24,7 @@ export default function Auth() {
   // Persist return path as soon as this page loads (not only when clicking Google) so
   // Layout can recover after OAuth even if the callback lands on `/` or storage was flaky.
   useEffect(() => {
-    if (redirect !== "/") {
-      sessionStorage.setItem("post_auth_redirect", redirect);
-    }
+    savePostAuthReturn(redirect);
   }, [redirect]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -73,16 +72,15 @@ export default function Auth() {
             variant="outline"
             className="w-full rounded-full"
             onClick={async () => {
+              const oauthRedirectTo = buildOAuthRedirectUrl(window.location.origin, redirect);
               const { data, error } = await supabase.auth.signInWithOAuth({
                 provider: "google",
-                options: { redirectTo: `${window.location.origin}${redirect}` },
+                options: { redirectTo: oauthRedirectTo },
               });
               if (error) toast.error(error.message);
               else if (data?.url) {
                 sessionStorage.setItem("oauth_provider", "google");
-                // Persist the intended destination so Layout can recover it even
-                // if Supabase falls back to the site root after OAuth.
-                if (redirect !== "/") sessionStorage.setItem("post_auth_redirect", redirect);
+                savePostAuthReturn(redirect);
                 window.location.href = data.url;
               }
             }}
