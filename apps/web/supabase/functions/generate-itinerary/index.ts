@@ -113,9 +113,16 @@ serve(async (req) => {
         const artistSearch = p.artist_search?.trim();
         const cityHint = p.city && p.city !== "flexible" ? `Focus on ${p.city}.` : "Search cities like Nashville, Phoenix, Austin, Las Vegas, Denver, Atlanta, Dallas — places with arenas and good golf nearby.";
         const eventDetails = String(p.event_details || "").toLowerCase();
-        const isBroadDiscover = !artistSearch && (eventDetails.includes("genres: any") || eventDetails.includes("discover for me") || !eventDetails.trim());
-        const isSurpriseFlow = !artistSearch && eventDetails.includes("surprise me");
-        /** Wide intent: best shows / flexible genres / surprise — ask for more LLM rows and return up to 8 after TM verify. */
+
+        // Extract specific genres if the user explicitly selected any (not "any")
+        const genreMatch = String(p.event_details || "").match(/genres:\s*(.+)$/i);
+        const specifiedGenres = genreMatch ? genreMatch[1].trim() : null;
+        const hasSpecificGenres = Boolean(specifiedGenres && specifiedGenres.toLowerCase() !== "any");
+
+        // Wide/broad flows only apply when no specific genres were chosen
+        const isBroadDiscover = !artistSearch && !hasSpecificGenres && (eventDetails.includes("genres: any") || eventDetails.includes("discover for me") || !eventDetails.trim());
+        const isSurpriseFlow = !artistSearch && !hasSpecificGenres && eventDetails.includes("surprise me");
+        /** Wide intent: best shows / fully flexible genres / surprise — ask for more LLM rows and return up to 8 after TM verify. */
         const isWideDiscover = !artistSearch && (isBroadDiscover || isSurpriseFlow);
         const MIN_DISCOVER_OPTIONS = 3;
         const LLM_COUNT = artistSearch ? 6 : isWideDiscover ? 10 : 7;
@@ -126,6 +133,8 @@ serve(async (req) => {
           ? `Find ${LLM_COUNT} different tour dates for "${artistSearch}" in different cities. Each option must be this artist.`
           : isWideDiscover
           ? `Pick ${LLM_COUNT} high-demand upcoming arena or amphitheater concerts — mix genres (country, rock, pop, hip-hop, etc.). Every option must be a DIFFERENT artist. Spread across several cities when possible.`
+          : hasSpecificGenres
+          ? `User selected these genre preferences: ${specifiedGenres}. Pick ${LLM_COUNT} options — return ONLY concerts that match these genres: ${specifiedGenres}. Every option must be a DIFFERENT artist. Do NOT include concerts outside these genres.`
           : (p.event_details
             ? `User genre preferences: ${String(p.event_details).slice(0, 200)}. Pick ${LLM_COUNT} options with a DIFFERENT artist each and match the listed genres where possible.`
             : "");
@@ -148,7 +157,11 @@ Requirements:
 ${eventHint}
 - IMPORTANT: All ${LLM_COUNT} options must be DIFFERENT artists. Never return the same artist more than once.
 - Pick ${LLM_COUNT} different artist+city+date combinations so the user has real choices
-${artistSearch ? `- CRITICAL: All ${LLM_COUNT} must be "${artistSearch}" — different cities and dates on their tour.` : "- Vary the genres across the picks to match the user's preferences."}`;
+${artistSearch
+          ? `- CRITICAL: All ${LLM_COUNT} must be "${artistSearch}" — different cities and dates on their tour.`
+          : hasSpecificGenres
+          ? `- MANDATORY: Every concert MUST be in one of these genres: ${specifiedGenres}. Reject any result that does not match. Do not mix in other genres.`
+          : "- Vary the genres across the picks to match the user's preferences."}`;
 
         const discRes = await fetch("https://api.perplexity.ai/chat/completions", {
           method: "POST",
@@ -294,6 +307,39 @@ ${artistSearch ? `- CRITICAL: All ${LLM_COUNT} must be "${artistSearch}" — dif
         body?.searchResults ||
         {};
       let events = Array.isArray(rawSearchResults.events) ? rawSearchResults.events.slice(0, 6) : [];
+
+      // When a specific concert was selected (homepage package or concert picker),
+      // lock all tiers to that single event so the LLM can't assign different dates per tier.
+      if (selectedConcert?.artist && (selectedConcert?.date || selectedConcert?.date_time)) {
+        const selArtistLower = String(selectedConcert.artist).toLowerCase().trim();
+        const selDate = String(selectedConcert.date || selectedConcert.date_time || "").slice(0, 10);
+        // Try to find the matching TM-verified event in the search results
+        const tmMatch = events.find((e: any) => {
+          const eName = String(e.name || "").toLowerCase();
+          const eDate = String(e.date_time || "").slice(0, 10);
+          const artistInName = eName.includes(selArtistLower) || selArtistLower.includes(eName.split(/\s+/)[0]);
+          return artistInName && (!selDate || eDate === selDate);
+        });
+        if (tmMatch) {
+          events = [{ ...tmMatch, provider: "user_selected" }];
+        } else {
+          // No TM match — synthesise a locked event from the selection
+          events = [{
+            id: "selected_concert",
+            name: `${selectedConcert.artist}${selectedConcert.venue ? ` at ${selectedConcert.venue}` : ""}`,
+            date_time: selDate || selectedConcert.date || selectedConcert.date_time || "",
+            venue: {
+              name: selectedConcert.venue || "Concert Venue",
+              city: selectedConcert.city || effectiveCity,
+            },
+            book_url: selectedConcert.url || buildTicketmasterSearchUrl(selectedConcert.artist),
+            source_url: selectedConcert.url || buildTicketmasterSearchUrl(selectedConcert.artist),
+            provider: "user_selected",
+          }];
+        }
+        console.log("[CONCERT_LOCK] selected_concert locked to single event", { artist: selectedConcert.artist, date: selDate, tmMatch: !!tmMatch });
+      }
+
       console.log("[TM_LINK_DEBUG] generate-itinerary input events", events.map((e: any) => ({ name: e.name, book_url: e.book_url, source_url: e.source_url })));
       let golfCourses = Array.isArray(rawSearchResults.golf_courses)
         ? rawSearchResults.golf_courses.slice(0, 12)
