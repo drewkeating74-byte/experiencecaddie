@@ -138,43 +138,39 @@ serve(async (req) => {
         const MAX_RETURN = artistSearch ? 5 : 7;
         const discoverMaxTokens = 2048;
 
-        // Ordered city slots — model fills one per slot; we enforce uniqueness in code too.
-        const DEFAULT_CITY_SLOTS = [
-          "Nashville", "Austin", "Las Vegas", "Phoenix", "Dallas",
-          "Atlanta", "Denver", "Tampa", "Charlotte", "Miami",
-          "San Diego", "Los Angeles", "Seattle", "Chicago",
-        ];
-        const citySlots = cityList.length > 0 ? cityList : DEFAULT_CITY_SLOTS;
-        // Ask for enough slots to reach LLM_COUNT, cycling through the list if needed
-        const slotsNeeded = Math.min(LLM_COUNT, citySlots.length);
-        const assignedSlots = citySlots.slice(0, slotsNeeded);
+        const PREFERRED_CITIES = cityList.length > 0
+          ? cityList
+          : ["Nashville", "Austin", "Las Vegas", "Phoenix", "Dallas", "Atlanta", "Denver", "Tampa", "Charlotte", "Miami", "San Diego", "Los Angeles", "Seattle", "Chicago"];
 
         const genreDescription = artistSearch
-          ? `"${artistSearch}" concert`
+          ? `"${artistSearch}"`
           : isWideDiscover
-          ? "a high-demand concert (any genre — pop, country, rock, hip-hop, R&B, Latin, etc.)"
+          ? "any genre (pop, country, rock, hip-hop, R&B, Latin, etc.)"
           : hasSpecificGenres
-          ? `a ${specifiedGenres} concert (think broadly: mainstream acts, rising stars, any well-known touring ${specifiedGenres} artist)`
+          ? `${specifiedGenres} (include mainstream acts, rising stars, and any well-known touring ${specifiedGenres} artist — think broadly)`
           : p.event_details
-          ? `a concert matching: ${String(p.event_details).slice(0, 150)}`
-          : "a popular concert";
+          ? String(p.event_details).slice(0, 150)
+          : "popular";
 
-        const slotLines = assignedSlots.map((c, i) => `  ${i + 1}. City: ${c} — find ${genreDescription} happening there between ${discStart} and ${discEnd}`).join("\n");
+        const discoverPrompt = artistSearch
+          ? `Find up to ${LLM_COUNT} upcoming US tour dates for "${artistSearch}" in different cities between ${discStart} and ${discEnd}.
 
-        const discoverPrompt = `I need a concert recommendation for each city listed below. For each city, find ONE real upcoming concert.
-
-${slotLines}
-
-Return ONLY a JSON object (no markdown, no explanation, no text before or after):
+Return ONLY valid JSON (no markdown):
 {"concert_options":[{"artist":"NAME","city":"CITY","venue":"VENUE","date":"YYYY-MM-DD","url":"TICKET_URL_OR_EMPTY"}]}
 
-Requirements for every entry:
-- Must be a real confirmed US show at that city (not international)
-- Venue holds at least 3,000 people
-- Date between ${discStart} and ${discEnd} in YYYY-MM-DD format
-- Each artist must appear only once across all entries
-- If no ticket URL is available, use an empty string — do NOT omit the field
-- Skip a city slot only if you genuinely cannot find any matching concert there${artistSearch ? `\n- All entries must be "${artistSearch}" on different tour dates` : ""}`;
+Rules: US only, venue 3000+ capacity, each entry a different city, url can be empty string.`
+          : `Find ${LLM_COUNT} upcoming US concerts in the ${genreDescription} genre(s) between ${discStart} and ${discEnd}.
+
+CRITICAL REQUIREMENTS:
+1. Return exactly ${LLM_COUNT} different artists — if you cannot find ${LLM_COUNT}, return as many as you can (minimum 5)
+2. Each concert must be in a DIFFERENT city — no two concerts in the same city
+3. Preferred cities (use as many as possible): ${PREFERRED_CITIES.slice(0, 10).join(", ")} — but use ANY US city if needed to reach ${LLM_COUNT} results
+4. Do NOT skip cities just because your top choice is unavailable — find ANY ${genreDescription} artist playing there
+
+Return ONLY valid JSON (no markdown, no text before or after):
+{"concert_options":[{"artist":"NAME","city":"CITY","venue":"VENUE","date":"YYYY-MM-DD","url":"TICKET_URL_OR_EMPTY"}]}
+
+Rules: US only, venue 3000+ capacity, dates between ${discStart} and ${discEnd}, url can be empty string.`;
 
         const discRes = await fetch("https://api.perplexity.ai/chat/completions", {
           method: "POST",
@@ -346,6 +342,67 @@ Requirements for every entry:
               url: buildTicketmasterSearchUrl(a),
               _verified_ticketmaster: false,
             });
+          }
+        }
+
+        // If still below minimum after backfill, make one more broad call with no city constraints.
+        // This helps niche genres (R&B, Jazz, Latin) where the LLM can't fill every city slot.
+        if (verifiedOpts.length < MIN_DISCOVER_OPTIONS && !artistSearch) {
+          const need = MIN_DISCOVER_OPTIONS - verifiedOpts.length;
+          const seenRetry = new Set(verifiedOpts.map((v) => String(v.artist || "").toLowerCase().trim()));
+          const seenRetryCities = new Set(verifiedOpts.map((v) => String(v.city || "").toLowerCase().trim()));
+          const retryGenre = hasSpecificGenres ? specifiedGenres : "popular";
+          const retryPrompt = `Find ${need + 3} more upcoming US ${retryGenre} concerts between ${discStart} and ${discEnd}. Any US city is fine. Return only artists NOT in this list: ${Array.from(seenRetry).join(", ") || "none"}.
+
+Return ONLY valid JSON:
+{"concert_options":[{"artist":"NAME","city":"CITY","venue":"VENUE","date":"YYYY-MM-DD","url":""}]}
+
+Rules: US only, venue 3000+ capacity, different artist each entry, url can be empty string.`;
+          try {
+            const retryRes = await fetch("https://api.perplexity.ai/chat/completions", {
+              method: "POST",
+              headers: { Authorization: `Bearer ${PERPLEXITY_API_KEY}`, "Content-Type": "application/json" },
+              body: JSON.stringify({
+                model: "sonar-pro",
+                messages: [
+                  { role: "system", content: "Return only valid JSON with no markdown." },
+                  { role: "user", content: retryPrompt },
+                ],
+                temperature: 0.5,
+                max_tokens: 1024,
+              }),
+            });
+            if (retryRes.ok) {
+              const retryData = await retryRes.json();
+              const retryContent = retryData.choices?.[0]?.message?.content || "";
+              let retryCleaned = retryContent.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+              if (!retryCleaned.startsWith("{")) {
+                const s = retryCleaned.indexOf("{"); const e = retryCleaned.lastIndexOf("}");
+                if (s !== -1 && e > s) retryCleaned = retryCleaned.slice(s, e + 1);
+              }
+              const retryParsed = JSON.parse(retryCleaned);
+              for (const r of (retryParsed.concert_options || [])) {
+                if (verifiedOpts.length >= MIN_DISCOVER_OPTIONS) break;
+                const a = String(r.artist || "").trim();
+                const cityR = String(r.city || "").toLowerCase().trim();
+                if (!a || seenRetry.has(a.toLowerCase())) continue;
+                if (seenRetryCities.has(cityR)) continue;
+                seenRetry.add(a.toLowerCase());
+                seenRetryCities.add(cityR);
+                const dateRaw = String(r.date || "").trim();
+                const ymd = parseFlexibleDateToYmd(dateRaw) || dateRaw.slice(0, 10);
+                verifiedOpts.push({
+                  artist: a,
+                  city: String(r.city || "").trim() || "Various",
+                  venue: String(r.venue || "").trim() || "Venue TBD",
+                  date: ymd,
+                  url: buildTicketmasterSearchUrl(a),
+                  _verified_ticketmaster: false,
+                });
+              }
+            }
+          } catch (retryErr) {
+            console.log("[DISCOVER_RETRY] retry call failed:", retryErr);
           }
         }
 
