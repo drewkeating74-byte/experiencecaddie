@@ -52,6 +52,7 @@ serve(async (req) => {
     const provider = typeof body?.provider === "string" ? body.provider.trim().slice(0, 100) : null;
     const category = typeof body?.category === "string" ? body.category.trim().slice(0, 50) : null;
     const link_type = typeof body?.link_type === "string" ? body.link_type.trim().slice(0, 50) : null;
+    const page_context = typeof body?.page_context === "string" ? body.page_context.trim().slice(0, 100) : null;
 
     // Validate required fields
     if (!itinerary_id || !UUID_REGEX.test(itinerary_id)) {
@@ -102,6 +103,7 @@ serve(async (req) => {
       ...(provider && { provider }),
       ...(category && { category }),
       ...(link_type && { link_type }),
+      ...(page_context && { page_context }),
     });
 
     return new Response(JSON.stringify({ success: true, redirect: parsedUrl.href }), {

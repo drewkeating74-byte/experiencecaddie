@@ -239,6 +239,7 @@ export default function ItineraryResults() {
   const [shareEmails, setShareEmails] = useState("");
   const [sendingEmail, setSendingEmail] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [lastRefreshCompletedAt, setLastRefreshCompletedAt] = useState<string | null>(null);
 
   // Auto-open the share-email dialog when returning from auth with ?open=share-email
   useEffect(() => {
@@ -397,6 +398,7 @@ export default function ItineraryResults() {
             vendor,
             label,
             target_url: url,
+            page_context: "itinerary",
             ...(meta && { provider: meta.provider, category: meta.category, link_type: meta.link_type }),
           },
         });
@@ -564,9 +566,12 @@ export default function ItineraryResults() {
       const rows = slugRows?.length > 0 ? slugRows : await (await fetch(`${supabaseUrl}/rest/v1/itineraries?select=${encodeURIComponent(safeColumns)}&id=eq.${encodeURIComponent(itinerary.id)}&limit=1`, { headers })).json();
       if (rows?.length > 0) {
         setItinerary(rows[0]);
+        setLastRefreshCompletedAt(rows[0].updated_at || new Date().toISOString());
       } else if (genData?.result) {
         // Fallback: backend succeeded but refetch failed — update from response
-        setItinerary((prev) => prev ? { ...prev, result_json: genData.result, updated_at: new Date().toISOString() } : prev);
+        const fallbackUpdatedAt = new Date().toISOString();
+        setItinerary((prev) => prev ? { ...prev, result_json: genData.result, updated_at: fallbackUpdatedAt } : prev);
+        setLastRefreshCompletedAt(fallbackUpdatedAt);
       }
       toast.success("Refresh complete", { id: "refresh" });
     } catch (e: any) {
@@ -707,6 +712,11 @@ export default function ItineraryResults() {
             Refresh
           </Button>
         </div>
+        {lastRefreshCompletedAt && (
+          <p className="text-xs text-muted-foreground">
+            Updated at {formatGeneratedAt(lastRefreshCompletedAt)}
+          </p>
+        )}
         <p className="text-xs text-muted-foreground max-w-xl mx-auto">
           Prices and availability are as of this date. You'll book directly with providers—confirm on their site before booking. Experience Caddie does not handle reservations.
         </p>
