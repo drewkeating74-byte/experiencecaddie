@@ -40,8 +40,8 @@ CREATE POLICY "Admin read provider_errors"
 CREATE INDEX IF NOT EXISTS idx_provider_errors_occurred
   ON public.provider_errors (occurred_at DESC);
 
-CREATE INDEX IF NOT EXISTS idx_provider_errors_provider_day
-  ON public.provider_errors (provider, (occurred_at::date) DESC);
+CREATE INDEX IF NOT EXISTS idx_provider_errors_provider
+  ON public.provider_errors (provider, occurred_at DESC);
 
 
 -- =============================================================================
