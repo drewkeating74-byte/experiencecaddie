@@ -6,6 +6,9 @@
  *   1. Logs structured JSON to console.error → visible in Supabase Dashboard → Logs.
  *   2. Sends the error to Sentry via their HTTP API (no SDK needed).
  *
+ * Also exports logProviderError() to write structured rows to the provider_errors
+ * table for Ticketmaster and Google Places failures — used for daily health checks.
+ *
  * Required Supabase Edge Function secret:
  *   SENTRY_DSN  — same DSN you use on the frontend (sentry.io → Project → Settings → Client Keys)
  *
@@ -14,6 +17,50 @@
  *
  * If SENTRY_DSN is not set, only the console.error log fires. Safe to deploy without it.
  */
+
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+// ---------------------------------------------------------------------------
+// Provider error logging — writes to the provider_errors table so we can
+// run a daily SQL query to check Ticketmaster / Google Places health.
+// ---------------------------------------------------------------------------
+
+/**
+ * Log a provider API failure to the provider_errors table.
+ * Fire-and-forget: never throws, never blocks the calling function's response.
+ *
+ * @param provider     - 'ticketmaster' | 'google_places'
+ * @param statusCode   - HTTP status from the provider, or null for network errors
+ * @param errorMessage - Short description (exception message or response snippet)
+ * @param functionName - Name of the calling edge function, e.g. 'search'
+ */
+export async function logProviderError(
+  provider: string,
+  statusCode: number | null,
+  errorMessage: string,
+  functionName: string,
+): Promise<void> {
+  const rateLimited = statusCode === 429;
+  console.error(
+    "[provider-error]",
+    JSON.stringify({ provider, status_code: statusCode, rate_limited: rateLimited, error_message: errorMessage, function_name: functionName }),
+  );
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (!supabaseUrl || !supabaseKey) return;
+  try {
+    const sb = createClient(supabaseUrl, supabaseKey);
+    await sb.from("provider_errors").insert({
+      provider,
+      status_code: statusCode,
+      rate_limited: rateLimited,
+      error_message: errorMessage.slice(0, 500),
+      function_name: functionName,
+    });
+  } catch {
+    // Never let DB logging failures surface to callers.
+  }
+}
 
 interface SentryConfig {
   publicKey: string;

@@ -36,6 +36,17 @@ function humanizeProvider(provider?: string): string | null {
   return PROVIDER_LABELS[provider] ?? provider.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+function formatCheckedDate(iso?: string): string | null {
+  if (!iso) return null;
+  try {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return null;
+    return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  } catch {
+    return null;
+  }
+}
+
 export function GolfTrustPanel({
   drive_time_minutes,
   distance_miles,
@@ -70,7 +81,8 @@ export function GolfTrustPanel({
           ? `https://www.google.com/maps?q=${lat},${lng}`
           : undefined;
 
-  const hasRow1 = drive_time_minutes != null || distance_miles != null || public_access_confidence || humanizeProvider(provider);
+  const checkedDate = formatCheckedDate(as_of ?? generatedAt);
+  const hasRow1 = drive_time_minutes != null || distance_miles != null || public_access_confidence || humanizeProvider(provider) || checkedDate;
 
   return (
     <div className="mt-3 space-y-2 text-xs text-muted-foreground">
@@ -100,8 +112,14 @@ export function GolfTrustPanel({
             <span className="inline-flex items-center gap-1.5">
               <Building2 className="h-3.5 w-3 shrink-0" />
               <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 font-normal">
-                {humanizeProvider(provider)}
+                via {humanizeProvider(provider)}
               </Badge>
+            </span>
+          )}
+          {checkedDate && (
+            <span className="inline-flex items-center gap-1" title="When this data was last fetched">
+              <Calendar className="h-3.5 w-3 shrink-0" />
+              Checked {checkedDate}
             </span>
           )}
         </div>
@@ -129,7 +147,31 @@ export function HotelTrustPanel({
   provider?: string;
   generatedAt?: string;
 }) {
-  return null;
+  const displayProvider = humanizeProvider(provider);
+  const checkedDate = formatCheckedDate(generatedAt);
+
+  if (!displayProvider && !checkedDate) return null;
+
+  return (
+    <div className="mt-3 space-y-2 text-xs text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
+        {displayProvider && (
+          <span className="inline-flex items-center gap-1.5">
+            <Building2 className="h-3.5 w-3 shrink-0" />
+            <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 font-normal">
+              via {displayProvider}
+            </Badge>
+          </span>
+        )}
+        {checkedDate && (
+          <span className="inline-flex items-center gap-1" title="When this data was last fetched">
+            <Calendar className="h-3.5 w-3 shrink-0" />
+            Checked {checkedDate}
+          </span>
+        )}
+      </div>
+    </div>
+  );
 }
 
 export function EventTrustPanel({
@@ -148,6 +190,7 @@ export function EventTrustPanel({
     : null;
 
   const displayProvider = humanizeProvider(provider);
+  const checkedDate = formatCheckedDate(generatedAt);
 
   return (
     <div className="mt-3 space-y-2 text-xs text-muted-foreground">
@@ -167,13 +210,21 @@ export function EventTrustPanel({
           )}
         </div>
       )}
-      {displayProvider && (
+      {(displayProvider || checkedDate) && (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
-          <span className="inline-flex items-center gap-1.5">
-            <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 font-normal">
-              {displayProvider}
-            </Badge>
-          </span>
+          {displayProvider && (
+            <span className="inline-flex items-center gap-1.5">
+              <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 font-normal">
+                via {displayProvider}
+              </Badge>
+            </span>
+          )}
+          {checkedDate && (
+            <span className="inline-flex items-center gap-1" title="When this data was last fetched">
+              <Calendar className="h-3.5 w-3 shrink-0" />
+              Checked {checkedDate}
+            </span>
+          )}
         </div>
       )}
     </div>

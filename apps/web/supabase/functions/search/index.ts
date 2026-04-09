@@ -3,7 +3,7 @@
  * Phase 1A: DB-first golf lookup for Phoenix, Nashville, Austin when pool is strong enough.
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { reportError } from "../_shared/monitoring.ts";
+import { reportError, logProviderError } from "../_shared/monitoring.ts";
 import { METROS } from "../_shared/golfCities.ts";
 import {
   buildTicketmasterSearchUrl,
@@ -736,8 +736,15 @@ type DbGolfRow = {
   normalized_quality_score?: number | null;
   tier_hint?: string | null;
   editorial_boost?: number | null;
+  verification_status?: "verified" | "needs_review" | "excluded" | "unreviewed" | null;
 };
 
+// Verification rules for package inclusion:
+//   verified     → eligible, ranked normally
+//   unreviewed   → eligible (default for all courses not yet manually reviewed)
+//   needs_review → NOT eligible; held back until a human reviews the course
+//   excluded     → NOT eligible; never shown under any circumstances
+// A course must also have active = true to appear here.
 async function findGolfFromDb(
   supabase: ReturnType<typeof createClient>,
   metro: string,
@@ -745,11 +752,12 @@ async function findGolfFromDb(
 ): Promise<DbGolfRow[]> {
   const { data, error } = await supabase
     .from("golf_courses")
-    .select("id,name,city,state,lat,lng,source_id,place_id,metro,canonical_name,public_access_confidence,normalized_quality_score,tier_hint,editorial_boost")
+    .select("id,name,city,state,lat,lng,source_id,place_id,metro,canonical_name,public_access_confidence,normalized_quality_score,tier_hint,editorial_boost,verification_status")
     .eq("metro", metro)
     .eq("state", state.toUpperCase().slice(0, 2))
     .eq("active", true)
     .in("public_access_confidence", ["likely_public", "unknown"])
+    .in("verification_status", ["verified", "unreviewed"])
     .not("source_id", "is", null)
     .order("normalized_quality_score", { ascending: false, nullsFirst: false })
     .limit(20);
@@ -1105,7 +1113,11 @@ Deno.serve(async (req: Request) => {
         );
         if (events.length > 0) providers.push("ticketmaster");
       } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        const statusMatch = msg.match(/error (\d{3})/i);
+        const statusCode = statusMatch ? parseInt(statusMatch[1], 10) : null;
         console.error("Ticketmaster search error:", err);
+        await logProviderError("ticketmaster", statusCode, msg, "search");
         events = mockEvents(
           { ...payload, destination: { ...payload.destination, city: effectiveCity } },
           startDate,
@@ -1268,7 +1280,11 @@ Deno.serve(async (req: Request) => {
           silverPool = [...golfCourses];
         }
       } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        const statusMatch = msg.match(/error (\d{3})/i);
+        const statusCode = statusMatch ? parseInt(statusMatch[1], 10) : null;
         console.error("Google Places golf search error:", err);
+        await logProviderError("google_places", statusCode, msg, "search");
         golfSource = "mock";
         golfCourses = mockGolf({
           ...payload,

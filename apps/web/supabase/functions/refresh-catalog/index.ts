@@ -42,6 +42,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { METROS, getMetroBySlug, type MetroConfig } from "../_shared/golfCities.ts";
+import { logProviderError } from "../_shared/monitoring.ts";
 
 // ---------------------------------------------------------------------------
 // Helpers: CORS + JSON response
@@ -655,7 +656,11 @@ async function refreshMetro(
         result.golf_upserted = 0; // dry run — no writes
       }
     } catch (err) {
-      result.errors.push(`golf error: ${err instanceof Error ? err.message : String(err)}`);
+      const msg = err instanceof Error ? err.message : String(err);
+      const statusMatch = msg.match(/error (\d{3})/i);
+      const statusCode = statusMatch ? parseInt(statusMatch[1], 10) : null;
+      await logProviderError("google_places", statusCode, msg, "refresh-catalog");
+      result.errors.push(`golf error: ${msg}`);
     }
   }
 
@@ -685,7 +690,11 @@ async function refreshMetro(
         result.venues_upserted = 0;
       }
     } catch (err) {
-      result.errors.push(`venues error: ${err instanceof Error ? err.message : String(err)}`);
+      const msg = err instanceof Error ? err.message : String(err);
+      const statusMatch = msg.match(/error (\d{3})/i);
+      const statusCode = statusMatch ? parseInt(statusMatch[1], 10) : null;
+      await logProviderError("ticketmaster", statusCode, msg, "refresh-catalog");
+      result.errors.push(`venues error: ${msg}`);
     }
   }
 
