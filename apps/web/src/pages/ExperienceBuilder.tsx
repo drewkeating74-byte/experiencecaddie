@@ -346,12 +346,14 @@ export default function ExperienceBuilder() {
       extra: { entry_type: selectedEntry, budget },
     });
 
-    if (!flexibleLocation && !city) {
+    if (!flexibleLocation && selectedCities.length === 0) {
       toast.error("Enter a city or switch to flexible location");
+      setGenerating(false);
       return;
     }
     if (!flexibleDates && (!startDate || !endDate)) {
       toast.error("Enter dates or switch to flexible dates");
+      setGenerating(false);
       return;
     }
 
@@ -362,11 +364,13 @@ export default function ExperienceBuilder() {
       : selectedCities.join(", ");
     if (groupSize < 1 || groupSize > 20) {
       toast.error("Group size must be between 1 and 20");
+      setGenerating(false);
       return;
     }
     const validBudgets = ["low", "mid", "high"];
     if (!validBudgets.includes(budget)) {
       toast.error("Invalid budget selection");
+      setGenerating(false);
       return;
     }
 
@@ -390,6 +394,7 @@ export default function ExperienceBuilder() {
     const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
     if (!dateRegex.test(finalStart) || !dateRegex.test(finalEnd)) {
       toast.error("Invalid date format");
+      setGenerating(false);
       return;
     }
 
@@ -400,10 +405,12 @@ export default function ExperienceBuilder() {
     const minStartStr = twoWeeksFromNow.toISOString().split("T")[0];
     if (finalStart < minStartStr) {
       toast.error("Start date must be at least 2 weeks from today. Try flexible dates for automatic scheduling.");
+      setGenerating(false);
       return;
     }
     if (finalEnd <= finalStart) {
       toast.error("End date must be after start date");
+      setGenerating(false);
       return;
     }
 
