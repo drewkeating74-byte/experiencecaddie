@@ -107,40 +107,33 @@ Deno.serve(async (req: Request) => {
   };
 
   // ── 1. DEACTIVATE PAST PACKAGES ────────────────────────────────────────────
+  // Fetch all active packages with their joined event date and the denormalized
+  // event_date column (present after the packages_source_and_promotion migration).
+  // Filter in JS to avoid PostgREST dot-notation quirks on joined columns.
 
-  // Curated packages: join to events table to read event_date
-  const { data: curatedPast, error: curatedErr } = await sb
+  const { data: activePackages, error: activeErr } = await sb
     .from("packages")
-    .select("id, events!inner(event_date)")
-    .eq("active", true)
-    .eq("source", "curated")
-    .lt("events.event_date", today);
+    .select("id, event_id, event_date, events(event_date)")
+    .eq("active", true);
 
-  if (curatedErr) {
-    console.error("[pkg-maintenance] curated deactivate query error:", curatedErr.message);
-  } else if (curatedPast?.length) {
-    const ids = curatedPast.map((p) => p.id);
-    await sb.from("packages").update({ active: false }).in("id", ids);
-    result.deactivated_curated = ids.length;
-    console.log(`[pkg-maintenance] deactivated ${ids.length} curated package(s)`);
-  }
-
-  // Promoted packages: use denormalized event_date column
-  const { data: promotedPast, error: promotedErr } = await sb
-    .from("packages")
-    .select("id, event_date")
-    .eq("active", true)
-    .eq("source", "promoted")
-    .not("event_date", "is", null)
-    .lt("event_date", today);
-
-  if (promotedErr) {
-    console.error("[pkg-maintenance] promoted deactivate query error:", promotedErr.message);
-  } else if (promotedPast?.length) {
-    const ids = promotedPast.map((p) => p.id);
-    await sb.from("packages").update({ active: false }).in("id", ids);
-    result.deactivated_promoted = ids.length;
-    console.log(`[pkg-maintenance] deactivated ${ids.length} promoted package(s)`);
+  if (activeErr) {
+    console.error("[pkg-maintenance] active packages query error:", activeErr.message);
+  } else {
+    const staleIds: string[] = [];
+    for (const pkg of activePackages ?? []) {
+      const pkgDate: string | null =
+        (pkg as any).event_date ??           // denormalized column (promoted packages)
+        (pkg as any).events?.event_date ??   // FK join (curated packages)
+        null;
+      if (pkgDate && pkgDate < today) staleIds.push(pkg.id);
+    }
+    if (staleIds.length > 0) {
+      await sb.from("packages").update({ active: false }).in("id", staleIds);
+      result.deactivated_curated = staleIds.length;
+      console.log(`[pkg-maintenance] deactivated ${staleIds.length} package(s) with past event dates`);
+    } else {
+      console.log("[pkg-maintenance] no packages with past event dates found");
+    }
   }
 
   // ── 2. AUTO-PROMOTE POPULAR ITINERARIES ────────────────────────────────────
