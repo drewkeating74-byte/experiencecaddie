@@ -951,12 +951,16 @@ export default function ItineraryResults() {
                     Note: events schema has no "why" field. Future pass: add why to generate-itinerary
                     LLM schema (events array) and render e.why here for consistency with lodging/golf. */}
                 {(() => {
-                  const todayStr = new Date().toISOString().slice(0, 10);
+                  // Hide events that are today or in the past — you can't realistically
+                  // plan and travel to a concert starting today or yesterday.
+                  const tomorrow = new Date();
+                  tomorrow.setDate(tomorrow.getDate() + 1);
+                  const tomorrowStr = tomorrow.toISOString().slice(0, 10);
                   const extrasTypes = ["restaurant", "bar", "experience", "attraction"];
                   const allEventItems = (pkg.events || []).filter((e: any) => !extrasTypes.includes(e.type));
                   const eventItems = allEventItems.filter((e: any) => {
                     const d = toYYYYMMDD(e.date_time);
-                    return !d || d >= todayStr;
+                    return !d || d >= tomorrowStr;
                   });
                   const pastCount = allEventItems.length - eventItems.length;
                   return (eventItems.length > 0 || pastCount > 0) && (
