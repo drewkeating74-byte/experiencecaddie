@@ -105,11 +105,17 @@ export default function Packages() {
   const destinations = [...new Set(packages.map(p => p.destinations?.name).filter(Boolean))] as string[];
 
   const now = new Date();
+  const tomorrow = new Date(now);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const tomorrowStr = tomorrow.toISOString().slice(0, 10);
   const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
   const in60Days = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000);
 
   const filtered = packages
     .filter((p) => {
+      // Always hide packages whose event date has already passed or is today
+      if (p.events?.event_date && p.events.event_date.slice(0, 10) < tomorrowStr) return false;
+
       if (search) {
         const s = search.toLowerCase();
         if (!(
