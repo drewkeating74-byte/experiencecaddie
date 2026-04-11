@@ -124,7 +124,7 @@ INSERT INTO public.packages (
    'd1ec0001-0000-0000-0000-000000000004',   -- Phoenix, AZ
    'Post Malone''s F-1 Trillion Tour brings country-tinged stadium pop to the desert. Cool down the next morning with 27 holes of golf across Ocotillo''s palm-lined, lake-studded layout.',
    850, 999, 'Golf + Concert', true, true,
-   'https://images.unsplash.com/photo-1540541338537-1220059ec600?w=800&h=500&fit=crop'),
+   'https://images.unsplash.com/photo-1459749411175-04bf5292ceea?w=800&h=500&fit=crop&q=80'),
 
   -- Eric Church + Las Vegas Paiute | Las Vegas, NV
   ('f3ec0001-0000-0000-0000-000000000004',
