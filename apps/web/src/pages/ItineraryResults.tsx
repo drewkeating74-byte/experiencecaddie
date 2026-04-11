@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, Link, useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -165,7 +165,9 @@ function toYYYYMMDD(val: unknown): string | null {
 }
 
 /** Reconstruct search params from itinerary + result_json for refresh. Prefer itinerary.city where available.
- * Dates: itinerary.start_date/end_date first; fallback to result_json event date_time when itinerary dates missing. */
+ * Dates: itinerary.start_date/end_date first; fallback to result_json event date_time when itinerary dates missing.
+ * If the resolved dates are in the past or within 14 days of today, shift them forward to be future-looking
+ * while preserving the original trip duration. This ensures Refresh always searches for upcoming events. */
 function deriveSearchParams(itinerary: ItineraryRow | null, result_json: ResultJson | null): SearchRequest | null {
   let start = toYYYYMMDD(itinerary?.start_date);
   let end = toYYYYMMDD(itinerary?.end_date);
@@ -191,6 +193,21 @@ function deriveSearchParams(itinerary: ItineraryRow | null, result_json: ResultJ
     }
   }
   if (!start || !end) return null;
+
+  // Shift dates forward if they are stale (past or within 14 days of today).
+  // Preserve the original trip duration so the weekend structure stays intact.
+  const minFutureStart = new Date();
+  minFutureStart.setHours(0, 0, 0, 0);
+  minFutureStart.setDate(minFutureStart.getDate() + 14);
+  const minFutureStartStr = minFutureStart.toISOString().slice(0, 10);
+  if (start < minFutureStartStr) {
+    const origStart = new Date(start + "T12:00:00");
+    const origEnd = new Date(end + "T12:00:00");
+    const tripDays = Math.max(2, Math.round((origEnd.getTime() - origStart.getTime()) / 86_400_000));
+    const newEnd = new Date(minFutureStart.getTime() + tripDays * 86_400_000);
+    start = minFutureStartStr;
+    end = newEnd.toISOString().slice(0, 10);
+  }
 
   const prefs = (itinerary?.preferences ?? {}) as Record<string, unknown>;
   const pkgs = result_json?.packages ?? [];
@@ -240,6 +257,7 @@ export default function ItineraryResults() {
   const [sendingEmail, setSendingEmail] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [lastRefreshCompletedAt, setLastRefreshCompletedAt] = useState<string | null>(null);
+  const autoRefreshedRef = useRef(false);
 
   // Auto-open the share-email dialog when returning from auth with ?open=share-email
   useEffect(() => {
@@ -332,6 +350,19 @@ export default function ItineraryResults() {
     console.log("[TM_LINK_DEBUG] Saved result_json (from DB)", { itinerary_id: itinerary.id, packages_events: eventsByPkg });
     console.log("[TM_LINK_DEBUG] Full result_json", result);
   }, [itinerary?.id, itinerary?.result_json]);
+
+  // Auto-refresh when the itinerary is more than 7 days old so users always see
+  // upcoming events rather than past ones. Runs once per page load, never loops.
+  useEffect(() => {
+    if (!itinerary?.updated_at || autoRefreshedRef.current || refreshing) return;
+    const ageMs = Date.now() - new Date(itinerary.updated_at).getTime();
+    const sevenDays = 7 * 24 * 60 * 60 * 1000;
+    if (ageMs >= sevenDays) {
+      autoRefreshedRef.current = true;
+      handleRefresh();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [itinerary?.id]);
 
   const trackClick = async (
     tier: string,
@@ -722,6 +753,22 @@ export default function ItineraryResults() {
         </p>
       </div>
 
+      {/* Stale itinerary banner — shown when last refresh was 7+ days ago */}
+      {(() => {
+        if (!itinerary?.updated_at) return null;
+        const ageDays = Math.floor((Date.now() - new Date(itinerary.updated_at).getTime()) / 86_400_000);
+        if (ageDays < 7) return null;
+        return (
+          <div className="mb-6 rounded-lg border border-yellow-300 bg-yellow-50 dark:border-yellow-700 dark:bg-yellow-950/30 px-4 py-3 text-sm text-yellow-800 dark:text-yellow-300 flex items-center justify-between gap-4 flex-wrap">
+            <span>This itinerary is {ageDays} days old — event dates and availability may have changed.</span>
+            <Button size="sm" variant="outline" onClick={handleRefresh} disabled={refreshing} className="shrink-0">
+              {refreshing ? <Loader2 className="mr-2 h-3 w-3 animate-spin" /> : <RefreshCw className="mr-2 h-3 w-3" />}
+              Refresh now
+            </Button>
+          </div>
+        );
+      })()}
+
       {/* Tier Tabs */}
       <Tabs defaultValue={packages[0]?.tier || "BRONZE"}>
         <TabsList className="mx-auto mb-6 grid w-full max-w-md grid-cols-3 h-12">
@@ -904,9 +951,15 @@ export default function ItineraryResults() {
                     Note: events schema has no "why" field. Future pass: add why to generate-itinerary
                     LLM schema (events array) and render e.why here for consistency with lodging/golf. */}
                 {(() => {
+                  const todayStr = new Date().toISOString().slice(0, 10);
                   const extrasTypes = ["restaurant", "bar", "experience", "attraction"];
-                  const eventItems = (pkg.events || []).filter((e: any) => !extrasTypes.includes(e.type));
-                  return eventItems.length > 0 && (
+                  const allEventItems = (pkg.events || []).filter((e: any) => !extrasTypes.includes(e.type));
+                  const eventItems = allEventItems.filter((e: any) => {
+                    const d = toYYYYMMDD(e.date_time);
+                    return !d || d >= todayStr;
+                  });
+                  const pastCount = allEventItems.length - eventItems.length;
+                  return (eventItems.length > 0 || pastCount > 0) && (
                   <Card>
                     <CardHeader className="pb-3">
                       <CardTitle className="flex items-center gap-2 font-serif text-lg">
@@ -914,6 +967,14 @@ export default function ItineraryResults() {
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-3">
+                      {pastCount > 0 && (
+                        <div className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground flex items-center justify-between gap-2 flex-wrap">
+                          <span>{pastCount} event{pastCount > 1 ? "s have" : " has"} already passed and {pastCount > 1 ? "are" : "is"} hidden.</span>
+                          <button className="underline underline-offset-2 hover:text-foreground transition-colors" onClick={handleRefresh} disabled={refreshing}>
+                            Refresh to find new dates
+                          </button>
+                        </div>
+                      )}
                       {eventItems.map((e: any, i: number) => (
                         <div key={`${pkg.tier}-event-${i}-${String(e.name || "").slice(0, 50)}-${e.date_time || ""}`} className="rounded-lg border border-border/50 p-4">
                           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">

@@ -1,0 +1,40 @@
+name: Weekly Refresh — Stale Itineraries
+
+# Runs every Sunday at 3:00 AM UTC.
+# Calls the refresh-stale edge function which finds itineraries older than 7 days
+# and re-runs search + generate-itinerary with future-shifted dates.
+# Capped at 10 itineraries per run to control LLM costs.
+on:
+  schedule:
+    - cron: "0 3 * * 0"   # Sunday 03:00 UTC
+  workflow_dispatch:       # allow manual trigger from GitHub Actions tab
+
+jobs:
+  refresh-stale:
+    runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+    steps:
+      - name: Trigger refresh-stale edge function
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            -X POST \
+            "https://kxibaydbhquospzoefva.supabase.co/functions/v1/refresh-stale" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Content-Type: application/json" \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY")
+
+          HTTP_BODY=$(echo "$RESPONSE" | head -n -1)
+          HTTP_STATUS=$(echo "$RESPONSE" | tail -n 1)
+
+          echo "Status: $HTTP_STATUS"
+          echo "Response: $HTTP_BODY"
+
+          if [ "$HTTP_STATUS" -lt 200 ] || [ "$HTTP_STATUS" -ge 300 ]; then
+            echo "::error::refresh-stale returned HTTP $HTTP_STATUS"
+            exit 1
+          fi

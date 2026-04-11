@@ -14,3 +14,6 @@ verify_jwt = false
 
 [functions.refresh-catalog]
 verify_jwt = true
+
+[functions.refresh-stale]
+verify_jwt = true
