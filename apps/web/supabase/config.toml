@@ -17,3 +17,6 @@ verify_jwt = true
 
 [functions.refresh-stale]
 verify_jwt = true
+
+[functions.packages-maintenance]
+verify_jwt = true

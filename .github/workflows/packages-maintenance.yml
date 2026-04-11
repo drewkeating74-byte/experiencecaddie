@@ -1,0 +1,39 @@
+name: Daily Packages Maintenance
+
+# Runs every day at 04:00 AM UTC.
+# Calls the packages-maintenance edge function which:
+#   1. Sets active = false on packages whose event date has passed
+#   2. Promotes itineraries saved by 2+ distinct users to the packages catalog
+on:
+  schedule:
+    - cron: "0 4 * * *"    # Daily 04:00 UTC
+  workflow_dispatch:        # Allow manual trigger from GitHub Actions tab
+
+jobs:
+  maintenance:
+    runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+    steps:
+      - name: Run packages-maintenance edge function
+        env:
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            -X POST \
+            "https://kxibaydbhquospzoefva.supabase.co/functions/v1/packages-maintenance" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Content-Type: application/json" \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY")
+
+          HTTP_BODY=$(echo "$RESPONSE" | head -n -1)
+          HTTP_STATUS=$(echo "$RESPONSE" | tail -n 1)
+
+          echo "Status: $HTTP_STATUS"
+          echo "Response: $HTTP_BODY"
+
+          if [ "$HTTP_STATUS" -lt 200 ] || [ "$HTTP_STATUS" -ge 300 ]; then
+            echo "::error::packages-maintenance returned HTTP $HTTP_STATUS"
+            exit 1
+          fi

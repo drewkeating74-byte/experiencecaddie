@@ -15,15 +15,29 @@ import {
   daysUntilExpiration,
 } from "@/lib/packageFreshness";
 
+// Promoted packages carry denormalized fields instead of FK-joined relations.
+// These helpers resolve the right value regardless of package source.
+function pkgEventDate(pkg: Package): string | null {
+  return (pkg as any).event_date ?? pkg.events?.event_date ?? null;
+}
+function pkgArtistName(pkg: Package): string | null {
+  return (pkg as any).artist_name ?? pkg.events?.artists?.name ?? pkg.events?.name ?? null;
+}
+function pkgCity(pkg: Package): string | null {
+  return (pkg as any).city ?? pkg.destinations?.city ?? pkg.destinations?.name ?? null;
+}
+function pkgGolfName(pkg: Package): string | null {
+  return (pkg as any).golf_course_name ?? pkg.golf_courses?.name ?? null;
+}
+
 function getIncludes(pkg: Package): string[] {
   const items: string[] = [];
-  if (pkg.events) items.push("Concert tickets");
-  if (pkg.golf_courses) {
-    const holes = pkg.golf_courses.holes || 18;
+  if (pkg.events || (pkg as any).event_name) items.push("Concert tickets");
+  if (pkg.golf_courses || pkgGolfName(pkg)) {
+    const holes = pkg.golf_courses?.holes || 18;
     items.push(`${holes} holes golf w/ cart`);
   }
-  if (pkg.destinations) items.push("2 nights hotel");
-  
+  if (pkg.destinations || pkgCity(pkg)) items.push("2 nights hotel");
   return items;
 }
 
@@ -40,9 +54,9 @@ export default function Packages() {
   const navigate = useNavigate();
 
   function buildItineraryUrl(pkg: Package): string {
-    const city = pkg.destinations?.city ?? "";
-    const artistName = pkg.events?.artists?.name ?? pkg.events?.name ?? "";
-    const eventDate = pkg.events?.event_date ?? "";
+    const city = pkgCity(pkg) ?? "";
+    const artistName = pkgArtistName(pkg) ?? "";
+    const eventDate = pkgEventDate(pkg) ?? "";
     let startDate = "";
     let endDate = "";
     if (eventDate) {
@@ -114,7 +128,8 @@ export default function Packages() {
   const filtered = packages
     .filter((p) => {
       // Always hide packages whose event date has already passed or is today
-      if (p.events?.event_date && p.events.event_date.slice(0, 10) < tomorrowStr) return false;
+      const evDate = pkgEventDate(p);
+      if (evDate && evDate.slice(0, 10) < tomorrowStr) return false;
 
       if (search) {
         const s = search.toLowerCase();
@@ -127,11 +142,14 @@ export default function Packages() {
       }
       if (destination !== "all" && p.destinations?.name !== destination) return false;
 
-      if (windowFilter !== "all" && p.events?.event_date) {
-        const d = new Date(p.events.event_date + "T12:00:00");
-        if (windowFilter === "this-month" && d > endOfMonth) return false;
-        if (windowFilter === "60-days" && d > in60Days) return false;
-      } else if (windowFilter !== "all" && !p.events?.event_date) return false;
+      if (windowFilter !== "all") {
+        const evd = pkgEventDate(p);
+        if (evd) {
+          const d = new Date(evd + "T12:00:00");
+          if (windowFilter === "this-month" && d > endOfMonth) return false;
+          if (windowFilter === "60-days" && d > in60Days) return false;
+        } else return false;
+      }
 
       if (budgetTier !== "all") {
         if (budgetTier === "low" && p.price > 900) return false;
@@ -253,7 +271,12 @@ export default function Packages() {
                     alt={pkg.name}
                     className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
                   />
-                  {pkg.original_price && pkg.original_price > pkg.price && (
+                  {(pkg as any).source === "promoted" && (
+                    <Badge className="absolute left-3 top-3 bg-primary/90 text-primary-foreground text-[10px]">
+                      Community pick
+                    </Badge>
+                  )}
+                  {(pkg as any).source !== "promoted" && pkg.original_price && pkg.original_price > pkg.price && (
                     <Badge className="absolute left-3 top-3 bg-accent text-accent-foreground">
                       Save ${(pkg.original_price - pkg.price).toFixed(0)}
                     </Badge>
@@ -266,19 +289,19 @@ export default function Packages() {
                 </div>
                 <CardContent className="p-4">
                   <h3 className="font-serif text-lg font-semibold leading-tight group-hover:text-primary">{pkg.name}</h3>
-                  {pkg.destinations && (
+                  {pkgCity(pkg) && (
                     <p className="mt-1 flex items-center gap-1 text-sm text-muted-foreground">
-                      <MapPin className="h-3.5 w-3.5" /> {pkg.destinations.city || pkg.destinations.name}
+                      <MapPin className="h-3.5 w-3.5" /> {pkgCity(pkg)}
                     </p>
                   )}
-                  {pkg.events && (
+                  {pkgArtistName(pkg) && (
                     <p className="mt-1 flex items-center gap-1 text-sm text-muted-foreground">
-                      <Music className="h-3.5 w-3.5" /> {pkg.events.artists?.name || pkg.events.name}
+                      <Music className="h-3.5 w-3.5" /> {pkgArtistName(pkg)}
                     </p>
                   )}
-                  {pkg.events?.event_date && (
+                  {pkgEventDate(pkg) && (
                     <p className="mt-1 flex items-center gap-1 text-sm text-muted-foreground">
-                      <Calendar className="h-3.5 w-3.5" /> {new Date(pkg.events.event_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      <Calendar className="h-3.5 w-3.5" /> {new Date(pkgEventDate(pkg)! + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                     </p>
                   )}
                   {getIncludes(pkg).length > 0 && (
