@@ -125,7 +125,7 @@ Deno.serve(async (req: Request) => {
         (pkg as any).event_date ??           // denormalized column (promoted packages)
         (pkg as any).events?.event_date ??   // FK join (curated packages)
         null;
-      if (pkgDate && pkgDate < today) staleIds.push(pkg.id);
+      if (pkgDate && pkgDate <= today) staleIds.push(pkg.id);
     }
     if (staleIds.length > 0) {
       await sb.from("packages").update({ active: false }).in("id", staleIds);
