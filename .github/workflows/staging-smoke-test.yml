@@ -20,6 +20,11 @@ name: Staging Smoke Test
 #   VERCEL_PROJECT_ID  — Vercel dashboard → your project → Settings → General
 #                        Copy the "Project ID" field (looks like prj_xxxxxxxxxxxx)
 #
+#   VERCEL_BYPASS_SECRET — Vercel dashboard → your project → Settings →
+#                        Deployment Protection → "Protection Bypass for Automation"
+#                        → Generate Secret → copy the value
+#                        Allows CI to access protected preview URLs (HTTP 401 fix)
+#
 #   SUPABASE_SERVICE_ROLE_KEY — already exists from deploy-edge-functions.yml
 #
 # ONE-TIME VERCEL DASHBOARD STEP:
@@ -50,6 +55,7 @@ jobs:
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_BYPASS_SECRET: ${{ secrets.VERCEL_BYPASS_SECRET }}
           COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           echo "Waiting for Vercel preview deployment for commit $COMMIT_SHA ..."
@@ -86,8 +92,12 @@ jobs:
             fi
           done
 
-          # Verify the preview URL is reachable
-          HTTP_STATUS=$(curl -sf -o /dev/null -w "%{http_code}" "$PREVIEW_URL" || echo "000")
+          # Verify the preview URL is reachable.
+          # Passes the automation bypass secret so Vercel's deployment protection
+          # does not block the CI request with HTTP 401.
+          HTTP_STATUS=$(curl -sf -o /dev/null -w "%{http_code}" \
+            -H "x-vercel-protection-bypass: ${VERCEL_BYPASS_SECRET}" \
+            "$PREVIEW_URL" || echo "000")
           if [ "$HTTP_STATUS" != "200" ]; then
             echo "::error::Preview URL returned HTTP $HTTP_STATUS — expected 200"
             exit 1
