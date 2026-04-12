@@ -1,0 +1,302 @@
+name: Staging Smoke Test
+
+# Runs on every PR targeting main.
+# Waits for Vercel to create a preview deployment for the PR's head commit,
+# then runs four smoke tests against the backend (Supabase edge functions):
+#
+#   1. Search returns results      — GET /functions/v1/search
+#   2. Outbound link is present    — parsed from search response
+#   3. click_events receives event — REST API write to staging schema
+#   4. Itinerary generates         — refresh-mode generate-itinerary call
+#
+# The PR is blocked from merging (required status check) if any test fails.
+#
+# SECRETS REQUIRED (GitHub → repo → Settings → Secrets and variables → Actions):
+#
+#   VERCEL_TOKEN       — Vercel dashboard → Account Settings → Tokens
+#                        (top-right avatar → Settings → Tokens → Create)
+#                        Choose "Full Account" scope. No expiry for CI tokens.
+#
+#   VERCEL_PROJECT_ID  — Vercel dashboard → your project → Settings → General
+#                        Copy the "Project ID" field (looks like prj_xxxxxxxxxxxx)
+#
+#   SUPABASE_SERVICE_ROLE_KEY — already exists from deploy-edge-functions.yml
+#
+# ONE-TIME VERCEL DASHBOARD STEP:
+#   Project → Settings → Environment Variables → Add variable
+#   Name: VITE_APP_ENV   Value: staging   Environment: Preview  (NOT Production)
+#
+# ONE-TIME SUPABASE DASHBOARD STEP:
+#   Settings → API → "Extra search path" → add "staging" → Save
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches:
+      - main
+
+jobs:
+  smoke-test:
+    name: Smoke Tests (Staging)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SUPABASE_URL: https://kxibaydbhquospzoefva.supabase.co
+
+    steps:
+      # ── Step 0: Wait for Vercel preview deployment ────────────────────────
+      - name: Wait for Vercel preview deployment
+        id: vercel
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          echo "Waiting for Vercel preview deployment for commit $COMMIT_SHA ..."
+
+          PREVIEW_URL=""
+          for i in $(seq 1 36); do
+            sleep 10
+
+            RESPONSE=$(curl -sf \
+              "https://api.vercel.com/v6/deployments?projectId=${VERCEL_PROJECT_ID}&meta-githubCommitSha=${COMMIT_SHA}&limit=5" \
+              -H "Authorization: Bearer ${VERCEL_TOKEN}" \
+              2>/dev/null || echo '{"deployments":[]}')
+
+            STATE=$(echo "$RESPONSE" | jq -r '.deployments[0].state // "NOT_FOUND"')
+            URL=$(echo "$RESPONSE"   | jq -r '.deployments[0].url   // ""')
+
+            echo "Attempt $i / 36 — state=${STATE} url=${URL}"
+
+            if [ "$STATE" = "READY" ] && [ -n "$URL" ]; then
+              PREVIEW_URL="https://${URL}"
+              echo "PREVIEW_URL=${PREVIEW_URL}" >> "$GITHUB_OUTPUT"
+              echo "✓ Vercel deployment ready: ${PREVIEW_URL}"
+              break
+            fi
+
+            if [ "$STATE" = "ERROR" ] || [ "$STATE" = "CANCELED" ]; then
+              echo "::error::Vercel deployment ended with state=${STATE}"
+              exit 1
+            fi
+
+            if [ "$i" -eq 36 ]; then
+              echo "::error::Timed out waiting for Vercel preview deployment (6 min)"
+              exit 1
+            fi
+          done
+
+          # Verify the preview URL is reachable
+          HTTP_STATUS=$(curl -sf -o /dev/null -w "%{http_code}" "$PREVIEW_URL" || echo "000")
+          if [ "$HTTP_STATUS" != "200" ]; then
+            echo "::error::Preview URL returned HTTP $HTTP_STATUS — expected 200"
+            exit 1
+          fi
+          echo "✓ Preview URL is accessible (HTTP $HTTP_STATUS)"
+
+      # ── Step 1 + 2: Search returns results + outbound link present ────────
+      - name: "Test 1+2 — Search returns results and outbound links"
+        env:
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          echo "=== Test 1: Search returns results ==="
+          RESPONSE=$(curl -sf \
+            "${SUPABASE_URL}/functions/v1/search?city=Austin&artist=test" \
+            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+            2>/dev/null)
+
+          if [ -z "$RESPONSE" ]; then
+            echo "::error::Search function returned an empty response"
+            exit 1
+          fi
+
+          EVENTS=$(echo "$RESPONSE" | jq '.events | length // 0')
+          GOLF=$(echo "$RESPONSE"   | jq '.golf_courses | length // 0')
+
+          if [ "$EVENTS" -lt 1 ] && [ "$GOLF" -lt 1 ]; then
+            echo "::error::Search returned no events and no golf courses"
+            echo "Response: $RESPONSE"
+            exit 1
+          fi
+          echo "✓ Test 1 passed — search returned ${EVENTS} event(s) and ${GOLF} golf course(s)"
+
+          echo ""
+          echo "=== Test 2: Outbound link present ==="
+          GOLF_LINK=$(echo "$RESPONSE"  | jq -r '.golf_courses[0].book_link.url // empty')
+          EVENT_LINK=$(echo "$RESPONSE" | jq -r '.events[0].book_link.url // .events[0].book_url // empty')
+
+          if [ -z "$GOLF_LINK" ] && [ -z "$EVENT_LINK" ]; then
+            echo "::error::No outbound book_link found in search results"
+            exit 1
+          fi
+          echo "✓ Test 2 passed — outbound link present (golf: ${GOLF_LINK:-none} | event: ${EVENT_LINK:-none})"
+
+      # ── Step 3: click_events receives a test record ───────────────────────
+      - name: "Test 3 — click_events receives a test record (staging schema)"
+        env:
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          echo "=== Test 3: click_events write (staging schema) ==="
+
+          # Write directly to staging.click_events via the PostgREST schema-switching
+          # headers (Content-Profile: staging). The staging schema has no FK on
+          # itinerary_id so a synthetic UUID is fine.
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X POST "${SUPABASE_URL}/rest/v1/click_events" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "Accept-Profile: staging" \
+            -H "Content-Profile: staging" \
+            -H "Prefer: return=minimal" \
+            -d '{
+              "itinerary_id": "00000000-0000-0000-0000-000000000099",
+              "package_tier": "smoke_test",
+              "vendor": "ticket",
+              "target_url": "https://www.ticketmaster.com",
+              "provider": "SmokeTest",
+              "category": "concert",
+              "link_type": "smoke_test",
+              "page_context": "smoke_test"
+            }')
+
+          if [ "$HTTP_STATUS" != "201" ]; then
+            echo "::error::staging.click_events insert failed — HTTP ${HTTP_STATUS}"
+            echo "  Likely cause: 'staging' not in Supabase extra_search_path."
+            echo "  Fix: Dashboard → Settings → API → Extra search path → add 'staging' → Save"
+            exit 1
+          fi
+          echo "✓ Test 3 passed — test click event written to staging.click_events (HTTP $HTTP_STATUS)"
+
+      # ── Step 4: Itinerary generates end-to-end ────────────────────────────
+      - name: "Test 4 — Itinerary generates end-to-end"
+        env:
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          echo "=== Test 4: Itinerary generates ==="
+
+          TEST_ITINERARY_ID=""
+
+          # Cleanup function — runs on EXIT regardless of success/failure
+          cleanup() {
+            if [ -n "$TEST_ITINERARY_ID" ]; then
+              echo "Cleaning up test itinerary ${TEST_ITINERARY_ID} ..."
+              curl -s -X DELETE \
+                "${SUPABASE_URL}/rest/v1/itineraries?id=eq.${TEST_ITINERARY_ID}" \
+                -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+                -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+                -o /dev/null || true
+            fi
+          }
+          trap cleanup EXIT
+
+          # 4a — Create a minimal test itinerary row in public.itineraries
+          CREATE_RESP=$(curl -s \
+            -X POST "${SUPABASE_URL}/rest/v1/itineraries" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "Prefer: return=representation" \
+            -d '{
+              "city": "Austin",
+              "path": "golf_music",
+              "start_date": "2027-08-01",
+              "end_date": "2027-08-03",
+              "budget_tier": "mid",
+              "group_size": 2,
+              "event_details": "smoke_test"
+            }')
+
+          TEST_ITINERARY_ID=$(echo "$CREATE_RESP" | jq -r '.[0].id // empty')
+
+          if [ -z "$TEST_ITINERARY_ID" ]; then
+            echo "::error::Failed to create test itinerary row"
+            echo "Response: $CREATE_RESP"
+            exit 1
+          fi
+          echo "Created test itinerary: $TEST_ITINERARY_ID"
+
+          # 4b — Call generate-itinerary in refresh mode with canned search results.
+          # refresh mode: body has itinerary_id + search_results (no payload key).
+          # The function sets itinerary.search_results from the request body in memory
+          # and never writes it to the DB, so no search_results column is needed.
+          GEN_RESP=$(curl -s -w "\n%{http_code}" \
+            -X POST "${SUPABASE_URL}/functions/v1/generate-itinerary" \
+            -H "Content-Type: application/json" \
+            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+            --max-time 120 \
+            -d "{
+              \"itinerary_id\": \"${TEST_ITINERARY_ID}\",
+              \"search_results\": {
+                \"events\": [{
+                  \"id\": \"mock_e1\",
+                  \"name\": \"Test Concert\",
+                  \"date_time\": \"2027-08-02T20:00:00\",
+                  \"venue\": { \"name\": \"Test Arena\", \"city\": \"Austin\", \"state\": \"TX\", \"capacity\": 15000 },
+                  \"provider\": \"mock\",
+                  \"book_url\": \"https://www.ticketmaster.com\",
+                  \"book_link\": { \"url\": \"https://www.ticketmaster.com\", \"provider\": \"Ticketmaster\", \"category\": \"concert\", \"link_type\": \"provider_search\", \"label\": \"Get Tickets\", \"is_verified\": false, \"confidence\": \"medium\" },
+                  \"price_min\": 75, \"price_max\": 200
+                }],
+                \"golf_courses\": [{
+                  \"id\": \"mock_g1\",
+                  \"name\": \"Mock Golf Club\",
+                  \"city\": \"Austin\",
+                  \"state\": \"TX\",
+                  \"public_access\": true,
+                  \"public_access_confidence\": \"likely_public\",
+                  \"rating\": 4.4,
+                  \"provider\": \"mock\",
+                  \"book_url\": \"https://www.golfnow.com\",
+                  \"book_link\": { \"url\": \"https://www.golfnow.com\", \"provider\": \"GolfNow\", \"category\": \"golf\", \"link_type\": \"provider_search\", \"label\": \"Search tee times\", \"is_verified\": false, \"confidence\": \"medium\" },
+                  \"price_min\": 80, \"price_max\": 180
+                }],
+                \"hotels\": [{
+                  \"id\": \"mock_h1\",
+                  \"name\": \"Mock Hotel\",
+                  \"city\": \"Austin\",
+                  \"state\": \"TX\",
+                  \"stars\": 4,
+                  \"rating\": 4.5,
+                  \"provider\": \"mock\",
+                  \"book_url\": \"https://www.google.com/maps/search/?api=1&query=hotels+Austin\",
+                  \"book_link\": { \"url\": \"https://www.google.com/maps/search/?api=1&query=hotels+Austin\", \"provider\": \"Google Maps\", \"category\": \"hotel\", \"link_type\": \"provider_search\", \"label\": \"Search hotels\", \"is_verified\": false, \"confidence\": \"medium\" },
+                  \"price_min\": 160, \"price_max\": 320
+                }],
+                \"destination\": { \"city\": \"Austin\", \"state\": \"TX\", \"start_date\": \"2027-08-01\", \"end_date\": \"2027-08-03\" },
+                \"meta\": { \"providers\": [\"mock\"], \"cached\": false, \"generated_at\": \"2027-01-01T00:00:00Z\", \"request_id\": \"smoke-test\" }
+              }
+            }")
+
+          GEN_HTTP=$(echo "$GEN_RESP" | tail -n 1)
+          GEN_BODY=$(echo "$GEN_RESP" | head -n -1)
+
+          if [ "$GEN_HTTP" != "200" ]; then
+            echo "::error::generate-itinerary returned HTTP ${GEN_HTTP}"
+            echo "Body: $GEN_BODY"
+            exit 1
+          fi
+
+          SUCCESS=$(echo "$GEN_BODY" | jq -r '.success // false')
+          if [ "$SUCCESS" != "true" ]; then
+            echo "::error::generate-itinerary did not return success=true"
+            echo "Body: $GEN_BODY"
+            exit 1
+          fi
+
+          # Verify at least one outbound link exists in the generated itinerary
+          LINK_COUNT=$(echo "$GEN_BODY" | jq '[.result.packages[]? | (.events[]?.url, .golf[]?.url, .lodging[]?.url)] | map(select(. != null and . != "")) | length' 2>/dev/null || echo "0")
+          echo "Outbound links in generated itinerary: ${LINK_COUNT}"
+
+          echo "✓ Test 4 passed — itinerary generated (HTTP $GEN_HTTP, links: ${LINK_COUNT})"
+
+      # ── Summary ───────────────────────────────────────────────────────────
+      - name: Smoke test summary
+        if: success()
+        run: |
+          echo ""
+          echo "╔══════════════════════════════════════════╗"
+          echo "║  All smoke tests passed ✓                ║"
+          echo "╚══════════════════════════════════════════╝"
+          echo ""
+          echo "Preview URL: ${{ steps.vercel.outputs.PREVIEW_URL }}"

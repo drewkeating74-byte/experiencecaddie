@@ -235,6 +235,8 @@ async function fetchGolfForMetro(
     "places.rating",
     "places.userRatingCount",
     "places.nationalPhoneNumber",
+    "places.reservable",
+    "places.editorialSummary",
   ].join(",");
 
   const res = await fetch("https://places.googleapis.com/v1/places:searchText", {
@@ -335,6 +337,8 @@ interface RawGolfPlace {
   rating?: number;
   userRatingCount?: number;
   nationalPhoneNumber?: string;
+  reservable?: boolean;
+  editorialSummary?: { text?: string; languageCode?: string };
 }
 
 interface NormalizedGolfCourse {
@@ -386,14 +390,20 @@ function normalizeGolfCourse(place: RawGolfPlace, metro: MetroConfig): Normalize
     : null;
 
   const confidence = publicAccessConfidence(name);
+  // If Google Places confirms the course accepts reservations, treat it as likely_public
+  // even if the name alone was ambiguous or unknown.
+  const adjustedConfidence: "likely_public" | "unknown" | "likely_private" =
+    place.reservable === true && confidence !== "likely_private"
+      ? "likely_public"
+      : confidence;
   const qs = computeQualityScore({
     name,
     rating: place.rating,
-    public_access_confidence: confidence,
+    public_access_confidence: adjustedConfidence,
     user_rating_count: place.userRatingCount,
     distance_from_center_miles: dist ?? undefined,
   });
-  const tier = assignTierHint({ name, rating: place.rating, public_access_confidence: confidence, quality_score: qs, user_rating_count: place.userRatingCount });
+  const tier = assignTierHint({ name, rating: place.rating, public_access_confidence: adjustedConfidence, quality_score: qs, user_rating_count: place.userRatingCount });
 
   return {
     name,
@@ -407,8 +417,8 @@ function normalizeGolfCourse(place: RawGolfPlace, metro: MetroConfig): Normalize
     lng,
     rating: place.rating ?? null,
     user_rating_count: place.userRatingCount ?? null,
-    public_access: confidence !== "likely_private",
-    public_access_confidence: confidence,
+    public_access: adjustedConfidence !== "likely_private",
+    public_access_confidence: adjustedConfidence,
     normalized_quality_score: qs,
     tier_hint: tier,
     metro: metro.slug,

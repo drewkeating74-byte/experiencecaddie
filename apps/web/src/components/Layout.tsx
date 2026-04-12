@@ -10,6 +10,27 @@ import {
   decodeEcNextParam,
 } from "@/lib/postAuthReturn";
 
+// Show a banner in every non-production environment (staging preview, local dev).
+// In production, VITE_APP_ENV is explicitly set to "production" in Vercel env vars.
+// In Vercel Preview deployments, set VITE_APP_ENV=staging.
+const APP_ENV = import.meta.env.VITE_APP_ENV as string | undefined;
+const showStagingBanner = APP_ENV !== "production";
+
+function StagingBanner() {
+  if (!showStagingBanner) return null;
+  const label = APP_ENV === "staging" ? "STAGING" : "DEV";
+  return (
+    <div
+      role="banner"
+      aria-label="Staging environment notice"
+      className="sticky top-0 z-50 flex items-center justify-center gap-2 bg-amber-400 px-3 py-1 text-xs font-semibold text-amber-950"
+    >
+      <span className="inline-block h-2 w-2 rounded-full bg-amber-700" aria-hidden="true" />
+      {label} — not production · data may be incomplete or synthetic
+    </div>
+  );
+}
+
 export default function Layout() {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
@@ -61,6 +82,7 @@ export default function Layout() {
 
   return (
     <div className="flex min-h-screen flex-col">
+      <StagingBanner />
       <ScrollToTop />
       <Navbar />
       <main className="flex-1">

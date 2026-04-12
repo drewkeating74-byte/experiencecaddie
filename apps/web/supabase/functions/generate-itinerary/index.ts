@@ -1478,6 +1478,7 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
     // Non-blocking funnel event — only uses outer-scoped variables (itinerary, itinerary_id, isRefreshMode)
     // so it is safe regardless of which code path (new / refresh / legacy) reached this point.
     const catalogVenuesSrc = Array.isArray((itinerary?.search_results as any)?.catalog_venues);
+    const auditSearchResults = itinerary?.search_results as any;
     supabase.from("analytics_events").insert({
       event_type: "itinerary_generated",
       metro_slug: (itinerary?.city ?? "").toLowerCase().replace(/[\s,]+/g, "-").slice(0, 100) || null,
@@ -1488,6 +1489,18 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
         group_size: itinerary?.group_size ?? null,
         golf_source: catalogVenuesSrc ? "catalog" : "live_api",
         is_refresh: isRefreshMode,
+        // Provenance audit fields — captures context at generation time that
+        // cannot be fully reconstructed from the itinerary row alone.
+        destination: itinerary?.city ?? null,
+        start_date: (itinerary as any)?.start_date ?? null,
+        end_date: (itinerary as any)?.end_date ?? null,
+        providers_called: auditSearchResults?.meta?.providers ?? [],
+        results_returned: {
+          events: (auditSearchResults?.events ?? []).length,
+          golf: (auditSearchResults?.golf_courses ?? []).length,
+          hotels: (auditSearchResults?.hotels ?? []).length,
+        },
+        generated_at: generatedAt,
       },
     }).then(() => {}).catch(() => {});
 

@@ -148,7 +148,8 @@ export default function Packages() {
           const d = new Date(evd + "T12:00:00");
           if (windowFilter === "this-month" && d > endOfMonth) return false;
           if (windowFilter === "60-days" && d > in60Days) return false;
-        } else return false;
+        }
+        // null event_date = evergreen/curated package — always passes time-window filter
       }
 
       if (budgetTier !== "all") {

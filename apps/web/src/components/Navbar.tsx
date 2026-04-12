@@ -65,6 +65,12 @@ export default function Navbar() {
                     Admin Panel
                   </DropdownMenuItem>
                 )}
+                {isAdmin && (
+                  <DropdownMenuItem onClick={() => navigate("/admin/golf-review")}>
+                    <Shield className="mr-2 h-4 w-4" />
+                    Golf Review
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuItem onClick={signOut}>
                   <LogOut className="mr-2 h-4 w-4" />
                   Sign Out
@@ -98,6 +104,7 @@ export default function Navbar() {
               <>
                 <Link to="/bookings" onClick={() => setMobileOpen(false)} className="flex min-h-[44px] items-center text-base font-medium">My Bookings</Link>
                 {isAdmin && <Link to="/admin" onClick={() => setMobileOpen(false)} className="flex min-h-[44px] items-center text-base font-medium">Admin Panel</Link>}
+                {isAdmin && <Link to="/admin/golf-review" onClick={() => setMobileOpen(false)} className="flex min-h-[44px] items-center text-base font-medium">Golf Review</Link>}
                 <button onClick={() => { signOut(); setMobileOpen(false); }} className="flex min-h-[44px] items-center text-left text-base font-medium text-destructive">Sign Out</button>
               </>
             ) : (
