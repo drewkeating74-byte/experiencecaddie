@@ -3,7 +3,8 @@ name: Weekly Refresh — Stale Itineraries
 # Runs every Sunday at 3:00 AM UTC.
 # Calls the refresh-stale edge function which finds itineraries older than 7 days
 # and re-runs search + generate-itinerary with future-shifted dates.
-# Capped at 10 itineraries per run to control LLM costs.
+# Capped at 3 itineraries per run to stay within the Supabase 150s timeout.
+# Search calls use _context=background to skip the live Ticketmaster API (ToS compliance).
 on:
   schedule:
     - cron: "0 3 * * 0"   # Sunday 03:00 UTC

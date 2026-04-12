@@ -38,6 +38,10 @@ type SearchRequest = {
   group_size?: number;
   budget_tier?: "low" | "mid" | "high";
   tee_time_window?: { start: string; end: string };
+  // When "background", skip live provider APIs (Ticketmaster/Google Places) that
+  // must not be called from scheduled/automated jobs per their ToS. Background
+  // callers (e.g. refresh-stale) must set this to avoid policy violations.
+  _context?: "user" | "background";
 };
 
 type ConcertOutboundLink = {
@@ -760,6 +764,7 @@ type DbGolfRow = {
   editorial_boost?: number | null;
   verification_status?: "verified" | "needs_review" | "excluded" | "unreviewed" | null;
   last_verified_at?: string | null;
+  last_refreshed_at?: string | null;
 };
 
 // Verification rules for package inclusion:
@@ -775,7 +780,7 @@ async function findGolfFromDb(
 ): Promise<DbGolfRow[]> {
   const { data, error } = await supabase
     .from("golf_courses")
-    .select("id,name,city,state,lat,lng,source_id,place_id,metro,canonical_name,public_access_confidence,normalized_quality_score,tier_hint,editorial_boost,verification_status,last_verified_at")
+    .select("id,name,city,state,lat,lng,source_id,place_id,metro,canonical_name,public_access_confidence,normalized_quality_score,tier_hint,editorial_boost,verification_status,last_verified_at,last_refreshed_at")
     .eq("metro", metro)
     .eq("state", state.toUpperCase().slice(0, 2))
     .eq("active", true)
@@ -1049,6 +1054,8 @@ function parseRequest(url: URL): SearchRequest {
     return isNaN(n) ? undefined : n;
   };
   const artist = getString(url.searchParams.get("artist")) ?? getString(url.searchParams.get("keyword"));
+  const rawContext = getString(url.searchParams.get("_context"));
+  const _context: SearchRequest["_context"] = rawContext === "background" ? "background" : "user";
   const city = getString(url.searchParams.get("city"));
   const state = getString(url.searchParams.get("state"));
   const lat = getNum(url.searchParams.get("lat"));
@@ -1076,6 +1083,7 @@ function parseRequest(url: URL): SearchRequest {
     budget_tier,
     tee_time_window:
       teeTimeStart || teeTimeEnd ? { start: teeTimeStart ?? "07:00", end: teeTimeEnd ?? "11:00" } : undefined,
+    _context,
   };
 }
 
@@ -1103,7 +1111,22 @@ Deno.serve(async (req: Request) => {
     const hasTicketmasterKey = Boolean(
       Deno.env.get("TICKETMASTER_API_KEY") || Deno.env.get("TICKETMASTER_CONSUMER_KEY")
     );
+    // Ticketmaster ToS prohibits scheduled/automated API calls not triggered by a user.
+    // Background callers (refresh-stale etc.) must set _context=background to skip the
+    // live TM API. They will receive mock/catalog events only — real event data is not
+    // needed for itinerary refresh since the itinerary already contains event details.
+    const isBackgroundContext = payload._context === "background";
+    if (isBackgroundContext) {
+      console.log("[COMPLIANCE] background context — skipping live Ticketmaster API (ToS guardrail)");
+      await logProviderError(
+        "ticketmaster",
+        null,
+        "background context: live API call suppressed by compliance guardrail",
+        "search"
+      );
+    }
     const shouldCallTicketmaster =
+      !isBackgroundContext &&
       hasTicketmasterKey &&
       (Boolean(payload.artist?.trim()) || Boolean(effectiveCity));
 
@@ -1250,6 +1273,22 @@ Deno.serve(async (req: Request) => {
               if (dbMeetsThreshold(dbRows)) {
                 useDbPath = true;
                 golfSource = "catalog";
+
+                // Google Places ToS: cached place data should not be served beyond 30 days.
+                // Log a warning to provider_errors when stale catalog data is being served
+                // so the daily health check surfaces the need for a catalog refresh.
+                const staleCutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+                const staleRows = dbRows.filter((r) => !r.last_refreshed_at || r.last_refreshed_at < staleCutoff);
+                if (staleRows.length > 0) {
+                  console.warn(`[COMPLIANCE] ${staleRows.length}/${dbRows.length} catalog courses have last_refreshed_at > 30 days for metro=${metroSlug}. Run refresh-catalog to stay within Google Places ToS caching limits.`);
+                  await logProviderError(
+                    "google_places",
+                    null,
+                    `${staleRows.length} catalog courses in metro=${metroSlug} have last_refreshed_at > 30 days — run refresh-catalog`,
+                    "search"
+                  ).catch(() => {});
+                }
+
                 const dbResults = dbRowsToGolfCourseResults(dbRows, center.lat, center.lng, teeWindow);
                 const enriched = await enrichDbCoursesWithPlaceDetails(dbResults, googleKey);
                 const tiered = applyGolfTiering(enriched, center.lat, center.lng, {

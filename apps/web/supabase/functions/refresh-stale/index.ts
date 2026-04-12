@@ -125,7 +125,12 @@ Deno.serve(async (req: Request) => {
     if (typeof prefs.state === "string") searchParams.set("state", prefs.state);
 
     try {
-      // Step 1: re-run search with future dates
+      // Step 1: re-run search with future dates.
+      // _context=background tells the search function to skip the live Ticketmaster API —
+      // Ticketmaster ToS prohibits scheduled/automated calls not triggered by a user.
+      // Background refresh only needs fresh golf/hotel data; event data is reused from
+      // the existing itinerary context.
+      searchParams.set("_context", "background");
       const searchRes = await fetch(`${supabaseUrl}/functions/v1/search?${searchParams}`, {
         headers: { Authorization: `Bearer ${serviceKey}`, apikey: serviceKey },
         signal: AbortSignal.timeout(20_000),

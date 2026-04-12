@@ -13,6 +13,28 @@ import {
   Building2,
 } from "lucide-react";
 
+// Google Places API ToS requires displaying "Powered by Google" attribution
+// alongside any results that include data sourced from the Places API.
+// https://cloud.google.com/maps-platform/terms — Section 3.2.3
+function PoweredByGoogle() {
+  return (
+    <a
+      href="https://www.google.com/maps"
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
+      aria-label="Powered by Google Maps"
+    >
+      <svg viewBox="0 0 60 20" className="h-3 w-auto" aria-hidden="true" fill="none">
+        <text x="0" y="15" fontFamily="Arial,sans-serif" fontSize="12" fontWeight="bold">
+          <tspan fill="#4285F4">G</tspan><tspan fill="#EA4335">o</tspan><tspan fill="#FBBC05">o</tspan><tspan fill="#4285F4">g</tspan><tspan fill="#34A853">l</tspan><tspan fill="#EA4335">e</tspan>
+        </text>
+      </svg>
+      <span>Maps</span>
+    </a>
+  );
+}
+
 const PROVIDER_LABELS: Record<string, string> = {
   ticketmaster: "Ticketmaster",
   google_places: "Google Places",
@@ -136,6 +158,7 @@ export function GolfTrustPanel({
           <ExternalLink className="h-3 w-3" />
         </a>
       )}
+      {provider === "google_places" && <PoweredByGoogle />}
     </div>
   );
 }
