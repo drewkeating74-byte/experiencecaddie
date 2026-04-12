@@ -48,7 +48,7 @@ export type OutboundLinkContext =
 export type OutboundLinkCategory = "hotel" | "ticket" | "golf";
 
 /** How the hotel URL was produced — for analytics and CTA copy. */
-export type HotelLinkSource = "override" | "google_hotels";
+export type HotelLinkSource = "override" | "google_hotels" | "booking_com";
 
 export interface BuiltOutboundLink {
   url: string;
@@ -74,8 +74,28 @@ export interface HotelLinkParams {
 
 /**
  * Single integration point for hotel URLs (including future affiliate wrapping).
+ *
+ * When VITE_BOOKINGCOM_AWIN_ID is configured, all hotel clicks route through
+ * Booking.com via the AWIN affiliate network (publisher ID from env).
+ * Commission is earned when the user completes a booking on Booking.com.
+ * The destination (hotel name + city) is used as the Booking.com search query
+ * so users land on a pre-filtered results page for that specific property.
  */
 export function buildHotelUrl(params: HotelLinkParams): BuiltOutboundLink {
+  const awinId = (import.meta.env.VITE_BOOKINGCOM_AWIN_ID as string | undefined)?.trim();
+
+  if (awinId) {
+    return {
+      url: buildBookingComAwinUrl(params.destination, params.checkIn, params.checkOut, awinId),
+      provider: "Booking.com",
+      category: "hotel",
+      isAffiliate: true,
+      affiliateSource: "booking_com_awin",
+      context: params.context,
+      hotelLinkSource: "booking_com",
+    };
+  }
+
   const override = params.overrideUrl?.trim();
   // Package/admin "hotel" links are often pasted Expedia/Booking search URLs — send users to Google Hotels instead.
   if (override && !shouldReplaceOtaHotelUrl(override)) {
@@ -103,6 +123,32 @@ export function buildHotelUrl(params: HotelLinkParams): BuiltOutboundLink {
     context: params.context,
     hotelLinkSource: "google_hotels",
   };
+}
+
+/**
+ * Build a Booking.com search URL wrapped in an AWIN affiliate tracking link.
+ * The destination is used as the search query (e.g. "Hotel Van Zandt Austin TX").
+ * AWIN merchant ID 6776 = Booking.com North America.
+ */
+function buildBookingComAwinUrl(
+  destination: string,
+  checkIn: string | undefined,
+  checkOut: string | undefined,
+  awinId: string
+): string {
+  const bookingUrl = new URL("https://www.booking.com/searchresults.html");
+  bookingUrl.searchParams.set("ss", destination.trim() || "hotels");
+  if (checkIn) bookingUrl.searchParams.set("checkin", checkIn);
+  if (checkOut) bookingUrl.searchParams.set("checkout", checkOut);
+  bookingUrl.searchParams.set("group_adults", "2");
+  bookingUrl.searchParams.set("no_rooms", "1");
+  bookingUrl.searchParams.set("lang", "en-us");
+
+  const awinUrl = new URL("https://www.awin1.com/cread.php");
+  awinUrl.searchParams.set("awinmid", "6776"); // Booking.com North America AWIN merchant ID
+  awinUrl.searchParams.set("awinid", awinId);
+  awinUrl.searchParams.set("ued", bookingUrl.toString());
+  return awinUrl.toString();
 }
 
 /**

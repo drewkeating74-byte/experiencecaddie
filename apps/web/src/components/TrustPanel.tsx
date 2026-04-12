@@ -166,14 +166,19 @@ export function GolfTrustPanel({
 export function HotelTrustPanel({
   provider,
   generatedAt,
+  dataProvider,
 }: {
   provider?: string;
   generatedAt?: string;
+  /** The data source for hotel discovery (e.g. "google_places"). Separate from the
+   *  booking provider — hotels are discovered via Google Places but booked via Booking.com. */
+  dataProvider?: string;
 }) {
   const displayProvider = humanizeProvider(provider);
   const checkedDate = formatCheckedDate(generatedAt);
+  const isGooglePlacesData = dataProvider === "google_places";
 
-  if (!displayProvider && !checkedDate) return null;
+  if (!displayProvider && !checkedDate && !isGooglePlacesData) return null;
 
   return (
     <div className="mt-3 space-y-2 text-xs text-muted-foreground">
@@ -193,6 +198,7 @@ export function HotelTrustPanel({
           </span>
         )}
       </div>
+      {isGooglePlacesData && <PoweredByGoogle />}
     </div>
   );
 }

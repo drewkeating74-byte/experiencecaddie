@@ -165,7 +165,8 @@ type HotelResult = {
   book_link?: HotelOutboundLink;
   price_min?: number;
   price_max?: number;
-  provider: "mock";
+  provider: "google_places" | "mock";
+  as_of?: string;
 };
 
 type CatalogVenue = {
@@ -1013,6 +1014,129 @@ async function searchGolfGooglePlaces(
   }).filter((c) => isLikelyPlayableCourse(c.name));
 }
 
+type HotelPlace = {
+  id?: string;
+  displayName?: { text?: string };
+  name?: string;
+  formattedAddress?: string;
+  addressComponents?: Array<{ longText?: string; shortText?: string; types?: string[] }>;
+  location?: { latitude?: number; longitude?: number };
+  rating?: number;
+  userRatingCount?: number;
+  priceLevel?: string;
+  websiteUri?: string;
+  googleMapsUri?: string;
+};
+
+function priceLevelToRange(priceLevel?: string): { price_min?: number; price_max?: number; stars?: number } {
+  switch (priceLevel) {
+    case "PRICE_LEVEL_INEXPENSIVE": return { price_min: 80, price_max: 150, stars: 2 };
+    case "PRICE_LEVEL_MODERATE":    return { price_min: 150, price_max: 250, stars: 3 };
+    case "PRICE_LEVEL_EXPENSIVE":   return { price_min: 250, price_max: 400, stars: 4 };
+    case "PRICE_LEVEL_VERY_EXPENSIVE": return { price_min: 400, price_max: 700, stars: 5 };
+    default: return {};
+  }
+}
+
+async function searchHotelsGooglePlaces(
+  lat: number,
+  lng: number,
+  city: string,
+  state: string | undefined,
+  startDate: string,
+  endDate: string,
+  groupSize: number,
+  apiKey: string
+): Promise<HotelResult[]> {
+  const locationPart = state ? `in ${city}, ${state}` : `in ${city}`;
+  const viewport = viewportFromCenter(lat, lng, 15);
+  const body = {
+    textQuery: `hotel ${locationPart}`,
+    pageSize: 10,
+    locationRestriction: { rectangle: viewport },
+    includedType: "lodging",
+    strictTypeFiltering: false,
+    rankPreference: "RELEVANCE",
+  };
+  const fieldMask = "places.id,places.displayName,places.formattedAddress,places.addressComponents,places.location,places.rating,places.userRatingCount,places.priceLevel,places.websiteUri,places.googleMapsUri";
+  const res = await fetch("https://places.googleapis.com/v1/places:searchText", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Goog-Api-Key": apiKey,
+      "X-Goog-FieldMask": fieldMask,
+    },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Places hotel search error ${res.status}: ${text.slice(0, 200)}`);
+  }
+  const data = (await res.json()) as { places?: HotelPlace[] };
+  const places = data.places ?? [];
+  const asOf = new Date().toISOString();
+
+  // Derive a 1–2 night check-out for the Booking.com search link
+  const nights = Math.max(1, Math.min(2, Math.round(
+    (new Date(endDate + "T12:00:00").getTime() - new Date(startDate + "T12:00:00").getTime()) / 86_400_000
+  )));
+  const checkOut = addDays(new Date(startDate + "T12:00:00"), nights).toISOString().slice(0, 10);
+
+  return places
+    .filter((p) => {
+      const n = (p.displayName?.text ?? p.name ?? "").toLowerCase();
+      if (/\bmotel 6\b|super 8\b|days inn\b|red roof\b|econo lodge\b/i.test(n)) return false;
+      if (/vacation rental|airbnb\b|vrbo\b/i.test(n) && !/hotel|resort/i.test(n)) return false;
+      return true;
+    })
+    .slice(0, 6)
+    .map((p) => {
+      const name = p.displayName?.text ?? p.name ?? "Hotel";
+      const cityComp = p.addressComponents?.find((c) => c.types?.includes("locality"));
+      const stateComp = p.addressComponents?.find((c) => c.types?.includes("administrative_area_level_1"));
+      const hotelCity = cityComp?.longText ?? city;
+      const hotelState = stateComp?.shortText ?? state;
+      const { price_min, price_max, stars } = priceLevelToRange(p.priceLevel);
+
+      // Booking.com search URL — AWIN affiliate wrapping applied at render time in outboundLinks.ts
+      const bookingParams = new URLSearchParams({
+        ss: [name, hotelCity, hotelState].filter(Boolean).join(" "),
+        checkin: startDate.slice(0, 10),
+        checkout: checkOut,
+        group_adults: String(Math.max(1, groupSize)),
+        no_rooms: "1",
+        lang: "en-us",
+      });
+      const bookUrl = `https://www.booking.com/searchresults.html?${bookingParams}`;
+      const book_link: HotelOutboundLink = {
+        url: bookUrl,
+        provider: "Booking.com",
+        category: "hotel",
+        link_type: "provider_search",
+        label: "View on Booking.com",
+        is_verified: false,
+        confidence: "medium",
+        disclaimer: "Opens Booking.com search; rates and availability not confirmed in Experience Caddie",
+      };
+      return {
+        id: p.id ?? `hotel_gp_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+        name,
+        city: hotelCity,
+        state: hotelState,
+        stars,
+        rating: typeof p.rating === "number" ? p.rating : undefined,
+        source_url: p.websiteUri ?? p.googleMapsUri ?? bookUrl,
+        book_url: bookUrl,
+        book_link,
+        price_min,
+        price_max,
+        provider: "google_places" as const,
+        as_of: asOf,
+      };
+    });
+}
+
 function mockHotels(request: SearchRequest): HotelResult[] {
   const city = request.destination?.city || "Austin";
   const state = request.destination?.state ?? "TX";
@@ -1233,10 +1357,13 @@ Deno.serve(async (req: Request) => {
     let catalogEnabled = false;
     let golfSource: "catalog" | "live_api" | "mock" = "mock";
     const metroSlug = getMetroSlug(effectiveCity);
+    // Shared resolved center — used for both golf and hotel searches to avoid a second geocode.
+    let resolvedCenter: { lat: number; lng: number } | null = null;
 
     if (googleKey) {
       try {
         const center = await resolveGolfCenter();
+        resolvedCenter = center;
         if (center) {
           const stateCode = (
             payload.destination?.state ??
@@ -1365,11 +1492,41 @@ Deno.serve(async (req: Request) => {
       silverPool = [...golfCourses];
     }
 
-    const hotels = mockHotels({
-      ...payload,
-      destination: { ...payload.destination, city: effectiveCity },
-    });
-    if (!providers.includes("mock")) providers.push("mock");
+    // Hotel search — Google Places for real hotel names, with mock fallback.
+    // Background context skips live API calls (Ticketmaster compliance guardrail already
+    // applies above; we apply the same rule here for consistency).
+    let hotels: HotelResult[];
+    if (googleKey && resolvedCenter && !isBackgroundContext) {
+      try {
+        const realHotels = await searchHotelsGooglePlaces(
+          resolvedCenter.lat,
+          resolvedCenter.lng,
+          effectiveCity,
+          payload.destination?.state,
+          startDate,
+          endDate,
+          payload.group_size ?? 2,
+          googleKey
+        );
+        if (realHotels.length > 0) {
+          hotels = realHotels;
+          console.log(`[HOTELS] ${hotels.length} real hotels from Google Places for city="${effectiveCity}"`);
+        } else {
+          console.log("[HOTELS] Google Places returned 0 hotels — falling back to mock");
+          hotels = mockHotels({ ...payload, destination: { ...payload.destination, city: effectiveCity } });
+          if (!providers.includes("mock")) providers.push("mock");
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error("[HOTELS] Google Places hotel search error:", msg);
+        await logProviderError("google_places", null, `hotel search: ${msg}`, "search");
+        hotels = mockHotels({ ...payload, destination: { ...payload.destination, city: effectiveCity } });
+        if (!providers.includes("mock")) providers.push("mock");
+      }
+    } else {
+      hotels = mockHotels({ ...payload, destination: { ...payload.destination, city: effectiveCity } });
+      if (!providers.includes("mock")) providers.push("mock");
+    }
 
     const response: SearchResponse = {
       destination: { city: effectiveCity, state: payload.destination?.state, start_date: startDate, end_date: endDate },
