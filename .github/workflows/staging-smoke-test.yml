@@ -142,41 +142,66 @@ jobs:
           echo "✓ Test 2 passed — outbound link present (golf: ${GOLF_LINK:-none} | event: ${EVENT_LINK:-none})"
 
       # ── Step 3: click_events receives a test record ───────────────────────
-      - name: "Test 3 — click_events receives a test record (staging schema)"
+      - name: "Test 3 — click_events receives a test record"
         env:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
-          echo "=== Test 3: click_events write (staging schema) ==="
+          echo "=== Test 3: click_events write ==="
 
-          # Write directly to staging.click_events via the PostgREST schema-switching
-          # headers (Content-Profile: staging). The staging schema has no FK on
-          # itinerary_id so a synthetic UUID is fine.
+          # Create a throw-away itinerary row to satisfy the FK constraint,
+          # write the test click event against it, then delete both rows.
+          CREATE_RESP=$(curl -s \
+            -X POST "${SUPABASE_URL}/rest/v1/itineraries" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "Prefer: return=representation" \
+            -d '{
+              "city": "SmokeTest",
+              "path": "golf_music",
+              "start_date": "2027-01-01",
+              "end_date": "2027-01-03",
+              "budget_tier": "mid",
+              "group_size": 2,
+              "event_details": "smoke_test"
+            }')
+
+          CLICK_ITINERARY_ID=$(echo "$CREATE_RESP" | jq -r '.[0].id // empty')
+          if [ -z "$CLICK_ITINERARY_ID" ]; then
+            echo "::error::Failed to create throw-away itinerary for click test"
+            echo "Response: $CREATE_RESP"
+            exit 1
+          fi
+
           HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
             -X POST "${SUPABASE_URL}/rest/v1/click_events" \
             -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
             -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
             -H "Content-Type: application/json" \
-            -H "Accept-Profile: staging" \
-            -H "Content-Profile: staging" \
             -H "Prefer: return=minimal" \
-            -d '{
-              "itinerary_id": "00000000-0000-0000-0000-000000000099",
-              "package_tier": "smoke_test",
-              "vendor": "ticket",
-              "target_url": "https://www.ticketmaster.com",
-              "provider": "SmokeTest",
-              "category": "concert",
-              "link_type": "smoke_test",
-              "page_context": "smoke_test"
-            }')
+            -d "{
+              \"itinerary_id\": \"${CLICK_ITINERARY_ID}\",
+              \"package_tier\": \"smoke_test\",
+              \"vendor\": \"ticket\",
+              \"target_url\": \"https://www.ticketmaster.com\",
+              \"provider\": \"SmokeTest\",
+              \"category\": \"concert\",
+              \"link_type\": \"smoke_test\",
+              \"page_context\": \"smoke_test\"
+            }")
+
+          # Cleanup — delete the throw-away itinerary (cascades to click_events)
+          curl -s -X DELETE \
+            "${SUPABASE_URL}/rest/v1/itineraries?id=eq.${CLICK_ITINERARY_ID}" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -o /dev/null || true
 
           if [ "$HTTP_STATUS" != "201" ]; then
-            echo "::error::staging.click_events insert failed — HTTP ${HTTP_STATUS}"
-            echo "  Likely cause: 'staging' not in Supabase extra_search_path."
-            echo "  Fix: Dashboard → Settings → API → Extra search path → add 'staging' → Save"
+            echo "::error::click_events insert failed — HTTP ${HTTP_STATUS}"
             exit 1
           fi
-          echo "✓ Test 3 passed — test click event written to staging.click_events (HTTP $HTTP_STATUS)"
+          echo "✓ Test 3 passed — test click event accepted (HTTP $HTTP_STATUS)"
 
       # ── Step 4: Itinerary generates end-to-end ────────────────────────────
       - name: "Test 4 — Itinerary generates end-to-end"
