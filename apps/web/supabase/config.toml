@@ -20,3 +20,6 @@ verify_jwt = true
 
 [functions.packages-maintenance]
 verify_jwt = true
+
+[functions.verify-golf-courses]
+verify_jwt = true

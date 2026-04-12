@@ -547,10 +547,19 @@ function applyQualityPreFilter(courses: GolfCourseResult[]): GolfCourseResult[] 
 async function fetchPlaceDetails(
   placeId: string,
   apiKey: string
-): Promise<{ websiteUri?: string; googleMapsUri?: string; rating?: number; userRatingCount?: number; businessStatus?: string } | null> {
+): Promise<{
+  websiteUri?: string;
+  googleMapsUri?: string;
+  rating?: number;
+  userRatingCount?: number;
+  businessStatus?: string;
+  reservable?: boolean;
+  editorialSummary?: { text?: string; languageCode?: string };
+  priceLevel?: string;
+} | null> {
   const id = placeId.replace(/^places\//, "");
   const url = `https://places.googleapis.com/v1/places/${id}`;
-  const fieldMask = "websiteUri,googleMapsUri,rating,userRatingCount,businessStatus";
+  const fieldMask = "websiteUri,googleMapsUri,rating,userRatingCount,businessStatus,reservable,editorialSummary,priceLevel";
   try {
     const res = await fetch(url, {
       headers: {
@@ -566,6 +575,9 @@ async function fetchPlaceDetails(
       rating?: number;
       userRatingCount?: number;
       businessStatus?: string;
+      reservable?: boolean;
+      editorialSummary?: { text?: string; languageCode?: string };
+      priceLevel?: string;
     };
     return data;
   } catch {
@@ -585,6 +597,14 @@ async function enrichGolfCandidates(
       const bookUrl = details.websiteUri ?? details.googleMapsUri ?? c.book_url;
       const sourceUrl = details.websiteUri ?? details.googleMapsUri ?? c.source_url;
       const book_link = buildGolfOutboundLink(bookUrl ?? "");
+      // Use reservable as a positive confirmation of public access.
+      // Only override if Places says reservable=true; never downgrade on false alone.
+      const confirmedPublic = details.reservable === true;
+      const updatedConfidence: GolfCourseResult["public_access_confidence"] =
+        confirmedPublic && c.public_access_confidence !== "likely_private"
+          ? "likely_public"
+          : c.public_access_confidence;
+
       return {
         ...c,
         book_url: bookUrl,
@@ -593,6 +613,8 @@ async function enrichGolfCandidates(
         google_maps_uri: details.googleMapsUri ?? c.google_maps_uri,
         rating: details.rating ?? c.rating,
         user_rating_count: details.userRatingCount ?? c.user_rating_count,
+        public_access: confirmedPublic || c.public_access,
+        public_access_confidence: updatedConfidence,
       };
     })
   );
@@ -737,6 +759,7 @@ type DbGolfRow = {
   tier_hint?: string | null;
   editorial_boost?: number | null;
   verification_status?: "verified" | "needs_review" | "excluded" | "unreviewed" | null;
+  last_verified_at?: string | null;
 };
 
 // Verification rules for package inclusion:
@@ -752,7 +775,7 @@ async function findGolfFromDb(
 ): Promise<DbGolfRow[]> {
   const { data, error } = await supabase
     .from("golf_courses")
-    .select("id,name,city,state,lat,lng,source_id,place_id,metro,canonical_name,public_access_confidence,normalized_quality_score,tier_hint,editorial_boost,verification_status")
+    .select("id,name,city,state,lat,lng,source_id,place_id,metro,canonical_name,public_access_confidence,normalized_quality_score,tier_hint,editorial_boost,verification_status,last_verified_at")
     .eq("metro", metro)
     .eq("state", state.toUpperCase().slice(0, 2))
     .eq("active", true)
@@ -784,7 +807,6 @@ function dbRowsToGolfCourseResults(
   centerLng: number,
   teeWindow: { start: string; end: string }
 ): GolfCourseResult[] {
-  const asOf = new Date().toISOString();
   return rows.map((r) => {
     const placeId = r.source_id ?? r.place_id;
     if (!placeId) return null;
@@ -797,6 +819,9 @@ function dbRowsToGolfCourseResults(
     const quality_score = r.normalized_quality_score ?? 50;
     const tier_hint = (r.tier_hint as TierHint) || inferTierFromScore(r.normalized_quality_score);
     const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(name + " " + r.city)}`;
+    // Use last_verified_at as as_of so the "Checked [date]" badge reflects when this
+    // course was actually last verified, not when the search ran.
+    const as_of = r.last_verified_at ?? new Date().toISOString();
     return {
       id,
       name,
@@ -813,7 +838,7 @@ function dbRowsToGolfCourseResults(
       book_url: url,
       book_link: buildGolfOutboundLink(url),
       source: "google_places",
-      as_of: asOf,
+      as_of,
       provider: "google_places",
       quality_score,
       tier_hint,

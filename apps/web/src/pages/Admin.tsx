@@ -15,7 +15,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Plus, Trash2, Edit, Music, MapPin } from "lucide-react";
+import { Plus, Trash2, Edit, Music, MapPin, ExternalLink } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { normalizeOptionalHttpUrl } from "@/lib/httpUrl";
 import { AdminPackagesManager } from "@/components/admin/AdminPackagesManager";
 
@@ -50,6 +51,16 @@ export default function Admin() {
           <TabsTrigger value="destinations">Destinations</TabsTrigger>
           <TabsTrigger value="bookings">Bookings</TabsTrigger>
         </TabsList>
+
+        <div className="mt-4 mb-2">
+          <button
+            onClick={() => navigate("/admin/golf-review")}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            <ExternalLink className="h-3 w-3" />
+            Open Golf Course Reviewer →
+          </button>
+        </div>
 
         <TabsContent value="packages"><AdminPackagesManager /></TabsContent>
         <TabsContent value="events"><AdminEvents /></TabsContent>
