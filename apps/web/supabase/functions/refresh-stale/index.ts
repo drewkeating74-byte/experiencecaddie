@@ -14,7 +14,11 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const STALE_DAYS = 7;
-const MAX_BATCH = 10; // cap LLM calls per run
+// Supabase edge functions time out at ~150s. Each itinerary requires a search
+// call (~10s) + a generate-itinerary/Perplexity call (~30s) = ~40s per item.
+// MAX_BATCH of 3 leaves a safe margin: 3 × 40s = 120s worst case.
+// The weekly cron compensates for the lower batch size by running every week.
+const MAX_BATCH = 3;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -124,7 +128,7 @@ Deno.serve(async (req: Request) => {
       // Step 1: re-run search with future dates
       const searchRes = await fetch(`${supabaseUrl}/functions/v1/search?${searchParams}`, {
         headers: { Authorization: `Bearer ${serviceKey}`, apikey: serviceKey },
-        signal: AbortSignal.timeout(30_000),
+        signal: AbortSignal.timeout(20_000),
       });
       if (!searchRes.ok) {
         const text = await searchRes.text();
@@ -156,7 +160,7 @@ Deno.serve(async (req: Request) => {
             },
           },
         }),
-        signal: AbortSignal.timeout(60_000),
+        signal: AbortSignal.timeout(45_000),
       });
 
       if (!genRes.ok) {
