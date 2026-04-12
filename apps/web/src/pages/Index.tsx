@@ -46,6 +46,8 @@ export default function Index() {
           src={heroImage}
           alt="Golf course and concert at sunset"
           className="absolute inset-0 h-full w-full object-cover"
+          fetchPriority="high"
+          decoding="sync"
         />
         <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/40 to-black/70" />
         <div className="relative z-10 container mx-auto px-4 text-center">
@@ -248,6 +250,8 @@ function PackageCard({ pkg }: { pkg: Package }) {
             src={pkg.image_url || event?.image_url || DEFAULT_PACKAGE_IMAGE}
             alt={pkg.name}
             className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+            loading="lazy"
+            decoding="async"
           />
           {pkg.original_price && pkg.original_price > pkg.price && (
             <Badge className="absolute left-3 top-3 bg-accent text-accent-foreground">

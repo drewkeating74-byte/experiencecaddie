@@ -5,6 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" href="/ec-logo.png" type="image/png" />
     <title>Experience Caddie</title>
+
+    <!-- Establish early connections to font origins before CSS requests them.
+         Eliminates the DNS + TLS negotiation cost from the critical path. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!-- Load fonts directly from <head> rather than via CSS @import so the
+         browser discovers them without waiting for CSS parsing. -->
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700&family=DM+Sans:wght@300;400;500;600;700&display=swap" />
     <meta name="description" content="Curated golf, music, and luxury travel experiences" />
     <meta name="author" content="Experience Caddie" />
 
