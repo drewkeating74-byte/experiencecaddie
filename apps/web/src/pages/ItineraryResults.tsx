@@ -932,6 +932,10 @@ export default function ItineraryResults() {
                                     ) : (
                                       buttonEl
                                     )}
+                                    <p className="text-[10px] text-muted-foreground/70 sm:text-right">
+                                      Links may earn commission ·{" "}
+                                      <a href="/terms" className="underline hover:text-muted-foreground">Disclosure</a>
+                                    </p>
                                   </div>
                                 )}
                               </div>
@@ -1015,7 +1019,7 @@ export default function ItineraryResults() {
                                 </Button>
                               );
                               return (
-                                <div className="flex flex-col items-end">
+                                <div className="flex flex-col items-end gap-1">
                                   {concertLink.disclaimer ? (
                                     <Tooltip>
                                       <TooltipTrigger asChild>{buttonEl}</TooltipTrigger>
@@ -1026,6 +1030,10 @@ export default function ItineraryResults() {
                                   ) : (
                                     buttonEl
                                   )}
+                                  <p className="text-[10px] text-muted-foreground/70 text-right">
+                                    Links may earn commission ·{" "}
+                                    <a href="/terms" className="underline hover:text-muted-foreground">Disclosure</a>
+                                  </p>
                                 </div>
                               );
                             })()}
@@ -1086,7 +1094,7 @@ export default function ItineraryResults() {
                               {g.green_fee && <p className="text-sm font-medium">{g.green_fee}</p>}
                             </div>
                             {hasUrl && (
-                              <div className="flex flex-col items-end max-w-[220px]">
+                              <div className="flex flex-col items-end gap-1 max-w-[220px]">
                                 {golfLink.disclaimer ? (
                                   <Tooltip>
                                     <TooltipTrigger asChild>{buttonEl}</TooltipTrigger>
@@ -1097,6 +1105,10 @@ export default function ItineraryResults() {
                                 ) : (
                                   buttonEl
                                 )}
+                                <p className="text-[10px] text-muted-foreground/70 text-right">
+                                  Links may earn commission ·{" "}
+                                  <a href="/terms" className="underline hover:text-muted-foreground">Disclosure</a>
+                                </p>
                               </div>
                             )}
                           </div>

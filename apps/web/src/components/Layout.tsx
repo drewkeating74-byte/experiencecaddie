@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Outlet, useNavigate, useLocation } from "react-router-dom";
+import { Link, Outlet, useNavigate, useLocation } from "react-router-dom";
 import Navbar from "@/components/Navbar";
 import ScrollToTop from "@/components/ScrollToTop";
 import { useAuth } from "@/hooks/useAuth";
@@ -92,7 +92,12 @@ export default function Layout() {
         <div className="container mx-auto px-4 text-center">
           <p className="font-serif text-lg font-semibold text-primary">Experience Caddie</p>
           <p className="mt-1 text-sm text-muted-foreground">Legendary Weekends. Zero Planning.</p>
-          <p className="mt-4 text-xs text-muted-foreground">© {new Date().getFullYear()} Fairway & Encore. All rights reserved.</p>
+          <nav className="mt-4 flex items-center justify-center gap-4 text-xs text-muted-foreground">
+            <Link to="/privacy" className="hover:text-primary hover:underline">Privacy Policy</Link>
+            <span aria-hidden="true">·</span>
+            <Link to="/terms" className="hover:text-primary hover:underline">Terms &amp; Affiliate Disclosure</Link>
+          </nav>
+          <p className="mt-3 text-xs text-muted-foreground">© {new Date().getFullYear()} Fairway & Encore. All rights reserved.</p>
         </div>
       </footer>
     </div>

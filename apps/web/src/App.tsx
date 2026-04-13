@@ -17,6 +17,8 @@ import ItineraryResults from "./pages/ItineraryResults";
 import SharedItinerary from "./pages/SharedItinerary";
 import SearchPreview from "./pages/SearchPreview";
 import GolfReview from "./pages/GolfReview";
+import Privacy from "./pages/Privacy";
+import Terms from "./pages/Terms";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -42,6 +44,8 @@ const App = () => (
             <Route path="/search-preview" element={<SearchPreview />} />
             <Route path="/admin" element={<Admin />} />
             <Route path="/admin/golf-review" element={<GolfReview />} />
+            <Route path="/privacy" element={<Privacy />} />
+            <Route path="/terms" element={<Terms />} />
           </Route>
           <Route path="*" element={<NotFound />} />
         </Routes>
