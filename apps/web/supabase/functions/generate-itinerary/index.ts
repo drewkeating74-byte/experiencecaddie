@@ -1070,10 +1070,10 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
       }
     }
 
-    // Keep any Ticketmaster or Live Nation URL (direct event pages and search pages alike).
-    // TM search URLs (ticketmaster.com/search?q=artist+city) reliably surface relevant
-    // results and are a far better experience than a generic Google fallback.
-    // Only replace third-party reseller links we don't control.
+    // Keep direct Ticketmaster/Live Nation event pages (ticketmaster.com/event/...).
+    // Replace TM search URLs — they surface unrelated upcoming events, not the specific
+    // event in the itinerary, which is confusing when the user's dates don't match.
+    // Replace third-party resellers we don't control.
     const shouldReplaceConcertUrl = (url: string): boolean => {
       if (!url || typeof url !== "string") return true;
       const u = url.trim().toLowerCase();
@@ -1081,13 +1081,14 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
       try {
         const parsed = new URL(u);
         const host = parsed.hostname.replace(/^www\./, "");
-        // Keep all Ticketmaster URLs — both direct event pages and search pages.
+        // Keep direct Ticketmaster EVENT pages (e.g. ticketmaster.com/event/...).
+        // Replace TM search pages — they show unrelated events, not the itinerary date.
         if (host === "ticketmaster.com" || host.endsWith(".ticketmaster.com")) {
-          return false;
+          return parsed.pathname.startsWith("/search");
         }
-        // Keep all Live Nation URLs.
+        // Keep Live Nation direct event pages; replace their search pages too.
         if (host === "livenation.com" || host.endsWith(".livenation.com")) {
-          return false;
+          return parsed.pathname.startsWith("/search");
         }
         // Replace third-party resellers (we don't control their URLs or availability).
         const isReseller = ["seatgeek.com", "stubhub.com", "vividseats.com", "axs.com"].some(
