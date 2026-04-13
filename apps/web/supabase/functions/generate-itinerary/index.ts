@@ -1114,15 +1114,27 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
       const beforeAt = n.split(/\s+at\s+/i)[0]?.trim();
       return (beforeDash?.length && beforeDash.length <= (beforeAt?.length ?? 999)) ? beforeDash : (beforeAt || n) || "concerts";
     };
-    // Fallback ticket search uses Google — broader than TM search and won't dead-end
-    // when an artist has no confirmed dates on Ticketmaster yet.
-    const buildConcertSearchUrl = (eventName: string, city: string): string => {
+    // Fallback ticket search uses Google — surfaces SeatGeek, StubHub, AXS, venue box
+    // offices, and any other seller, not just Ticketmaster. Including the date makes the
+    // search specific enough to return results for the right event.
+    const buildConcertSearchUrl = (eventName: string, city: string, dateStr?: string): string => {
       const artist = extractArtistForSearch(eventName || "");
       const cityPart = (city || "").trim();
       const validCity = cityPart && cityPart.toLowerCase() !== "flexible" && cityPart.toLowerCase() !== "various";
-      const q = validCity ? `${artist} ${cityPart} tickets` : `${artist} tickets`;
+      // Format date as "June 2026" or "Jun 14 2026" if we have it — enough to narrow results.
+      let datePart = "";
+      if (dateStr) {
+        try {
+          const d = new Date(dateStr);
+          if (!isNaN(d.getTime())) {
+            datePart = d.toLocaleString("en-US", { month: "long", year: "numeric" });
+          }
+        } catch { /* skip */ }
+      }
+      const parts = [artist, validCity ? cityPart : "", datePart, "tickets"].filter(Boolean);
+      const q = parts.join(" ");
       const url = `https://www.google.com/search?q=${encodeURIComponent(q.trim())}`;
-      console.log("[CONCERT_LINK_DEBUG] buildConcertSearchUrl", { eventName, artist, city, q, url });
+      console.log("[CONCERT_LINK_DEBUG] buildConcertSearchUrl", { eventName, artist, city, datePart, q, url });
       return url;
     };
 
@@ -1373,26 +1385,30 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
           if (src.provider) e.provider = src.provider;
           if (src.venue && typeof src.venue === "object") e.venue_obj = src.venue;
           if (src.date_time && !e.date_time) e.date_time = src.date_time;
-          // Always inject the source URL — direct event pages and TM search URLs are both valid.
-          const srcUrl = src.book_url || src.source_url;
-          if (srcUrl) e.url = srcUrl;
-          if (src.book_link) e.link = src.book_link;
+          // Only inject the source URL if it's a confirmed direct event page.
+          // TM search URLs fall through to the Google fallback below so the user
+          // gets results from all sellers (SeatGeek, StubHub, AXS, venue, etc.).
+          if (!shouldReplaceConcertUrl(src.book_url || src.source_url || "")) {
+            const trustedUrl = src.book_url || src.source_url;
+            if (trustedUrl) e.url = trustedUrl;
+            if (src.book_link) e.link = src.book_link;
+          }
         }
-        // If the URL still needs replacing (reseller or truly empty), use a TM search URL —
-        // never Google. Concerts are a core feature and always need a ticket link.
+        // No confirmed direct event URL — fall back to a Google search that includes the
+        // artist, city, and month so the user sees all sellers for that specific event.
         if (shouldReplaceConcertUrl(e.url || "")) {
           const city = (e.venue_obj?.city ?? (typeof e.venue === "string" ? e.venue : (e.venue as any)?.city) ?? pkgCity) || pkgCity;
-          const tmSearchUrl = `https://www.ticketmaster.com/search?q=${encodeURIComponent((e.name || "concert").trim())}+${encodeURIComponent(city)}`;
-          e.url = tmSearchUrl;
+          const dateIso = src?.date_time || e.date_time || "";
+          e.url = buildConcertSearchUrl(e.name || "", city, dateIso);
           e.link = {
-            url: tmSearchUrl,
-            provider: "Ticketmaster",
+            url: e.url,
+            provider: "Google",
             category: "concert",
             link_type: "provider_search",
-            label: "Find tickets on Ticketmaster",
+            label: "Find tickets",
             is_verified: false,
             confidence: "medium",
-            disclaimer: "Shows upcoming Ticketmaster events for this artist — confirm your specific dates on the next page",
+            disclaimer: "Search results include Ticketmaster, SeatGeek, StubHub, and other sellers — confirm availability for your dates",
           };
         }
         console.log("[TM_LINK_DEBUG] generate-itinerary enrich event", { name: e.name, url_before: urlBefore, url_after: e.url, matched: !!src, link_type: e.link?.link_type ?? "none" });
