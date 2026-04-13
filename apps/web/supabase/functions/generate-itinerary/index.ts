@@ -815,12 +815,18 @@ Rules: US only, venue 3000+ capacity, different artist each entry, url can be em
     }
     const goldPoolIsThin = golfGoldExcl.length === 0 && golfGold.length > 0;
     const hasRealHotels = hotels.length > 0 && hotels.some((h: any) => h.provider !== "mock");
-    const hasRealData = events.length > 0 || golfCourses.length > 0 || hotels.length > 0;
+    // Only pass events that have a verified direct-event URL (ticketmaster.com/event/...).
+    // Search-URL fallbacks are excluded — they don't map to a specific confirmed date.
+    const verifiedEvents = (events || []).filter((e: any) => {
+      const linkType = e.book_link?.link_type;
+      return linkType === "direct_event";
+    });
+    const hasRealData = verifiedEvents.length > 0 || golfCourses.length > 0 || hotels.length > 0;
     const hasTieredGolf = golfBronze.length > 0 || golfSilver.length > 0 || golfGold.length > 0;
     const realDataSection = hasRealData
       ? `
 REAL DATA PROVIDED (use these exact options in your packages; include their book_url/ticket URLs and prices when available):
-${events.length ? `- CONCERTS: ${JSON.stringify(events.slice(0, 6).map((e: any) => ({ name: e.name, venue: e.venue?.name, date: e.date_time, url: e.book_url || e.source_url, price_min: e.price_min, price_max: e.price_max })))}` : ""}
+${verifiedEvents.length ? `- CONCERTS: ${JSON.stringify(verifiedEvents.slice(0, 6).map((e: any) => ({ name: e.name, venue: e.venue?.name, date: e.date_time, url: e.book_url || e.source_url, price_min: e.price_min, price_max: e.price_max })))}` : "- CONCERTS: None confirmed for these dates — do not include a concerts section in any package."}
 ${golfCourses.length && !hasTieredGolf ? `- GOLF (all): ${JSON.stringify(golfCourses.slice(0, 6).map((g: any) => ({ name: g.name, url: g.book_url || g.source_url })))}` : ""}
 ${hasTieredGolf ? `- GOLF by tier (CRITICAL – use ONLY from the matching list per package):
   TIER QUALITY GUIDE — use this to set green_fee and explain the "why" per course:
@@ -1002,11 +1008,15 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
       }
     }
 
-    // Overwrite LLM concert rows with canonical search_results.events. The model often drifts on
-    // date/city/venue even when REAL DATA was provided in the prompt.
-    const nonMockEvents = (events || []).filter(
-      (e: any) => e && e.provider && e.provider !== "mock"
-    );
+    // Overwrite LLM concert rows with verified events only (direct TM event URLs).
+    // If no verified events exist, clear all concert rows the LLM may have hallucinated.
+    const nonMockEvents = verifiedEvents;
+    if (Array.isArray(parsedResult.packages) && nonMockEvents.length === 0) {
+      for (const pkg of parsedResult.packages) {
+        pkg.events = [];
+      }
+      console.log("[CONCERT] no verified events — cleared all LLM-generated concert rows");
+    }
     if (nonMockEvents.length > 0 && Array.isArray(parsedResult.packages)) {
       const formatSearchEventForPackage = (e: any) => {
         const v = e.venue || {};
@@ -1371,23 +1381,17 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
             if (src.book_link) e.link = src.book_link;
           }
         }
-        let replacedConcert = false;
         if (shouldReplaceConcertUrl(e.url || "")) {
-          replacedConcert = true;
-          const city = (e.venue_obj?.city ?? (typeof e.venue === "string" ? e.venue : (e.venue as any)?.city) ?? pkgCity) || pkgCity;
-          e.url = buildConcertSearchUrl(e.name || "", city);
-          e.link = {
-            url: e.url,
-            provider: "Google",
-            category: "concert",
-            link_type: "provider_search",
-            label: "Search tickets",
-            is_verified: false,
-            confidence: "medium",
-            disclaimer: "Opens ticket search results across multiple vendors; availability is not confirmed in Experience Caddie",
-          };
+          // No verified URL available — mark for removal rather than showing a misleading link.
+          e._remove = true;
         }
-        console.log("[TM_LINK_DEBUG] generate-itinerary enrich event", { name: e.name, url_before: urlBefore, url_after: e.url, matched: !!src, replaced: replacedConcert });
+        console.log("[TM_LINK_DEBUG] generate-itinerary enrich event", { name: e.name, url_before: urlBefore, url_after: e.url, matched: !!src, removed: !!e._remove });
+      }
+      // Drop any events that couldn't be matched to a verified direct-event URL.
+      if (pkg.events?.some((e: any) => e._remove)) {
+        const before = pkg.events.length;
+        pkg.events = pkg.events.filter((e: any) => !e._remove);
+        console.log(`[CONCERT] dropped ${before - pkg.events.length} unverified event(s) from package`);
       }
       const hotelDateRange = getHotelDateRange(itinerary, pkg);
       for (const h of pkg.lodging || []) {
