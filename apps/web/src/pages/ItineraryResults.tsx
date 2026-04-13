@@ -932,10 +932,6 @@ export default function ItineraryResults() {
                                     ) : (
                                       buttonEl
                                     )}
-                                    <p className="text-[10px] text-muted-foreground/70 sm:text-right">
-                                      Links may earn commission ·{" "}
-                                      <a href="/terms" className="underline hover:text-muted-foreground">Disclosure</a>
-                                    </p>
                                   </div>
                                 )}
                               </div>
@@ -1030,10 +1026,6 @@ export default function ItineraryResults() {
                                   ) : (
                                     buttonEl
                                   )}
-                                  <p className="text-[10px] text-muted-foreground/70 text-right">
-                                    Links may earn commission ·{" "}
-                                    <a href="/terms" className="underline hover:text-muted-foreground">Disclosure</a>
-                                  </p>
                                 </div>
                               );
                             })()}
@@ -1105,10 +1097,6 @@ export default function ItineraryResults() {
                                 ) : (
                                   buttonEl
                                 )}
-                                <p className="text-[10px] text-muted-foreground/70 text-right">
-                                  Links may earn commission ·{" "}
-                                  <a href="/terms" className="underline hover:text-muted-foreground">Disclosure</a>
-                                </p>
                               </div>
                             )}
                           </div>

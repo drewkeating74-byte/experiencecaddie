@@ -25,42 +25,43 @@ export default function Terms() {
         <section>
           <h2 className="mb-3 font-serif text-xl font-semibold">Affiliate Disclosure</h2>
           <p className="rounded-md border border-border bg-muted/40 px-4 py-3 font-medium">
-            Experience Caddie participates in affiliate programs. Some links on this site are
-            affiliate links — if you click one and make a purchase or booking, we may earn a
-            commission at no additional cost to you.
+            Experience Caddie intends to participate in affiliate programs with select providers.
+            We are currently enrolled in some programs and are in the process of activating others.
+            When active affiliate links are present on the site, clicking one and completing a
+            purchase or booking may result in a commission to us at no additional cost to you.
           </p>
           <p className="mt-4">
-            Specifically, we may earn commissions through:
+            Affiliate relationships we are enrolled in or actively pursuing include:
           </p>
           <ul className="mt-3 list-disc space-y-2 pl-5">
             <li>
-              <span className="font-medium">Ticketmaster</span> — we are enrolled in the
-              Ticketmaster affiliate program. Clicks on Ticketmaster ticket links may generate a
-              commission when a purchase is completed.
+              <span className="font-medium">Ticketmaster</span> — we have applied to the
+              Ticketmaster affiliate program. Affiliate tracking on ticket links will be activated
+              upon approval.
             </li>
             <li>
-              <span className="font-medium">Booking.com via AWIN</span> — we participate in the
-              AWIN affiliate network and may earn a commission on hotel bookings made through
-              Booking.com links. (Integration pending full API approval.)
+              <span className="font-medium">Booking.com via AWIN</span> — we have applied to the
+              AWIN affiliate network. Hotel affiliate links will be activated upon API and program
+              approval.
             </li>
             <li>
               <span className="font-medium">Other providers</span> — we may add additional
-              affiliate partnerships in the future. This page will be updated to reflect any new
-              relationships.
+              affiliate partnerships in the future. This page will be updated whenever new
+              relationships are activated.
             </li>
           </ul>
           <p className="mt-4">
             <span className="font-medium">
-              Our affiliate relationships do not influence what results are shown or how they are
-              ordered.
+              Affiliate relationships — current or future — do not influence what results are shown
+              or how they are ordered.
             </span>{" "}
             Concerts, golf courses, and hotels are surfaced based on your destination, travel
             dates, and proximity — not by commission rate or commercial arrangement. We do not
             accept payment to feature specific providers above others.
           </p>
           <p className="mt-4">
-            This disclosure is made in accordance with the United States Federal Trade Commission
-            (FTC) guidelines on endorsements and testimonials (16 CFR Part 255).
+            This disclosure is published in accordance with the United States Federal Trade
+            Commission (FTC) guidelines on endorsements and testimonials (16 CFR Part 255).
           </p>
         </section>
 

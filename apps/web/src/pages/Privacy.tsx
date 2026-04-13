@@ -52,9 +52,8 @@ export default function Privacy() {
           <p>
             When you click an outbound link (a ticket link, tee time booking, or hotel link), we
             log that a click occurred along with the link type, provider, and the package tier you
-            were viewing. We use this to understand which results are most useful and to measure
-            whether affiliate links are working. We do not track what happens after you leave the
-            site.
+            were viewing. We use this to understand which results are most useful. We do not track
+            what happens after you leave the site.
           </p>
 
           <h3 className="mb-2 mt-4 font-semibold">Itinerary generation logs</h3>
@@ -100,9 +99,9 @@ export default function Privacy() {
             </li>
             <li>
               <span className="font-medium">Booking.com / AWIN</span> — we may link to hotels via
-              Booking.com through the AWIN affiliate network. If you click a hotel link and make a
-              booking, we may earn a commission. Booking.com's and AWIN's privacy policies govern
-              data collected on their platforms.
+              Booking.com. In the future, we intend to participate in affiliate programs that may
+              generate a commission on completed bookings. Booking.com's and AWIN's privacy
+              policies govern data collected on their platforms.
             </li>
             <li>
               <span className="font-medium">Perplexity AI</span> — we use an AI language model to
@@ -122,17 +121,19 @@ export default function Privacy() {
         </section>
 
         <section>
-          <h2 className="mb-3 font-serif text-xl font-semibold">Affiliate links</h2>
+          <h2 className="mb-3 font-serif text-xl font-semibold">Outbound links and future affiliate relationships</h2>
           <p>
-            Some outbound links on Experience Caddie are affiliate links. This means that if you
-            click a link and make a purchase or booking, we may earn a commission from the
-            provider. This commission comes from the provider, not from you — you pay the same
-            price whether you arrive through an affiliate link or not.
+            Experience Caddie links to third-party platforms — including Ticketmaster, Google, and
+            hotel booking sites — so you can purchase tickets, book tee times, and reserve hotels.
+            We are currently enrolled in affiliate programs with some providers and plan to expand
+            these relationships. If and when we earn commissions through affiliate links, those
+            commissions come from the provider and do not affect the price you pay.
           </p>
           <p className="mt-3">
-            Affiliate relationships do not influence which results are shown or how they are
-            ranked. Results are ordered by relevance and proximity to your destination, not by
-            commission rate. See our <Link to="/terms" className="text-primary underline">affiliate disclosure</Link> for full details.
+            Any future affiliate relationships will not influence which results are shown or how
+            they are ranked. See our{" "}
+            <Link to="/terms" className="text-primary underline">affiliate disclosure</Link> for
+            full details.
           </p>
         </section>
 
