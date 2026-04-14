@@ -216,11 +216,23 @@ function toYYYYMMDD(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
-function resolveDateWindow(startDate?: string, endDate?: string): { start: string; end: string } {
+/**
+ * Resolve the TM search window.
+ *
+ * minStartOffsetDays controls the earliest date we'll search from:
+ *  - DEFAULT_START_OFFSET_DAYS (14) for discovery/flexible flows — ensures booking lead time.
+ *  - 1 for specific-artist queries — the user knows the show; don't hide near-term dates.
+ */
+function resolveDateWindow(
+  startDate?: string,
+  endDate?: string,
+  minStartOffsetDays: number = DEFAULT_START_OFFSET_DAYS
+): { start: string; end: string } {
   const today = new Date();
   const defaultStart = addDays(today, DEFAULT_START_OFFSET_DAYS);
   const defaultEnd = addMonths(defaultStart, DEFAULT_WINDOW_MONTHS);
-  const minStartStr = toYYYYMMDD(defaultStart);
+  const minStart = addDays(today, minStartOffsetDays);
+  const minStartStr = toYYYYMMDD(minStart);
 
   let start: Date;
   let end: Date;
@@ -229,12 +241,12 @@ function resolveDateWindow(startDate?: string, endDate?: string): { start: strin
     end = new Date(endDate + "T12:00:00");
     if (isNaN(start.getTime())) start = defaultStart;
     if (isNaN(end.getTime())) end = addMonths(defaultStart, DEFAULT_WINDOW_MONTHS);
-    // Enforce minimum start: never search past events; start at least 2 weeks from today
+    // Enforce minimum start: never search past events
     const startStr = toYYYYMMDD(start);
-    if (startStr < minStartStr) start = defaultStart;
+    if (startStr < minStartStr) start = minStart;
     if (end <= start) end = addMonths(start, DEFAULT_WINDOW_MONTHS);
   } else {
-    start = defaultStart;
+    start = minStart;
     end = defaultEnd;
   }
   const maxEnd = addMonths(start, MAX_WINDOW_MONTHS);
@@ -1219,9 +1231,14 @@ Deno.serve(async (req: Request) => {
   try {
     const url = new URL(req.url);
     const payload = parseRequest(url);
+    // For specific-artist queries the user already knows the show — allow near-term dates
+    // so TM can return shows within the next few days. Discovery/flexible flows keep the
+    // 14-day minimum so there's enough lead time to book golf and hotels.
+    const minStartOffset = payload.artist?.trim() ? 1 : DEFAULT_START_OFFSET_DAYS;
     const { start: startDate, end: endDate } = resolveDateWindow(
       payload.dates?.start_date,
-      payload.dates?.end_date
+      payload.dates?.end_date,
+      minStartOffset
     );
 
     const providers: SearchResponse["meta"]["providers"] = [];

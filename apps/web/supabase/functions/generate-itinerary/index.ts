@@ -14,6 +14,119 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+/**
+ * Concert date accuracy rules:
+ *   Rule 1 — TM has the event: use TM date + direct ticket link (handled by resolveConcertFromTicketmaster).
+ *   Rule 2 — TM doesn't have it but Perplexity confirms a specific date: include with confirmed date
+ *            and a Google "[artist] [city] [date] tickets" search URL.
+ *   Rule 3 — Neither can confirm a specific date: return null. Caller must drop the concert entirely.
+ *
+ * Never surfaces a "Date TBD" or a guessed date to users.
+ */
+async function resolveOrVerifyConcert(
+  PERPLEXITY_API_KEY: string,
+  artist: string,
+  city: string,
+  startDate: string,
+  endDate: string,
+  dateHintYmd?: string | null
+): Promise<{
+  artist: string;
+  city: string;
+  venue: string;
+  date: string;
+  url: string;
+  _verified_ticketmaster: boolean;
+} | null> {
+  // Step 1: Try Ticketmaster (Rule 1)
+  try {
+    const tmResolved = await resolveConcertFromTicketmaster({
+      artist,
+      city,
+      startDate,
+      endDate,
+      dateHintYmd,
+    });
+    if (tmResolved) {
+      const ymd = tmResolved.date_time.slice(0, 10);
+      return {
+        artist,
+        city: tmResolved.venue.city,
+        venue: tmResolved.venue.name,
+        date: ymd,
+        url: tmResolved.book_url,
+        _verified_ticketmaster: true,
+      };
+    }
+  } catch (tmErr) {
+    console.log("[resolveOrVerify] TM lookup failed:", tmErr);
+  }
+
+  // Step 2: Perplexity secondary verification (Rule 2)
+  const dateContext = dateHintYmd
+    ? `around ${dateHintYmd}`
+    : `between ${startDate} and ${endDate}`;
+  const verifyPrompt = `Is "${artist}" performing in ${city} ${dateContext}?
+
+Return ONLY valid JSON. No markdown, no extra text:
+If confirmed with a source: {"confirmed":true,"date":"YYYY-MM-DD","venue":"exact venue name"}
+If not confirmed: {"confirmed":false}
+
+IMPORTANT: Return confirmed=true ONLY if you have a reliable web source for this specific date. Do not guess.`;
+
+  try {
+    const res = await fetch("https://api.perplexity.ai/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${PERPLEXITY_API_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "sonar-pro",
+        messages: [
+          { role: "system", content: "Concert verification assistant. Return only valid JSON. Never guess dates." },
+          { role: "user", content: verifyPrompt },
+        ],
+        temperature: 0.1,
+        max_tokens: 128,
+      }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const raw = (data.choices?.[0]?.message?.content || "").trim();
+    let cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+    if (!cleaned.startsWith("{")) {
+      const s = cleaned.indexOf("{"); const e = cleaned.lastIndexOf("}");
+      if (s !== -1 && e > s) cleaned = cleaned.slice(s, e + 1);
+    }
+    const parsed = JSON.parse(cleaned);
+    if (!parsed.confirmed || !parsed.date) return null;
+
+    const ymd = parseFlexibleDateToYmd(String(parsed.date));
+    if (!ymd || ymd < startDate || ymd > endDate) {
+      console.log(`[resolveOrVerify] Perplexity date ${parsed.date} out of range [${startDate}, ${endDate}]`);
+      return null;
+    }
+
+    // Build Google ticket search URL — surfaces StubHub, Vivid Seats, venue box office, etc.
+    const d = new Date(ymd + "T12:00:00Z");
+    const datePart = !isNaN(d.getTime())
+      ? d.toLocaleString("en-US", { month: "long", day: "numeric", year: "numeric" })
+      : ymd;
+    const q = [artist, city, datePart, "tickets"].filter(Boolean).join(" ");
+    const googleTicketUrl = `https://www.google.com/search?q=${encodeURIComponent(q)}`;
+    console.log(`[resolveOrVerify] Perplexity confirmed: ${artist} @ ${city} on ${ymd}`);
+    return {
+      artist,
+      city,
+      venue: String(parsed.venue || "Venue TBD").trim(),
+      date: ymd,
+      url: googleTicketUrl,
+      _verified_ticketmaster: false,
+    };
+  } catch (err) {
+    console.log("[resolveOrVerify] Perplexity secondary verify error:", err);
+    return null;
+  }
+}
+
 const PATH_LABELS: Record<string, string> = {
   golf_music: "Golf + Concert",
 };
@@ -96,13 +209,16 @@ serve(async (req) => {
             status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
-        // Clamp dates: start at least 2 weeks from today to avoid past events
+        // Clamp dates: for discovery flows use 14-day minimum to allow booking lead time.
+        // For specific-artist queries use 1-day minimum so near-term shows aren't hidden
+        // (the user named the artist because they know the show — don't lie about the date).
         const today = new Date();
-        const twoWeeksFromNow = new Date(today);
-        twoWeeksFromNow.setDate(twoWeeksFromNow.getDate() + 14);
-        const nineMonthsLater = new Date(twoWeeksFromNow);
+        const minOffsetDays = artistSearch ? 1 : 14;
+        const minStartDate = new Date(today);
+        minStartDate.setDate(minStartDate.getDate() + minOffsetDays);
+        const nineMonthsLater = new Date(minStartDate);
         nineMonthsLater.setMonth(nineMonthsLater.getMonth() + 9);
-        const minStart = twoWeeksFromNow.toISOString().slice(0, 10);
+        const minStart = minStartDate.toISOString().slice(0, 10);
         const maxEnd = nineMonthsLater.toISOString().slice(0, 10);
         let discStart = String(p.start_date).slice(0, 10);
         let discEnd = String(p.end_date).slice(0, 10);
@@ -311,9 +427,9 @@ Rules: US only, venue 3000+ capacity, dates between ${discStart} and ${discEnd},
         // Replace LLM guesses with Ticketmaster-verified date, venue, and URL (US shows only).
         let verifiedOpts = await verifyDiscoveryConcertOptions(preVerifyOpts, discStart, discEnd);
 
-        // TM may drop rows, or the date filter may have removed some LLM options that could still
-        // serve as unverified fallbacks. Always backfill from the full raw LLM set so items that
-        // were filtered by date can still pad the list up to MIN_DISCOVER_OPTIONS.
+        // TM may drop rows. For remaining slots, run each candidate through TM then Perplexity
+        // secondary verification (resolveOrVerifyConcert). Only confirmed concerts with a
+        // specific date are kept — unconfirmed candidates are dropped (Rule 3).
         const backfillPool = rawLlmOpts;
         if (verifiedOpts.length < MIN_DISCOVER_OPTIONS && backfillPool.length > 0) {
           const seenBackfill = new Set<string>();
@@ -323,8 +439,12 @@ Rules: US only, venue 3000+ capacity, dates between ${discStart} and ${discEnd},
             const d = String(v.date || "").trim().slice(0, 10);
             seenBackfill.add(artistSearch ? `${a}|${c}|${d}` : a);
           }
+
+          // Collect up to 2× needed candidates to give the parallel verify pass enough to work with
+          const need = MIN_DISCOVER_OPTIONS - verifiedOpts.length;
+          const candidates: Record<string, unknown>[] = [];
           for (const raw of backfillPool) {
-            if (verifiedOpts.length >= MIN_DISCOVER_OPTIONS) break;
+            if (candidates.length >= need * 2) break;
             const a = String(raw.artist || "").trim();
             const keyArtist = a.toLowerCase();
             const cityK = String(raw.city || "").toLowerCase().trim();
@@ -332,16 +452,24 @@ Rules: US only, venue 3000+ capacity, dates between ${discStart} and ${discEnd},
             const key = artistSearch ? `${keyArtist}|${cityK}|${dateK}` : keyArtist;
             if (!keyArtist || seenBackfill.has(key)) continue;
             seenBackfill.add(key);
-            const dateRaw = String(raw.date || raw.event_date || raw.eventDate || "").trim();
-            const ymd = parseFlexibleDateToYmd(dateRaw) || (dateRaw.match(/^(\d{4}-\d{2}-\d{2})/)?.[0] ?? "");
-            verifiedOpts.push({
-              artist: a,
-              city: String(raw.city || "").trim() || "Various",
-              venue: String(raw.venue || "").trim() || "Venue TBD",
-              date: ymd || dateRaw.slice(0, 10),
-              url: buildTicketmasterSearchUrl(a),
-              _verified_ticketmaster: false,
-            });
+            candidates.push(raw);
+          }
+
+          // Verify all candidates in parallel — Rule 3: unconfirmed → null → dropped
+          const verifyResults = await Promise.all(
+            candidates.map((raw) => {
+              const a = String(raw.artist || "").trim();
+              const c = String(raw.city || "").trim() || "Various";
+              const dateRaw = String(raw.date || raw.event_date || raw.eventDate || "").trim();
+              const hint = parseFlexibleDateToYmd(dateRaw);
+              return resolveOrVerifyConcert(PERPLEXITY_API_KEY, a, c, discStart, discEnd, hint);
+            })
+          );
+
+          for (const result of verifyResults) {
+            if (!result) continue;
+            if (verifiedOpts.length >= MIN_DISCOVER_OPTIONS) break;
+            verifiedOpts.push(result);
           }
         }
 
@@ -381,24 +509,33 @@ Rules: US only, venue 3000+ capacity, different artist each entry, url can be em
                 if (s !== -1 && e > s) retryCleaned = retryCleaned.slice(s, e + 1);
               }
               const retryParsed = JSON.parse(retryCleaned);
+              // Collect retry candidates (deduped), then verify in parallel (same rules as main backfill)
+              const retryCandidates: { a: string; city: string; hint: string | null }[] = [];
               for (const r of (retryParsed.concert_options || [])) {
-                if (verifiedOpts.length >= MIN_DISCOVER_OPTIONS) break;
+                if (retryCandidates.length >= (MIN_DISCOVER_OPTIONS - verifiedOpts.length) * 2) break;
                 const a = String(r.artist || "").trim();
                 const cityR = String(r.city || "").toLowerCase().trim();
                 if (!a || seenRetry.has(a.toLowerCase())) continue;
                 if (seenRetryCities.has(cityR)) continue;
                 seenRetry.add(a.toLowerCase());
                 seenRetryCities.add(cityR);
-                const dateRaw = String(r.date || "").trim();
-                const ymd = parseFlexibleDateToYmd(dateRaw) || dateRaw.slice(0, 10);
-                verifiedOpts.push({
-                  artist: a,
+                retryCandidates.push({
+                  a,
                   city: String(r.city || "").trim() || "Various",
-                  venue: String(r.venue || "").trim() || "Venue TBD",
-                  date: ymd,
-                  url: buildTicketmasterSearchUrl(a),
-                  _verified_ticketmaster: false,
+                  hint: parseFlexibleDateToYmd(String(r.date || "").trim()),
                 });
+              }
+              if (retryCandidates.length > 0) {
+                const retryVerified = await Promise.all(
+                  retryCandidates.map(({ a, city, hint }) =>
+                    resolveOrVerifyConcert(PERPLEXITY_API_KEY, a, city, discStart, discEnd, hint)
+                  )
+                );
+                for (const result of retryVerified) {
+                  if (!result) continue;
+                  if (verifiedOpts.length >= MIN_DISCOVER_OPTIONS) break;
+                  verifiedOpts.push(result);
+                }
               }
             }
           } catch (retryErr) {
@@ -529,32 +666,65 @@ Rules: US only, venue 3000+ capacity, different artist each entry, url can be em
           dateHintYmd: hint,
         });
         if (resolved) {
+          // Rule 1: TM confirmed the event
           events = [{ ...resolved, provider: "user_selected" }];
         } else {
-          const concertUrl = buildTicketmasterSearchUrl(String(selectedConcert.artist).trim());
-          const concertLink = {
-            url: concertUrl,
-            provider: "Ticketmaster",
-            category: "concert" as const,
-            link_type: "provider_search" as const,
-            label: "Find tickets",
-            is_verified: false,
-            confidence: "medium" as const,
-            disclaimer:
-              "No matching show found on Ticketmaster for this artist in this city during your trip dates — confirm schedules on Ticketmaster",
-          };
-          events = [
-            {
+          // TM couldn't confirm. Try Perplexity secondary verification (Rule 2).
+          // Use a ±14-day window around the hint so minor date shifts don't cause misses.
+          const hintDate = hint || String(p.start_date).slice(0, 10);
+          const today = new Date();
+          const minAllowed = new Date(today);
+          minAllowed.setDate(minAllowed.getDate() + 1);
+          const minAllowedYmd = minAllowed.toISOString().slice(0, 10);
+          const broadStartRaw = (() => {
+            const d = new Date(hintDate + "T12:00:00Z");
+            d.setDate(d.getDate() - 14);
+            return d.toISOString().slice(0, 10);
+          })();
+          const broadStart = broadStartRaw >= minAllowedYmd ? broadStartRaw : minAllowedYmd;
+          const broadEnd = (() => {
+            const d = new Date(hintDate + "T12:00:00Z");
+            d.setDate(d.getDate() + 14);
+            return d.toISOString().slice(0, 10);
+          })();
+
+          const perplexityVerified = await resolveOrVerifyConcert(
+            PERPLEXITY_API_KEY,
+            String(selectedConcert.artist).trim(),
+            String(selectedConcert.city).trim(),
+            broadStart,
+            broadEnd,
+            hint
+          );
+
+          if (perplexityVerified) {
+            // Rule 2: Perplexity confirmed — use verified date + Google ticket search URL
+            events = [{
               id: "selected_concert",
-              name: String(selectedConcert.artist).trim(),
-              date_time: `${String(p.start_date).slice(0, 10)}T20:00:00`,
-              venue: { name: selectedConcert.venue || "Venue TBD", city: String(selectedConcert.city).trim() },
-              book_url: concertUrl,
-              source_url: concertUrl,
-              book_link: concertLink,
+              name: perplexityVerified.venue !== "Venue TBD"
+                ? `${perplexityVerified.artist} at ${perplexityVerified.venue}`
+                : perplexityVerified.artist,
+              date_time: `${perplexityVerified.date}T20:00:00`,
+              venue: { name: perplexityVerified.venue, city: perplexityVerified.city },
+              book_url: perplexityVerified.url,
+              source_url: perplexityVerified.url,
+              book_link: {
+                url: perplexityVerified.url,
+                provider: "Google",
+                category: "concert" as const,
+                link_type: "provider_search" as const,
+                label: "Find tickets",
+                is_verified: false,
+                confidence: "medium" as const,
+                disclaimer: "Date confirmed via web search — link opens Google ticket results",
+              },
               provider: "user_selected",
-            },
-          ];
+            }];
+          } else {
+            // Rule 3: cannot confirm — drop the concert entirely
+            console.log(`[CONCERT] Rule 3: could not verify ${selectedConcert.artist} in ${selectedConcert.city} — concert dropped from itinerary`);
+            events = [];
+          }
         }
       }
 
@@ -848,7 +1018,8 @@ ${catalogVenuesForPrompt.length > 0 ? `- KNOWN CONCERT VENUES IN THIS METRO (rea
 Use the URLs above when composing packages. Do not invent different events or links.
 PRICE RULE: When concerts or hotels include price_min/price_max, use them. For events: set price_range as a string like "$75–$250" or "From $50" using the provided numbers. For lodging: set price_per_night using the range (e.g. "$160–$320/night"). If no price data is provided, you may estimate based on the budget tier.${!hasRealHotels ? " For hotels, search the web as instructed." : ""}
 ${events.length > 0 ? `
-CONCERT RULE (MANDATORY): For each package, use ONLY concerts from the CONCERTS list above. Do not add or substitute any event not in that list—these are verified events with active ticket listings. If only one concert is provided, ALL three tiers (Bronze, Silver, Gold) must use that exact same concert — same artist, same venue, same date, same URL. Only spread different events across tiers if multiple distinct concerts are listed.` : ""}
+CONCERT RULE (MANDATORY): For each package, use ONLY concerts from the CONCERTS list above. Do not add or substitute any event not in that list—these are verified events with active ticket listings. If only one concert is provided, ALL three tiers (Bronze, Silver, Gold) must use that exact same concert — same artist, same venue, same date, same URL. Only spread different events across tiers if multiple distinct concerts are listed.` : `
+NO CONCERTS RULE (MANDATORY): No concerts have been provided or confirmed for this trip. Do NOT include any events, concerts, or performances in the packages—not from your own web search, not from training data, not from any source. The "events" array in every package MUST be an empty array []. Build packages around golf and hotels only.`}
 ${hasTieredGolf ? `
 GOLF TIER RULE (MANDATORY): For each package, pick golf courses ONLY from that package's tier list above. BRONZE package → use only from BRONZE golf list. SILVER → only from SILVER golf list. GOLD → only from GOLD golf list. Do NOT add golf courses from your own web search—use ONLY the courses listed. Exclude country clubs, private clubs, and members-only courses. EACH PACKAGE MUST USE DIFFERENT GOLF COURSES — never repeat the same course across Bronze, Silver, and Gold. Each tier must have at least one golf option. All golf, lodging, and the venue are within 30 miles of each other. When golf entries include drive_mins or miles, you may mention them in the "why" for context.${goldPoolIsThin ? `
 GOLD HONESTY NOTE: Premium (Gold-tier) golf options are limited for this destination. For the GOLD package, add to safety_notes: "Premium course availability is limited in this area; we've included the best available public courses."` : ""}` : ""}`
@@ -1011,10 +1182,20 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
       }
     }
 
-    // Overwrite LLM concert rows with canonical TM events from search_results.
-    // Use all non-mock events (direct event URLs and TM search URLs are both valid).
-    // Concerts are a core product feature — never clear them.
+    // Rule 3 enforcement: if no events were verified (neither TM nor Perplexity secondary),
+    // clear any concerts the LLM may have added from its own web search. A concert with an
+    // unconfirmed date must never appear — drop it rather than show wrong information.
     const nonMockEvents = allNonMockEvents;
+    if (nonMockEvents.length === 0 && Array.isArray(parsedResult.packages)) {
+      for (const pkg of parsedResult.packages) {
+        if (Array.isArray(pkg.events) && pkg.events.length > 0) {
+          console.log(`[CONCERT] Rule 3: cleared ${pkg.events.length} LLM-generated event(s) from ${pkg.tier} package — no verified concerts`);
+          pkg.events = [];
+        }
+      }
+    }
+
+    // Overwrite LLM concert rows with canonical verified events from search_results (Rule 1 / Rule 2).
     if (nonMockEvents.length > 0 && Array.isArray(parsedResult.packages)) {
       const formatSearchEventForPackage = (e: any) => {
         const v = e.venue || {};
