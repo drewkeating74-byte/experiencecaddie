@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" href="/ec-logo.png" type="image/png" />
-    <title>Experience Caddie</title>
+    <title>Experience Caddie — Golf + Concert Weekends, Planned for You</title>
 
     <!-- Establish early connections to font origins before CSS requests them.
          Eliminates the DNS + TLS negotiation cost from the critical path. -->
@@ -13,17 +13,50 @@
     <!-- Load fonts directly from <head> rather than via CSS @import so the
          browser discovers them without waiting for CSS parsing. -->
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700&family=DM+Sans:wght@300;400;500;600;700&display=swap" />
-    <meta name="description" content="Curated golf, music, and luxury travel experiences" />
+    <meta name="description" content="Plan a golf + concert weekend in minutes. Choose an artist or city and we'll build three bookable packages — tee times, tickets, and hotels — around confirmed tour dates." />
     <meta name="author" content="Experience Caddie" />
 
-    <meta property="og:title" content="Experience Caddie" />
-    <meta property="og:description" content="Curated golf, music, and luxury travel experiences" />
+    <meta property="og:title" content="Experience Caddie — Golf + Concert Weekends" />
+    <meta property="og:description" content="Pick an artist or city. We'll build three bookable golf + concert weekend packages around confirmed tour dates — tee times, tickets, and hotels included." />
     <meta property="og:type" content="website" />
-    <meta property="og:image" content="https://lovable.dev/opengraph-image-p98pqg.png" />
+    <meta property="og:url" content="https://experiencecaddie.com" />
+    <meta property="og:image" content="https://experiencecaddie.com/og-image.jpg" />
 
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:site" content="@ExperienceCaddie" />
-    <meta name="twitter:image" content="https://lovable.dev/opengraph-image-p98pqg.png" />
+    <meta name="twitter:image" content="https://experiencecaddie.com/og-image.jpg" />
+
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebSite",
+      "name": "Experience Caddie",
+      "url": "https://experiencecaddie.com",
+      "description": "Plan a golf and concert weekend in minutes. Choose an artist or city and we build three bookable packages — tee times, tickets, and hotels — around confirmed tour dates.",
+      "potentialAction": {
+        "@type": "SearchAction",
+        "target": {
+          "@type": "EntryPoint",
+          "urlTemplate": "https://experiencecaddie.com/experience?event_details={search_term_string}"
+        },
+        "query-input": "required name=search_term_string"
+      }
+    }
+    </script>
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "Organization",
+      "name": "Experience Caddie",
+      "url": "https://experiencecaddie.com",
+      "description": "Curated golf and concert weekend packages built around confirmed tour dates.",
+      "contactPoint": {
+        "@type": "ContactPoint",
+        "email": "privacy@experiencecaddie.com",
+        "contactType": "customer support"
+      }
+    }
+    </script>
   </head>
 
   <body>

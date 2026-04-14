@@ -378,14 +378,6 @@ export default function ItineraryResults() {
       event_date?: string;
     }
   ) => {
-    if (!user) {
-      const returnTo = `${window.location.pathname}${window.location.search}`;
-      sessionStorage.setItem("post_auth_link", url);
-      savePostAuthReturn(returnTo);
-      navigate(`/auth?redirect=${encodeURIComponent(returnTo)}`);
-      return;
-    }
-
     const analyticsType =
       meta?.category === "hotel" ? "hotel_link_clicked" :
       meta?.category === "concert" ? "ticket_link_clicked" :
@@ -615,7 +607,13 @@ export default function ItineraryResults() {
   };
 
   if (loading) return <div className="flex min-h-[60vh] items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
-  if (!itinerary) return <div className="container mx-auto px-4 py-16 text-center">Itinerary not found</div>;
+  if (!itinerary) return (
+    <div className="container mx-auto max-w-xl px-4 py-16 text-center">
+      <h2 className="font-serif text-2xl font-bold">Trip not found</h2>
+      <p className="mt-2 text-muted-foreground">This link may have expired or the itinerary ID is incorrect. Build a new trip and we'll create a fresh shareable link.</p>
+      <Button asChild className="mt-6 rounded-full px-8"><Link to="/experience">Plan a New Weekend</Link></Button>
+    </div>
+  );
 
   if (itinerary.status === "generating") {
     return (
@@ -805,14 +803,14 @@ export default function ItineraryResults() {
                   <div className="flex justify-end border-b border-border/50 pb-2">
                     <button
                       type="button"
-                      className="text-xs text-amber-600 hover:underline"
+                      className="text-xs text-muted-foreground hover:underline"
                       onClick={() => {
                         const returnTo = `${location.pathname}${location.search}`;
                         savePostAuthReturn(returnTo);
                         navigate(`/auth?redirect=${encodeURIComponent(returnTo)}`);
                       }}
                     >
-                      Log in to share, save, or book
+                      Sign in to save or share this trip
                     </button>
                   </div>
                 )}
