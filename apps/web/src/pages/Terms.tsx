@@ -73,7 +73,7 @@ export default function Terms() {
           <p>
             Experience Caddie is a trip-planning tool that combines publicly available concert,
             golf, and hotel data with AI-generated itinerary suggestions. It is operated by
-            Fairway & Encore. By using the site, you agree to these terms.
+            Fairways & Encores. By using the site, you agree to these terms.
           </p>
 
           <h3 className="mb-2 mt-4 font-semibold">What we do and don't guarantee</h3>
@@ -110,7 +110,7 @@ export default function Terms() {
           <h3 className="mb-2 mt-4 font-semibold">Limitation of liability</h3>
           <p>
             Experience Caddie is provided "as is" without warranties of any kind. To the fullest
-            extent permitted by law, Fairway & Encore shall not be liable for any direct,
+            extent permitted by law, Fairways & Encores shall not be liable for any direct,
             indirect, incidental, or consequential damages arising from your use of the service or
             any third-party services accessed through it.
           </p>

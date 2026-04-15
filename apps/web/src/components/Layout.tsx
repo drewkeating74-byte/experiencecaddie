@@ -97,7 +97,7 @@ export default function Layout() {
             <span aria-hidden="true">·</span>
             <Link to="/terms" className="hover:text-primary hover:underline">Terms &amp; Affiliate Disclosure</Link>
           </nav>
-          <p className="mt-2 text-xs text-muted-foreground">© {new Date().getFullYear()} Fairways &amp; Encores, LLC. All rights reserved.</p>
+          <p className="mt-2 text-xs text-muted-foreground">© {new Date().getFullYear()} Fairways &amp; Encores. All rights reserved.</p>
         </div>
       </footer>
     </div>

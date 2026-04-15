@@ -23,7 +23,7 @@ export default function Privacy() {
         <section>
           <h2 className="mb-3 font-serif text-xl font-semibold">Who we are</h2>
           <p>
-            Experience Caddie is a travel planning service operated by Fairway & Encore. We help
+            Experience Caddie is a travel planning service operated by Fairways & Encores. We help
             people plan golf and concert weekends by combining publicly available event data with
             an AI-generated itinerary. This policy explains what information we collect when you
             use the site, how we use it, and your rights around that data.
