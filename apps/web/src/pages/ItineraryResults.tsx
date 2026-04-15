@@ -799,22 +799,6 @@ export default function ItineraryResults() {
                   )}
                 </div>
 
-                {!user && (
-                  <div className="flex justify-end border-b border-border/50 pb-2">
-                    <button
-                      type="button"
-                      className="text-xs text-muted-foreground hover:underline"
-                      onClick={() => {
-                        const returnTo = `${location.pathname}${location.search}`;
-                        savePostAuthReturn(returnTo);
-                        navigate(`/auth?redirect=${encodeURIComponent(returnTo)}`);
-                      }}
-                    >
-                      Sign in to save or share this trip
-                    </button>
-                  </div>
-                )}
-
                 {pkg.estimated_total_usd && (
                   <div className="font-serif text-xl font-bold">
                     ${pkg.estimated_total_usd[0]?.toLocaleString()} – ${pkg.estimated_total_usd[1]?.toLocaleString()}
