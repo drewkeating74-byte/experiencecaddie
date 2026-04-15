@@ -264,7 +264,9 @@ export default function ExperienceBuilder() {
       let searchResult;
       try {
         searchResult = await fetchSearch(searchRequest);
-      } catch {
+      } catch (searchErr) {
+        console.warn("Search API unavailable, using fallback data:", searchErr);
+        toast.error("Live venue data unavailable — using placeholder results. Please try again.");
         searchResult = buildFallbackSearchResponse(searchRequest);
       }
       const payload = {
@@ -529,8 +531,9 @@ export default function ExperienceBuilder() {
       let searchResult;
       try {
         searchResult = await fetchSearch(searchRequest);
-      } catch (err) {
-        if (import.meta.env.DEV) console.warn("Search API unreachable, using fallback:", err);
+      } catch (searchErr) {
+        console.warn("Search API unavailable, using fallback data:", searchErr);
+        toast.error("Live venue data unavailable — using placeholder results. Please try again.");
         searchResult = buildFallbackSearchResponse(searchRequest);
       }
       const search_results = {

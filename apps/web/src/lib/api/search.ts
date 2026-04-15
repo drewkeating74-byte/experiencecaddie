@@ -165,7 +165,7 @@ export async function fetchSearch(request: SearchRequest): Promise<SearchRespons
   }
 
   const res = await fetch(`${baseUrl}?${params.toString()}`, {
-    signal: AbortSignal.timeout(15000),
+    signal: AbortSignal.timeout(30000),
     headers,
   });
   if (!res.ok) {
