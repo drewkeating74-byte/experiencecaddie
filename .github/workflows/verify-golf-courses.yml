@@ -1,14 +1,13 @@
 name: Golf Course Verification
 
-# Runs daily at 03:00 UTC. Both passes every run.
+# Runs 4× daily at 03:00 / 09:00 / 15:00 / 21:00 UTC. Both passes every run.
 #
 # Rationale:
 #   - Golf-course public-access status is effectively static once confirmed.
-#   - Post-drain the queues are empty, so daily runs are near-zero-cost
-#     (one Supabase function invoke, no Places calls, no Perplexity calls).
-#   - When new courses are ingested (catalog expansion, manual inserts),
-#     they enter the queue as `unreviewed` and the next daily run picks
-#     them up. No coordination needed.
+#   - Post-drain the queues are empty, so each run is near-zero-cost
+#     (mostly empty queries; no Places / Perplexity when nothing is queued).
+#   - After a catalog flood, 4× daily drains the unreviewed + needs_review
+#     queues in ~1 week instead of ~1 month at a single daily cadence.
 #
 # Manual dispatch:
 #   - Use workflow_dispatch for ad-hoc runs (e.g. right after ingesting
@@ -22,7 +21,7 @@ name: Golf Course Verification
 
 on:
   schedule:
-    - cron: "0 3 * * *"   # Daily 03:00 UTC — both passes
+    - cron: "0 3,9,15,21 * * *"   # 4× daily UTC — both passes
   workflow_dispatch:
     inputs:
       skip_llm:

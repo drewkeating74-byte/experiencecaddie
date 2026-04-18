@@ -8,7 +8,10 @@
  * courses that are genuinely accessible to the general public.
  *
  * PASS 1 — Rule-based (no LLM cost)
- *   Processes up to MAX_RULE_BASED_PER_RUN courses where verification_status = 'unreviewed'.
+ *   Processes up to MAX_RULE_BASED_PER_RUN courses where verification_status = 'unreviewed'
+ *   AND public_access_confidence IN ('likely_public','unknown').
+ *   (Catalog ingest marks most benign names as 'unknown'; excluding them
+ *   from Pass 1 left the majority of rows never verified — a silent backlog.)
  *   Fetches Google Place Details (reservable, editorialSummary, priceLevel) for each.
  *   Decision logic:
  *     • likely_public + (reservable=true OR clear public editorial text) → verified
@@ -31,8 +34,12 @@
  *   An excluded outcome requires positive private-access evidence in the LLM response.
  *
  * PER-RUN CAPS
- *   MAX_RULE_BASED_PER_RUN = 50   (Places API calls only — low cost)
- *   MAX_LLM_PER_RUN        = 50   (Perplexity calls — sized to drain the backlog)
+ *   MAX_RULE_BASED_PER_RUN = 80   (Places API — low cost; raised for catalog flood)
+ *   MAX_LLM_PER_RUN        = 55   (Perplexity — balance throughput vs edge timeout)
+ *
+ * SCHEDULE (see verify-golf-courses.yml)
+ *   4× daily UTC during normal ops — empty queues are near-free; backlog
+ *   drains ~4× faster than a single daily run without one huge invocation.
  *
  * DB FIELDS UPDATED
  *   verification_status, course_type, excluded_reason, public_access,
@@ -41,7 +48,7 @@
  *   verification_evidence_summary, last_verified_at
  *
  * SCHEDULING
- *   Daily at 03:00 UTC via .github/workflows/verify-golf-courses.yml
+ *   4× daily at 03:00 / 09:00 / 15:00 / 21:00 UTC via verify-golf-courses.yml
  *   Requires Authorization: Bearer <SUPABASE_SERVICE_ROLE_KEY>
  */
 
@@ -49,12 +56,11 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const MAX_RULE_BASED_PER_RUN = 50;
-// Raised from 20 to 50 to drain the needs_review backlog faster. At sonar
-// pricing (~$0.01–0.02/call) this is ~$0.50–1.00/day during the initial
-// flush; once the backlog clears, only newly-escalated courses enter the
-// queue and steady-state cost drops to a few cents per day.
-const MAX_LLM_PER_RUN = 50;
+const MAX_RULE_BASED_PER_RUN = 80;
+// 55 sonar calls × ~4 runs/day ≈ 220 LLM decisions/day during backlog.
+// Single-invocation wall time must stay under the platform edge limit (~150s
+// typical); 55 + 80 Places calls fits the observed ~2–3s/LLM average.
+const MAX_LLM_PER_RUN = 55;
 const VERIFIER_VERSION = "verify-golf-courses-v1";
 const PERPLEXITY_MODEL = "sonar";
 
@@ -236,7 +242,8 @@ function editorialText(details: PlaceDetails): string {
 }
 
 /**
- * Rule-based decision for a likely_public + unreviewed course.
+ * Rule-based decision for an unreviewed course in the Pass 1 queue
+ * (likely_public or unknown name heuristic — never likely_private here).
  *
  * Every ambiguous case is escalated to needs_review so the LLM pass examines
  * it. Leaving courses as unreviewed kept them eligible for packages without
@@ -373,7 +380,7 @@ Deno.serve(async (req: Request) => {
     .select("id,name,city,state,source_id,place_id,public_access_confidence,verification_status,course_type,excluded_reason")
     .eq("verification_status", "unreviewed")
     .eq("active", true)
-    .eq("public_access_confidence", "likely_public")
+    .in("public_access_confidence", ["likely_public", "unknown"])
     .order("last_verified_at", { ascending: true, nullsFirst: true })
     .limit(MAX_RULE_BASED_PER_RUN);
 
