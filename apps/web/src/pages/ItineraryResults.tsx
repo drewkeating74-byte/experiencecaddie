@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams, Link, useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Hotel, Music, Utensils, ExternalLink, Copy, ArrowLeft, Loader2, Mail, Bookmark, BookmarkCheck, RefreshCw } from "lucide-react";
+import { Hotel, Music, Utensils, ExternalLink, Copy, ArrowLeft, Loader2, Mail, Bookmark, BookmarkCheck } from "lucide-react";
 import { GolfTrustPanel, EventTrustPanel, HotelTrustPanel } from "@/components/TrustPanel";
 import { normalizeOutboundLink, type OutboundLink } from "@/types/outbound-link";
 import {
@@ -30,8 +30,6 @@ import { logEvent } from "@/lib/analytics";
 import { savePostAuthReturn } from "@/lib/postAuthReturn";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
-import { fetchSearch } from "@/lib/api/search";
-import type { SearchRequest } from "@/lib/api/search";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { Tables } from "@/integrations/supabase/types";
 
@@ -164,86 +162,6 @@ function toYYYYMMDD(val: unknown): string | null {
   return null;
 }
 
-/** Reconstruct search params from itinerary + result_json for refresh. Prefer itinerary.city where available.
- * Dates: itinerary.start_date/end_date first; fallback to result_json event date_time when itinerary dates missing.
- * If the resolved dates are in the past or within 14 days of today, shift them forward to be future-looking
- * while preserving the original trip duration. This ensures Refresh always searches for upcoming events. */
-function deriveSearchParams(itinerary: ItineraryRow | null, result_json: ResultJson | null): SearchRequest | null {
-  let start = toYYYYMMDD(itinerary?.start_date);
-  let end = toYYYYMMDD(itinerary?.end_date);
-
-  // Fallback: derive from result_json event date_time when itinerary dates are missing (e.g. legacy data)
-  if ((!start || !end) && result_json?.packages?.length) {
-    const dates: string[] = [];
-    for (const pkg of result_json.packages) {
-      for (const evt of pkg.events ?? []) {
-        const d = toYYYYMMDD(evt.date_time);
-        if (d) dates.push(d);
-      }
-    }
-    if (dates.length > 0) {
-      dates.sort();
-      if (!start) start = dates[0];
-      if (!end) end = dates[dates.length - 1];
-      if (start === end && start) {
-        const d = new Date(start);
-        d.setDate(d.getDate() + 2);
-        end = d.toISOString().slice(0, 10);
-      }
-    }
-  }
-  if (!start || !end) return null;
-
-  // Shift dates forward if they are stale (past or within 14 days of today).
-  // Preserve the original trip duration so the weekend structure stays intact.
-  const minFutureStart = new Date();
-  minFutureStart.setHours(0, 0, 0, 0);
-  minFutureStart.setDate(minFutureStart.getDate() + 14);
-  const minFutureStartStr = minFutureStart.toISOString().slice(0, 10);
-  if (start < minFutureStartStr) {
-    const origStart = new Date(start + "T12:00:00");
-    const origEnd = new Date(end + "T12:00:00");
-    const tripDays = Math.max(2, Math.round((origEnd.getTime() - origStart.getTime()) / 86_400_000));
-    const newEnd = new Date(minFutureStart.getTime() + tripDays * 86_400_000);
-    start = minFutureStartStr;
-    end = newEnd.toISOString().slice(0, 10);
-  }
-
-  const prefs = (itinerary?.preferences ?? {}) as Record<string, unknown>;
-  const pkgs = result_json?.packages ?? [];
-  const firstEvent = pkgs[0]?.events?.[0];
-  // venue may be a string or an object — extract city/state only when it's an object
-  const firstVenue = firstEvent?.venue && typeof firstEvent.venue === "object" ? firstEvent.venue : undefined;
-  const venueCity = firstVenue?.city;
-  const venueState = firstVenue?.state;
-
-  let artist: string | undefined;
-  let city: string;
-
-  if (itinerary?.city === "flexible" || prefs.flexible_location) {
-    // Flow 3: Flexible — no artist; city from first event venue or Austin only when no better fallback
-    artist = undefined;
-    city = venueCity?.trim() || "Austin"; // Explicit fallback: no venue city in result
-  } else if (firstEvent && pkgs.every((p) => p.events?.[0]?.name === firstEvent.name)) {
-    // Flow 2: Discover (same event across packages)
-    artist = firstEvent.name;
-    city = venueCity?.trim() || itinerary?.city || "Austin";
-  } else {
-    // Flow 1: Artist + city — prefer itinerary.city
-    const ed = (itinerary?.event_details ?? "").trim();
-    artist = ed && ed.length < 80 && !ed.toLowerCase().startsWith("genres:") ? ed : undefined;
-    city = itinerary?.city?.trim() || venueCity?.trim() || "Austin"; // itinerary.city first per plan
-  }
-
-  return {
-    artist,
-    destination: { city: city || "Austin", state: venueState },
-    dates: { start_date: start, end_date: end },
-    group_size: itinerary?.group_size ?? 2,
-    budget_tier: (itinerary?.budget_tier as "low" | "mid" | "high") ?? "mid",
-  };
-}
-
 export default function ItineraryResults() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -255,16 +173,12 @@ export default function ItineraryResults() {
   const [shareEmailOpen, setShareEmailOpen] = useState(false);
   const [shareEmails, setShareEmails] = useState("");
   const [sendingEmail, setSendingEmail] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-  const [lastRefreshCompletedAt, setLastRefreshCompletedAt] = useState<string | null>(null);
-  const autoRefreshedRef = useRef(false);
-
   // Auto-open the share-email dialog when returning from auth with ?open=share-email
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     if (params.get("open") === "share-email" && user) {
       setShareEmailOpen(true);
-      // Remove the param from the URL so refreshing doesn't re-open it
+      // Remove the param from the URL so a reload doesn't re-open it
       params.delete("open");
       const newSearch = params.toString();
       navigate(location.pathname + (newSearch ? `?${newSearch}` : ""), { replace: true });
@@ -350,19 +264,6 @@ export default function ItineraryResults() {
     console.log("[TM_LINK_DEBUG] Saved result_json (from DB)", { itinerary_id: itinerary.id, packages_events: eventsByPkg });
     console.log("[TM_LINK_DEBUG] Full result_json", result);
   }, [itinerary?.id, itinerary?.result_json]);
-
-  // Auto-refresh when the itinerary is more than 7 days old so users always see
-  // upcoming events rather than past ones. Runs once per page load, never loops.
-  useEffect(() => {
-    if (!itinerary?.updated_at || autoRefreshedRef.current || refreshing) return;
-    const ageMs = Date.now() - new Date(itinerary.updated_at).getTime();
-    const sevenDays = 7 * 24 * 60 * 60 * 1000;
-    if (ageMs >= sevenDays) {
-      autoRefreshedRef.current = true;
-      handleRefresh();
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [itinerary?.id]);
 
   const trackClick = async (
     tier: string,
@@ -540,72 +441,6 @@ export default function ItineraryResults() {
     }
   };
 
-  const handleRefresh = async () => {
-    const params = deriveSearchParams(itinerary, itinerary?.result_json);
-    if (!params) {
-      toast.error("Cannot refresh: no dates found. Dates come from the itinerary or from event dates in the trip.");
-      return;
-    }
-    setRefreshing(true);
-    toast.loading("Refreshing prices and availability…", { id: "refresh" });
-    try {
-      const searchRes = await fetchSearch(params);
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-      if (!supabaseUrl || !supabaseKey) {
-        toast.error("App configuration error. Please try again later.", { id: "refresh" });
-        setRefreshing(false);
-        return;
-      }
-      const genRes = await fetch(`${supabaseUrl}/functions/v1/generate-itinerary`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` },
-        body: JSON.stringify({
-          itinerary_id: itinerary.id,
-          payload: {
-            search_results: {
-              events: searchRes.events,
-              golf_courses: searchRes.golf_courses,
-              hotels: searchRes.hotels,
-              bronze_golf_candidates: searchRes.bronze_golf_candidates,
-              silver_golf_candidates: searchRes.silver_golf_candidates,
-              gold_golf_candidates: searchRes.gold_golf_candidates,
-            },
-          },
-        }),
-      });
-      const genData = await genRes.json().catch(() => ({}));
-      if (!genRes.ok) {
-        const errMsg = genData?.error || `Refresh failed (${genRes.status})`;
-        toast.error(errMsg, { id: "refresh" });
-        setRefreshing(false);
-        return;
-      }
-      // Refetch itinerary (same pattern as initial load)
-      const slug = itinerary.share_slug || itinerary.id;
-      const headers = { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` };
-      const slugRes = await fetch(`${supabaseUrl}/rest/v1/itineraries?select=${encodeURIComponent(safeColumns)}&share_slug=eq.${encodeURIComponent(slug)}&limit=1`, { headers });
-      const slugRows = await slugRes.json();
-      const rows = slugRows?.length > 0 ? slugRows : await (await fetch(`${supabaseUrl}/rest/v1/itineraries?select=${encodeURIComponent(safeColumns)}&id=eq.${encodeURIComponent(itinerary.id)}&limit=1`, { headers })).json();
-      if (rows?.length > 0) {
-        setItinerary(rows[0]);
-        setLastRefreshCompletedAt(rows[0].updated_at || new Date().toISOString());
-      } else if (genData?.result) {
-        // Fallback: backend succeeded but refetch failed — update from response
-        const fallbackUpdatedAt = new Date().toISOString();
-        setItinerary((prev) => prev ? { ...prev, result_json: genData.result, updated_at: fallbackUpdatedAt } : prev);
-        setLastRefreshCompletedAt(fallbackUpdatedAt);
-      }
-      toast.success("Refresh complete", { id: "refresh" });
-    } catch (e: any) {
-      const msg = e?.message || "Refresh failed";
-      const isNetworkError = msg === "Failed to fetch" || msg === "Load failed" || msg?.includes("NetworkError");
-      toast.error(isNetworkError ? "Could not reach the server. Check your connection and try again." : msg, { id: "refresh" });
-    } finally {
-      setRefreshing(false);
-    }
-  };
-
   if (loading) return <div className="flex min-h-[60vh] items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
   if (!itinerary) return (
     <div className="container mx-auto max-w-xl px-4 py-16 text-center">
@@ -718,48 +553,28 @@ export default function ItineraryResults() {
         </div>
       )}
 
-      {/* Generated date + Refresh + combined trust disclosure */}
+      {/* Generated date + combined trust disclosure */}
       <div className="mb-6 text-center space-y-2">
-        <div className="flex items-center justify-center gap-2 flex-wrap">
-          <p className="text-sm font-semibold">
-            Generated {formatGeneratedAt(itinerary.updated_at)}
-          </p>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleRefresh}
-            disabled={refreshing}
-          >
-            {refreshing ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <RefreshCw className="mr-2 h-4 w-4" />
-            )}
-            Refresh
-          </Button>
-        </div>
-        {lastRefreshCompletedAt && (
-          <p className="text-xs text-muted-foreground">
-            Updated at {formatGeneratedAt(lastRefreshCompletedAt)}
-          </p>
-        )}
+        <p className="text-sm font-semibold">
+          Generated {formatGeneratedAt(itinerary.updated_at)}
+        </p>
         <p className="text-xs text-muted-foreground max-w-xl mx-auto">
           Prices and availability are as of this date. You'll book directly with providers—confirm on their site before booking. Experience Caddie does not handle reservations.
         </p>
       </div>
 
-      {/* Stale itinerary banner — shown when last refresh was 7+ days ago */}
+      {/* Stale itinerary notice — no live refresh; suggest a new trip */}
       {(() => {
         if (!itinerary?.updated_at) return null;
         const ageDays = Math.floor((Date.now() - new Date(itinerary.updated_at).getTime()) / 86_400_000);
         if (ageDays < 7) return null;
         return (
-          <div className="mb-6 rounded-lg border border-yellow-300 bg-yellow-50 dark:border-yellow-700 dark:bg-yellow-950/30 px-4 py-3 text-sm text-yellow-800 dark:text-yellow-300 flex items-center justify-between gap-4 flex-wrap">
-            <span>This itinerary is {ageDays} days old — event dates and availability may have changed.</span>
-            <Button size="sm" variant="outline" onClick={handleRefresh} disabled={refreshing} className="shrink-0">
-              {refreshing ? <Loader2 className="mr-2 h-3 w-3 animate-spin" /> : <RefreshCw className="mr-2 h-3 w-3" />}
-              Refresh now
-            </Button>
+          <div className="mb-6 rounded-lg border border-yellow-300 bg-yellow-50 dark:border-yellow-700 dark:bg-yellow-950/30 px-4 py-3 text-sm text-yellow-800 dark:text-yellow-300 text-center">
+            This itinerary is {ageDays} days old — event dates and availability may have changed.{" "}
+            <Link to={newTripHref} className="font-medium underline underline-offset-2 hover:text-foreground">
+              Plan a new trip
+            </Link>{" "}
+            for the latest options.
           </div>
         );
       })()}
@@ -951,11 +766,12 @@ export default function ItineraryResults() {
                     </CardHeader>
                     <CardContent className="space-y-3">
                       {pastCount > 0 && (
-                        <div className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground flex items-center justify-between gap-2 flex-wrap">
-                          <span>{pastCount} event{pastCount > 1 ? "s have" : " has"} already passed and {pastCount > 1 ? "are" : "is"} hidden.</span>
-                          <button className="underline underline-offset-2 hover:text-foreground transition-colors" onClick={handleRefresh} disabled={refreshing}>
-                            Refresh to find new dates
-                          </button>
+                        <div className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground text-center sm:text-left">
+                          {pastCount} event{pastCount > 1 ? "s have" : " has"} already passed and {pastCount > 1 ? "are" : "is"} hidden.{" "}
+                          <Link to={newTripHref} className="font-medium underline underline-offset-2 hover:text-foreground">
+                            Plan a new trip
+                          </Link>{" "}
+                          to see current shows.
                         </div>
                       )}
                       {eventItems.map((e: any, i: number) => (
