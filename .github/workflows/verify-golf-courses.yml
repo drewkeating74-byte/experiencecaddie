@@ -1,23 +1,28 @@
 name: Golf Course Verification
 
-# Two scheduled passes — golf course access status changes rarely so daily
-# was overkill and unnecessarily burned Perplexity API credits.
+# Runs daily at 03:00 UTC. Both passes every run.
 #
-# Weekly  (Sunday 03:00 UTC)  — Pass 1 only: rule-based Google Places check.
-#   Fetches Place Details for up to 50 unreviewed courses and auto-verifies
-#   those with clear public signals. No Perplexity calls. Free to run often.
+# Rationale:
+#   - Golf-course public-access status is effectively static once confirmed.
+#   - Post-drain the queues are empty, so daily runs are near-zero-cost
+#     (one Supabase function invoke, no Places calls, no Perplexity calls).
+#   - When new courses are ingested (catalog expansion, manual inserts),
+#     they enter the queue as `unreviewed` and the next daily run picks
+#     them up. No coordination needed.
 #
-# Monthly (1st  03:00 UTC)    — Both passes: rule-based + LLM.
-#   Also runs Pass 2: Perplexity sonar checks up to 20 needs_review courses
-#   with unknown or likely_private confidence against live web data.
+# Manual dispatch:
+#   - Use workflow_dispatch for ad-hoc runs (e.g. right after ingesting
+#     a new metro).
+#   - skip_llm=true runs rule-based only; useful if Perplexity credits
+#     are temporarily exhausted.
 #
-# Manual trigger via workflow_dispatch runs both passes by default;
-# set skip_llm=true to run rule-based only.
+# Future: annual full-catalog re-verification can be added as a second
+# schedule with a dedicated payload that resets verification_status on
+# all courses. Not needed at MVP scale.
 
 on:
   schedule:
-    - cron: "0 3 * * 0"   # Weekly  — Sunday  03:00 UTC (rule-based only)
-    - cron: "0 3 1 * *"   # Monthly — 1st     03:00 UTC (both passes)
+    - cron: "0 3 * * *"   # Daily 03:00 UTC — both passes
   workflow_dispatch:
     inputs:
       skip_llm:
@@ -40,19 +45,14 @@ jobs:
         env:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
-          # Determine whether to skip the LLM pass.
-          # Weekly schedule (0 3 * * 0) → rule-based only.
-          # Monthly schedule (0 3 1 * *) → both passes.
-          # Manual dispatch → respects the skip_llm input.
+          # Scheduled runs always run both passes.
+          # Manual dispatch respects the skip_llm input.
           SKIP_LLM="false"
-          if [ "${{ github.event.schedule }}" = "0 3 * * 0" ]; then
-            SKIP_LLM="true"
-            echo "Weekly run — skipping LLM pass"
-          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             SKIP_LLM="${{ github.event.inputs.skip_llm }}"
             echo "Manual run — skip_llm=${SKIP_LLM}"
           else
-            echo "Monthly run — running both passes"
+            echo "Scheduled run — running both passes"
           fi
 
           RESPONSE=$(curl -s -w "\n%{http_code}" \
