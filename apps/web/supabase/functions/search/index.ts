@@ -786,6 +786,16 @@ type DbGolfRow = {
 //   needs_review → NOT eligible; held back until a human reviews the course
 //   excluded     → NOT eligible; never shown under any circumstances
 // A course must also have active = true to appear here.
+//
+// Access-type rules (course_type values come from the verifier):
+//   public, municipal, unknown, NULL → eligible
+//   private, semi_private, resort    → NEVER eligible for packages
+//
+// The verifier classifies semi_private and resort courses based on whether
+// playing requires membership or resort-guest status. Drew's call (Apr 2026):
+// both are treated like private for pilot because either can block a walk-up
+// tee time. Once the hospitality/partnership story is sorted, semi_private
+// and resort could be re-opened with a UX-level "members have priority" note.
 async function findGolfFromDb(
   supabase: ReturnType<typeof createClient>,
   metro: string,
@@ -799,6 +809,9 @@ async function findGolfFromDb(
     .eq("active", true)
     .in("public_access_confidence", ["likely_public", "unknown"])
     .in("verification_status", ["verified", "unreviewed"])
+    // NULL course_type = pre-verifier courses; include them.
+    // Named exclusion list catches the three gated types.
+    .or("course_type.is.null,course_type.not.in.(private,semi_private,resort)")
     .not("source_id", "is", null)
     .order("normalized_quality_score", { ascending: false, nullsFirst: false })
     .limit(20);

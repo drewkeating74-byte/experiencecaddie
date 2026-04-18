@@ -14,9 +14,17 @@ export default function Courses() {
   const [search, setSearch] = useState("");
 
   useEffect(() => {
+    // Mirror the package-eligibility filter in search/index.ts so this public
+    // directory never surfaces excluded / private / semi_private / resort
+    // courses. Keeping the two filters in sync manually for now; if we add a
+    // third consumer we should promote this into a shared helper.
     supabase
       .from("golf_courses")
       .select("*")
+      .eq("active", true)
+      .in("verification_status", ["verified", "unreviewed"])
+      .in("public_access_confidence", ["likely_public", "unknown"])
+      .or("course_type.is.null,course_type.not.in.(private,semi_private,resort)")
       .order("name")
       .then(({ data }) => {
         if (data) setCourses(data as unknown as GolfCourse[]);
