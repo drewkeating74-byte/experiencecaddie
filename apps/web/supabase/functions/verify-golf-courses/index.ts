@@ -33,12 +33,16 @@
  *   An excluded outcome requires positive private-access evidence in the LLM response.
  *
  * PER-RUN CAPS
- *   MAX_RULE_BASED_PER_RUN = 80   (Places API — low cost; raised for catalog flood)
- *   MAX_LLM_PER_RUN        = 55   (Perplexity — balance throughput vs edge timeout)
+ *   MAX_RULE_BASED_PER_RUN = 50   (Places API — low cost)
+ *   MAX_LLM_PER_RUN        = 50   (Perplexity)
+ *
+ * Do not raise these much higher in one invocation: Supabase returns HTTP 546
+ * (WORKER_LIMIT — wall clock / CPU) when the sequential Places + Perplexity
+ * loop runs too long (~2–3 min is the danger zone). Throughput comes from
+ * the 4× daily schedule + manual runs, not giant single batches.
  *
  * SCHEDULE (see verify-golf-courses.yml)
- *   4× daily UTC during normal ops — empty queues are near-free; backlog
- *   drains ~4× faster than a single daily run without one huge invocation.
+ *   4× daily UTC — empty queues are near-free; backlog drains via frequency.
  *
  * DB FIELDS UPDATED
  *   verification_status, course_type, excluded_reason, public_access,
@@ -55,11 +59,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const MAX_RULE_BASED_PER_RUN = 80;
-// 55 sonar calls × ~4 runs/day ≈ 220 LLM decisions/day during backlog.
-// Single-invocation wall time must stay under the platform edge limit (~150s
-// typical); 55 + 80 Places calls fits the observed ~2–3s/LLM average.
-const MAX_LLM_PER_RUN = 55;
+const MAX_RULE_BASED_PER_RUN = 50;
+const MAX_LLM_PER_RUN = 50;
 const VERIFIER_VERSION = "verify-golf-courses-v1";
 const PERPLEXITY_MODEL = "sonar";
 
