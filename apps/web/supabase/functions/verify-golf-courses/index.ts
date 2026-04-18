@@ -13,19 +13,26 @@
  *   Decision logic:
  *     • likely_public + (reservable=true OR clear public editorial text) → verified
  *     • likely_public + clearly negative editorial (private/members keywords) → needs_review
- *     • likely_public + no decisive signal → unchanged (stays unreviewed; still eligible)
+ *     • likely_public + no decisive signal → needs_review (escalated to LLM)
  *   NEVER sets excluded in this pass. Excluded requires LLM confirmation.
  *
+ *   Previously, "no decisive signal" left the course as unreviewed — which
+ *   meant it stayed eligible for packages without ever being confirmed.
+ *   That is the wrong default for a trust-critical product. Ambiguous
+ *   courses are now escalated so the LLM pass examines them.
+ *
  * PASS 2 — LLM-assisted via Perplexity sonar (cost-controlled)
- *   Processes up to MAX_LLM_PER_RUN courses where verification_status = 'needs_review'
- *   AND public_access_confidence IN ('unknown', 'likely_private').
+ *   Processes up to MAX_LLM_PER_RUN courses where verification_status = 'needs_review'.
+ *   (Previously also filtered by public_access_confidence, which left
+ *   likely_public + needs_review courses stuck in limbo — neither pass
+ *   touched them. That filter is now removed.)
  *   Calls Perplexity with web search to determine access status.
  *   Possible outcomes: verified | needs_review | excluded
  *   An excluded outcome requires positive private-access evidence in the LLM response.
  *
  * PER-RUN CAPS
  *   MAX_RULE_BASED_PER_RUN = 50   (Places API calls only — low cost)
- *   MAX_LLM_PER_RUN        = 20   (Perplexity calls — controls spend)
+ *   MAX_LLM_PER_RUN        = 50   (Perplexity calls — sized to drain the backlog)
  *
  * DB FIELDS UPDATED
  *   verification_status, course_type, excluded_reason, public_access,
@@ -43,7 +50,11 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const MAX_RULE_BASED_PER_RUN = 50;
-const MAX_LLM_PER_RUN = 20;
+// Raised from 20 to 50 to drain the needs_review backlog faster. At sonar
+// pricing (~$0.01–0.02/call) this is ~$0.50–1.00/day during the initial
+// flush; once the backlog clears, only newly-escalated courses enter the
+// queue and steady-state cost drops to a few cents per day.
+const MAX_LLM_PER_RUN = 50;
 const VERIFIER_VERSION = "verify-golf-courses-v1";
 const PERPLEXITY_MODEL = "sonar";
 
@@ -226,15 +237,21 @@ function editorialText(details: PlaceDetails): string {
 
 /**
  * Rule-based decision for a likely_public + unreviewed course.
- * Returns the new status, or null if no change should be made.
+ *
+ * Every ambiguous case is escalated to needs_review so the LLM pass examines
+ * it. Leaving courses as unreviewed kept them eligible for packages without
+ * confirmation, which was the root cause of private-club leaks (e.g.
+ * UT Golf Club) reaching users.
  */
 function ruleBasedDecision(
   row: GolfCourseRow,
   details: PlaceDetails | null
-): { status: "verified" | "needs_review" | null; evidence: string } {
+): { status: "verified" | "needs_review"; evidence: string } {
   if (!details) {
-    // No Places data — no contradictory signals, leave unchanged
-    return { status: null, evidence: "No Place Details available; left as unreviewed." };
+    return {
+      status: "needs_review",
+      evidence: "No Place Details available — escalated for LLM review.",
+    };
   }
 
   const editorial = editorialText(details);
@@ -263,8 +280,12 @@ function ruleBasedDecision(
     };
   }
 
-  // No decisive signal — leave unchanged
-  return { status: null, evidence: "No decisive signal from Place Details; left as unreviewed." };
+  // No decisive signal from Places — escalate to LLM rather than leaving
+  // the course in the "eligible-but-unconfirmed" limbo.
+  return {
+    status: "needs_review",
+    evidence: "No decisive signal from Place Details — escalated for LLM review.",
+  };
 }
 
 /**
@@ -338,7 +359,6 @@ Deno.serve(async (req: Request) => {
     pass1_processed: 0,
     pass1_verified: 0,
     pass1_escalated: 0,
-    pass1_unchanged: 0,
     pass2_processed: 0,
     pass2_verified: 0,
     pass2_needs_review: 0,
@@ -368,21 +388,6 @@ Deno.serve(async (req: Request) => {
         : null;
 
       const { status, evidence } = ruleBasedDecision(row, details);
-
-      if (status === null) {
-        runStats.pass1_unchanged++;
-        // Still stamp last_agent_review_at so we don't re-process endlessly
-        await updateCourse(supabase, row.id, {
-          verification_method: "rule_based",
-          last_verified_by: VERIFIER_VERSION,
-          last_agent_review_at: now,
-          last_verified_at: now,
-          verification_status: "unreviewed",
-          verification_evidence_summary: evidence,
-        });
-        console.log(`[VERIFY] Pass1 UNCHANGED  ${row.name} (${row.city})`);
-        continue;
-      }
 
       const update: CourseUpdate = {
         verification_status: status,
@@ -418,12 +423,16 @@ Deno.serve(async (req: Request) => {
     return json({ ...runStats, skipped_llm_pass: true });
   }
 
+  // Pull every needs_review course regardless of public_access_confidence.
+  // The previous IN filter on ('unknown', 'likely_private') created a stuck
+  // queue: courses with likely_public + needs_review were never examined
+  // by any pass. Since needs_review status by itself already means "examine
+  // this", the LLM should see all of them.
   const { data: needsReviewRows, error: needsReviewErr } = await supabase
     .from("golf_courses")
     .select("id,name,city,state,source_id,place_id,public_access_confidence,verification_status,course_type,excluded_reason")
     .eq("verification_status", "needs_review")
     .eq("active", true)
-    .in("public_access_confidence", ["unknown", "likely_private"])
     .order("last_agent_review_at", { ascending: true, nullsFirst: true })
     .limit(MAX_LLM_PER_RUN);
 
@@ -537,7 +546,7 @@ Deno.serve(async (req: Request) => {
   }
 
   console.log(
-    `[VERIFY] Done — Pass1: processed=${runStats.pass1_processed} verified=${runStats.pass1_verified} escalated=${runStats.pass1_escalated} unchanged=${runStats.pass1_unchanged}` +
+    `[VERIFY] Done — Pass1: processed=${runStats.pass1_processed} verified=${runStats.pass1_verified} escalated=${runStats.pass1_escalated}` +
     ` | Pass2: processed=${runStats.pass2_processed} verified=${runStats.pass2_verified} needs_review=${runStats.pass2_needs_review} excluded=${runStats.pass2_excluded} errors=${runStats.pass2_errors.length}`
   );
 
