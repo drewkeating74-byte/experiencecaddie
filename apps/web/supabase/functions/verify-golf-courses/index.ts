@@ -8,10 +8,9 @@
  * courses that are genuinely accessible to the general public.
  *
  * PASS 1 — Rule-based (no LLM cost)
- *   Processes up to MAX_RULE_BASED_PER_RUN courses where verification_status = 'unreviewed'
- *   (any public_access_confidence, including likely_private and NULL).
- *   Name heuristics are wrong often enough that filtering here created silent
- *   backlogs — e.g. benign names marked likely_private, or legacy NULL rows.
+ *   Processes up to MAX_RULE_BASED_PER_RUN courses where verification_status
+ *   is 'unreviewed' OR NULL (catalog upserts omitted the column — treat as
+ *   never reviewed). Any public_access_confidence is allowed.
  *   Fetches Google Place Details (reservable, editorialSummary, priceLevel) for each.
  *   Decision logic:
  *     • likely_public + (reservable=true OR clear public editorial text) → verified
@@ -374,11 +373,14 @@ Deno.serve(async (req: Request) => {
 
   // ── PASS 1: Rule-based for unreviewed courses ─────────────────────────────
 
+  // Treat NULL verification_status as "never touched" — same as unreviewed.
+  // Catalog refresh upserts omit this column; PostgREST left rows NULL after
+  // the remediation migration widened the CHECK to allow NULL (Apr 2026).
   const { data: unreviewedRows, error: unreviewedErr } = await supabase
     .from("golf_courses")
     .select("id,name,city,state,source_id,place_id,public_access_confidence,verification_status,course_type,excluded_reason")
-    .eq("verification_status", "unreviewed")
     .eq("active", true)
+    .or("verification_status.eq.unreviewed,verification_status.is.null")
     .order("last_verified_at", { ascending: true, nullsFirst: true })
     .limit(MAX_RULE_BASED_PER_RUN);
 
