@@ -735,10 +735,10 @@ Rules: US only, venue 3000+ capacity, different artist each entry, url can be em
       const fallbackGolfLink = { url: "https://www.golfnow.com/", provider: "GolfNow", category: "golf" as const, link_type: "provider_search" as const, label: "Search tee times", is_verified: false, confidence: "medium" as const, disclaimer: "Opens external golf search results; tee time availability is not confirmed in Experience Caddie" };
       if (!golfCourses.length && !hotels.length) {
         golfCourses = [
-          { id: "fallback_golf_1", name: "Mock Golf Club", city: fallbackCity, state: "TX", public_access: true, rating: 4.4, tee_time_window: { start: "07:00", end: "11:00" }, book_url: "https://www.golfnow.com/", source_url: "https://www.golfnow.com/", book_link: fallbackGolfLink, price_min: 80, price_max: 180, provider: "mock" },
+          { id: "fallback_golf_1", name: "Sample Golf Course", city: fallbackCity, state: "TX", public_access: true, rating: 4.4, tee_time_window: { start: "07:00", end: "11:00" }, book_url: "https://www.golfnow.com/", source_url: "https://www.golfnow.com/", book_link: fallbackGolfLink, price_min: 80, price_max: 180, provider: "mock" },
         ];
         hotels = [
-          { id: "fallback_hotel_1", name: "Mock Boutique Hotel", city: fallbackCity, state: "TX", stars: 4, rating: 4.6, book_url: "https://www.google.com/maps/search/?api=1&query=hotels", source_url: "https://www.google.com/maps/search/?api=1&query=hotels", price_min: 160, price_max: 320, provider: "mock" },
+          { id: "fallback_hotel_1", name: "Sample Hotel", city: fallbackCity, state: "TX", stars: 4, rating: 4.6, book_url: "https://www.google.com/maps/search/?api=1&query=hotels", source_url: "https://www.google.com/maps/search/?api=1&query=hotels", price_min: 160, price_max: 320, provider: "mock" },
         ];
       }
       if (!events.length) {
@@ -760,7 +760,7 @@ Rules: US only, venue 3000+ capacity, different artist each entry, url can be em
             id: "fallback_evt_1",
             name: "Sample Concert",
             date_time: `${p.start_date}T20:00:00-05:00`,
-            venue: { name: "Mock Arena", city, state, capacity: 12000 },
+            venue: { name: "Local Venue", city, state, capacity: 12000 },
             book_url: fallbackConcertUrl,
             source_url: fallbackConcertUrl,
             book_link: fallbackConcertLink,
@@ -772,7 +772,7 @@ Rules: US only, venue 3000+ capacity, different artist each entry, url can be em
         golfCourses = [
           {
             id: "fallback_golf_1",
-            name: "Mock Golf Club",
+            name: "Sample Golf Course",
             city,
             state,
             public_access: true,
@@ -789,7 +789,7 @@ Rules: US only, venue 3000+ capacity, different artist each entry, url can be em
         hotels = [
           {
             id: "fallback_hotel_1",
-            name: "Mock Boutique Hotel",
+            name: "Sample Hotel",
             city,
             state,
             stars: 4,
@@ -886,13 +886,13 @@ Rules: US only, venue 3000+ capacity, different artist each entry, url can be em
       const city = (itinerary.city === "flexible" ? "Austin" : itinerary.city || "Austin").slice(0, 50);
       searchResults = {
         events: [
-          { id: "fallback_evt_1", name: "Sample Concert", date_time: `${itinerary.start_date}T20:00:00-05:00`, venue: { name: "Mock Arena", city, state: "TX", capacity: 12000 }, book_url: "https://www.google.com/search?q=concerts+tickets", source_url: "https://www.google.com/search?q=concerts+tickets", price_min: 75, price_max: 250, provider: "mock" },
+          { id: "fallback_evt_1", name: "Sample Concert", date_time: `${itinerary.start_date}T20:00:00-05:00`, venue: { name: "Local Venue", city, state: "TX", capacity: 12000 }, book_url: "https://www.google.com/search?q=concerts+tickets", source_url: "https://www.google.com/search?q=concerts+tickets", price_min: 75, price_max: 250, provider: "mock" },
         ],
         golf_courses: [
-          { id: "fallback_golf_1", name: "Mock Golf Club", city, state: "TX", public_access: true, rating: 4.4, tee_time_window: { start: "07:00", end: "11:00" }, book_url: "https://www.golfnow.com/", source_url: "https://www.golfnow.com/", book_link: fallbackGolfLink, price_min: 80, price_max: 180, provider: "mock" },
+          { id: "fallback_golf_1", name: "Sample Golf Course", city, state: "TX", public_access: true, rating: 4.4, tee_time_window: { start: "07:00", end: "11:00" }, book_url: "https://www.golfnow.com/", source_url: "https://www.golfnow.com/", book_link: fallbackGolfLink, price_min: 80, price_max: 180, provider: "mock" },
         ],
         hotels: [
-          { id: "fallback_hotel_1", name: "Mock Boutique Hotel", city, state: "TX", stars: 4, rating: 4.6, book_url: "https://www.google.com/maps/search/?api=1&query=hotels", source_url: "https://www.google.com/maps/search/?api=1&query=hotels", price_min: 160, price_max: 320, provider: "mock" },
+          { id: "fallback_hotel_1", name: "Sample Hotel", city, state: "TX", stars: 4, rating: 4.6, book_url: "https://www.google.com/maps/search/?api=1&query=hotels", source_url: "https://www.google.com/maps/search/?api=1&query=hotels", price_min: 160, price_max: 320, provider: "mock" },
         ],
       };
     }

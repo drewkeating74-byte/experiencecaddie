@@ -220,7 +220,7 @@ export function buildFallbackSearchResponse(request: SearchRequest): SearchRespo
     golf_courses: [
       {
         id: "fallback_golf_1",
-        name: "Mock Golf Club",
+        name: "Sample Golf Course",
         city,
         state,
         public_access: true,
@@ -248,7 +248,7 @@ export function buildFallbackSearchResponse(request: SearchRequest): SearchRespo
     hotels: [
       {
         id: "fallback_hotel_1",
-        name: "Mock Boutique Hotel",
+        name: "Sample Hotel",
         city,
         state,
         stars: 4,

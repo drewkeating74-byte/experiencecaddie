@@ -641,15 +641,12 @@ export default function ItineraryResults() {
   const summary = result.summary;
   const packages = result.packages ?? [];
 
-  const newTripParams = new URLSearchParams();
-  if (itinerary?.city) newTripParams.set("city", itinerary.city);
-  if (itinerary?.start_date) newTripParams.set("start_date", itinerary.start_date);
-  if (itinerary?.end_date) newTripParams.set("end_date", itinerary.end_date);
-  if (itinerary?.budget_tier) newTripParams.set("budget_tier", itinerary.budget_tier);
-  if (itinerary?.group_size != null) newTripParams.set("group_size", String(itinerary.group_size));
-  if (itinerary?.event_details) newTripParams.set("event_details", String(itinerary.event_details));
-
-  const newTripHref = newTripParams.toString() ? `/experience?${newTripParams.toString()}` : "/experience";
+  // "New Trip" always starts fresh — no prefill from the current itinerary.
+  // This avoids stale state (e.g. the previous artist persisting when the user
+  // toggles city to "flexible") and matches the user's mental model that
+  // "New Trip" means a blank slate. Other prefill flows (featured packages,
+  // shared links) still work because they set their own URL params.
+  const newTripHref = "/experience";
 
   return (
     <div className="container mx-auto max-w-5xl px-4 py-8">

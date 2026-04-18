@@ -392,7 +392,7 @@ function mockGolf(request: SearchRequest): GolfCourseResult[] {
   return [
     {
       id: "golf_mock_1",
-      name: "Mock Golf Club",
+      name: "Sample Golf Course",
       city,
       state,
       public_access: true,
@@ -1166,7 +1166,7 @@ function mockHotels(request: SearchRequest): HotelResult[] {
   return [
     {
       id: "hotel_mock_1",
-      name: "Mock Boutique Hotel",
+      name: "Sample Hotel",
       city,
       state,
       stars: 4,
