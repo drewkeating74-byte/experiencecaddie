@@ -208,6 +208,92 @@ function inferVenueType(name: string, capacity: number | null): string {
 //      The output shape stays the same — no other code changes needed.
 // ============================================================================
 
+// Metros with enough geographic sprawl (or multi-state/multi-region layout)
+// that a single text query materially under-surfaces golf options. For these
+// we run one query per anchor city (first N cities in the metro config) and
+// dedup by Places id. Non-sprawl metros get a single query anchored on the
+// metro label, which has been sufficient for tight markets like Austin.
+const SPRAWL_METRO_SLUGS = new Set([
+  "dallas",
+  "miami",
+  "los-angeles",
+  "san-francisco",
+  "chicago",
+  "new-york-city",
+  "washington-dc",
+]);
+// Number of anchor cities (first N in metro.cities) to use for sprawl metros.
+const SPRAWL_ANCHOR_COUNT = 3;
+// Max pagination pages per anchor. Google Places v1 text search caps at 60
+// results across 3 pages, and each page is 20 results.
+const MAX_PAGES_PER_ANCHOR = 3;
+
+const GOLF_FIELD_MASK = [
+  "places.id",
+  "places.displayName",
+  "places.formattedAddress",
+  "places.addressComponents",
+  "places.location",
+  "places.websiteUri",
+  "places.googleMapsUri",
+  "places.rating",
+  "places.userRatingCount",
+  "places.nationalPhoneNumber",
+  "places.reservable",
+  "places.editorialSummary",
+  "nextPageToken",
+].join(",");
+
+/**
+ * Run a single Places text search query with pagination (up to 3 pages).
+ * Returns all results concatenated. Pagination tokens must rest ~2s before
+ * being used (Google's serving requirement); we wait 2.5s to be safe.
+ */
+async function fetchGolfAnchored(
+  textQuery: string,
+  viewport: ReturnType<typeof viewportFromCenter>,
+  googleApiKey: string
+): Promise<RawGolfPlace[]> {
+  const collected: RawGolfPlace[] = [];
+  let pageToken: string | undefined;
+
+  for (let page = 0; page < MAX_PAGES_PER_ANCHOR; page++) {
+    const body: Record<string, unknown> = {
+      textQuery,
+      pageSize: 20,
+      locationRestriction: { rectangle: viewport },
+      includedType: "golf_course",
+      strictTypeFiltering: true,
+    };
+    if (pageToken) body.pageToken = pageToken;
+
+    const res = await fetch("https://places.googleapis.com/v1/places:searchText", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": googleApiKey,
+        "X-Goog-FieldMask": GOLF_FIELD_MASK,
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(12000),
+    });
+
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Google Places error ${res.status}: ${text.slice(0, 200)}`);
+    }
+
+    const data = await res.json() as { places?: RawGolfPlace[]; nextPageToken?: string };
+    collected.push(...(data.places ?? []));
+    pageToken = data.nextPageToken;
+    if (!pageToken) break;
+    // Google requires a short delay before using nextPageToken.
+    await new Promise((r) => setTimeout(r, 2500));
+  }
+
+  return collected;
+}
+
 async function fetchGolfForMetro(
   metro: MetroConfig,
   googleApiKey: string
@@ -217,46 +303,30 @@ async function fetchGolfForMetro(
     metro.center.lng,
     metro.searchRadiusMiles
   );
-  const body = {
-    textQuery: `golf course in ${metro.label}`,
-    pageSize: 20,
-    locationRestriction: { rectangle: viewport },
-    includedType: "golf_course",
-    strictTypeFiltering: true,
-  };
-  const fieldMask = [
-    "places.id",
-    "places.displayName",
-    "places.formattedAddress",
-    "places.addressComponents",
-    "places.location",
-    "places.websiteUri",
-    "places.googleMapsUri",
-    "places.rating",
-    "places.userRatingCount",
-    "places.nationalPhoneNumber",
-    "places.reservable",
-    "places.editorialSummary",
-  ].join(",");
 
-  const res = await fetch("https://places.googleapis.com/v1/places:searchText", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Goog-Api-Key": googleApiKey,
-      "X-Goog-FieldMask": fieldMask,
-    },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(12000),
-  });
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Google Places error ${res.status}: ${text.slice(0, 200)}`);
+  // Build the anchor query list. Sprawl metros get one query per anchor city;
+  // compact metros get a single metro-label query. Anchor queries are less
+  // prone to Google's relevance bias toward the downtown core.
+  const queries: string[] = [];
+  if (SPRAWL_METRO_SLUGS.has(metro.slug)) {
+    const anchors = metro.cities.slice(0, SPRAWL_ANCHOR_COUNT);
+    for (const city of anchors) {
+      queries.push(`golf course in ${city}, ${metro.state}`);
+    }
+  } else {
+    queries.push(`golf course in ${metro.label}`);
   }
 
-  const data = await res.json() as { places?: RawGolfPlace[] };
-  return data.places ?? [];
+  // Run anchors sequentially to be a good API citizen and to keep request
+  // bursts under Google's per-second quota.
+  const byId = new Map<string, RawGolfPlace>();
+  for (const query of queries) {
+    const results = await fetchGolfAnchored(query, viewport, googleApiKey);
+    for (const place of results) {
+      if (place.id && !byId.has(place.id)) byId.set(place.id, place);
+    }
+  }
+  return Array.from(byId.values());
 }
 
 // ============================================================================
@@ -658,8 +728,21 @@ async function refreshMetro(
         .map((p) => normalizeGolfCourse(p, metro))
         .filter((c): c is NormalizedGolfCourse => c !== null);
 
+      // Ingest-time quality floor: drop courses whose computed quality score
+      // is under 30. This removes unrated / thinly-reviewed / name-penalized
+      // entries (e.g. obvious private clubs) before they enter the DB, saving
+      // both storage and downstream LLM verification cost. Courses can still
+      // pass with rating=0 if their name/access signals push them above 30,
+      // which is fine — the verifier will make the final call.
+      const QUALITY_FLOOR = 30;
+      const qualityPassing = normalized.filter((c) => c.normalized_quality_score >= QUALITY_FLOOR);
+      const filteredOutCount = normalized.length - qualityPassing.length;
+      if (filteredOutCount > 0) {
+        console.log(`[${metro.slug}] golf: ${filteredOutCount} courses filtered below quality floor ${QUALITY_FLOOR}`);
+      }
+
       if (!dryRun) {
-        const { upserted, errors } = await upsertGolfCourses(supabase, normalized);
+        const { upserted, errors } = await upsertGolfCourses(supabase, qualityPassing);
         result.golf_upserted = upserted;
         result.errors.push(...errors);
       } else {

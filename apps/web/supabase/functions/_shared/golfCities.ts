@@ -1,5 +1,5 @@
 /**
- * golfCities.ts — Experience Caddie: 20-Metro Catalog Config
+ * golfCities.ts — Experience Caddie: 29-Metro Catalog Config
  *
  * This is the single source of truth for which cities Experience Caddie
  * actively supports with an internal catalog of golf courses and venues.
@@ -72,7 +72,18 @@ export interface MetroConfig {
 }
 
 // ---------------------------------------------------------------------------
-// The 20 Metros
+// The 29 Metros
+//
+// Sequence:
+//   1–20 — original catalog (launched Mar 2026)
+//   21–29 — pilot expansion (added Apr 2026 for the pre-launch catalog flood:
+//           NYC, Palm Springs, Orlando, Houston, San Antonio, Milwaukee,
+//           Portland, Washington DC/NoVA, Kansas City)
+//
+// Caveat: search/index.ts filters golf_courses by state, so multi-state
+// metros (DC, KC, Philly, NYC) will currently only surface courses matching
+// the metro's primary `state` field. That's a known limitation; expand it
+// later by dropping the state filter or making it accept an array.
 // ---------------------------------------------------------------------------
 
 export const METROS: MetroConfig[] = [
@@ -315,6 +326,126 @@ export const METROS: MetroConfig[] = [
     ticketmasterMarket: "Cleveland",
     ticketmasterDmaId: 510,
     timezone: "America/New_York",
+  },
+  // -------------------------------------------------------------------------
+  // Apr 2026 pilot expansion — 9 new metros
+  // -------------------------------------------------------------------------
+  {
+    slug: "new-york-city",
+    label: "New York City, NY",
+    state: "NY",
+    region: "Northeast",
+    cities: ["New York", "Manhattan", "Brooklyn", "Queens", "Bronx", "Staten Island", "Jersey City", "Newark", "Hoboken", "Long Island", "White Plains", "Yonkers", "Stamford"],
+    center: { lat: 40.7128, lng: -74.0060 },
+    searchRadiusMiles: 40,
+    ticketmasterMarket: "New York",
+    ticketmasterDmaId: 501,
+    timezone: "America/New_York",
+  },
+  {
+    slug: "palm-springs",
+    label: "Greater Palm Springs, CA",
+    state: "CA",
+    region: "West",
+    cities: ["Palm Springs", "Palm Desert", "Indian Wells", "La Quinta", "Rancho Mirage", "Cathedral City", "Indio", "Desert Hot Springs"],
+    center: { lat: 33.8303, lng: -116.5453 },
+    searchRadiusMiles: 30,
+    ticketmasterMarket: "Palm Springs",
+    ticketmasterDmaId: 804,
+    timezone: "America/Los_Angeles",
+  },
+  {
+    slug: "orlando",
+    label: "Orlando, FL",
+    state: "FL",
+    region: "South",
+    cities: ["Orlando", "Kissimmee", "Lake Buena Vista", "Winter Park", "Altamonte Springs", "Sanford", "Lake Mary", "Celebration", "Winter Garden", "Dr. Phillips"],
+    center: { lat: 28.5383, lng: -81.3792 },
+    searchRadiusMiles: 30,
+    ticketmasterMarket: "Orlando",
+    ticketmasterDmaId: 534,
+    timezone: "America/New_York",
+  },
+  {
+    slug: "houston",
+    label: "Houston, TX",
+    state: "TX",
+    region: "South",
+    cities: ["Houston", "The Woodlands", "Sugar Land", "Katy", "Pearland", "Spring", "Humble", "Missouri City", "Cypress", "Kingwood"],
+    center: { lat: 29.7604, lng: -95.3698 },
+    searchRadiusMiles: 35,
+    ticketmasterMarket: "Houston",
+    ticketmasterDmaId: 618,
+    timezone: "America/Chicago",
+  },
+  {
+    slug: "san-antonio",
+    label: "San Antonio, TX",
+    state: "TX",
+    region: "South",
+    cities: ["San Antonio", "Helotes", "Boerne", "Schertz", "Cibolo", "Universal City", "Alamo Heights", "Leon Valley", "New Braunfels"],
+    center: { lat: 29.4241, lng: -98.4936 },
+    searchRadiusMiles: 30,
+    ticketmasterMarket: "San Antonio",
+    ticketmasterDmaId: 641,
+    timezone: "America/Chicago",
+  },
+  {
+    slug: "milwaukee",
+    label: "Milwaukee, WI",
+    state: "WI",
+    region: "Midwest",
+    cities: ["Milwaukee", "Brookfield", "Waukesha", "Wauwatosa", "West Allis", "Mequon", "Franklin", "Greenfield", "Oak Creek", "Menomonee Falls"],
+    center: { lat: 43.0389, lng: -87.9065 },
+    searchRadiusMiles: 30,
+    ticketmasterMarket: "Milwaukee",
+    ticketmasterDmaId: 617,
+    timezone: "America/Chicago",
+  },
+  {
+    slug: "portland",
+    label: "Portland, OR",
+    state: "OR",
+    region: "West",
+    cities: ["Portland", "Beaverton", "Hillsboro", "Gresham", "Tigard", "Lake Oswego", "West Linn", "Tualatin", "Oregon City", "Milwaukie"],
+    center: { lat: 45.5051, lng: -122.6750 },
+    searchRadiusMiles: 30,
+    ticketmasterMarket: "Portland",
+    ticketmasterDmaId: 820,
+    timezone: "America/Los_Angeles",
+  },
+  {
+    // DC metro spans DC + NoVA + suburban MD. Using 'VA' as the primary
+    // state because Northern Virginia has the bulk of the public / daily-fee
+    // catalog (TPC Potomac, RTJ Golf Club at Lansdowne, 1757 Golf Club, etc.).
+    // Until we multi-state the state filter in search/index.ts, MD courses
+    // (Congressional, Avenel, Renditions) will sit in the DB but not render
+    // for DC metro searches.
+    slug: "washington-dc",
+    label: "Washington D.C. / Northern Virginia",
+    state: "VA",
+    region: "Northeast",
+    cities: ["Washington", "Arlington", "Alexandria", "Bethesda", "Rockville", "Silver Spring", "Fairfax", "Reston", "Tysons", "McLean", "Chevy Chase", "Leesburg", "Ashburn"],
+    center: { lat: 38.9072, lng: -77.0369 },
+    searchRadiusMiles: 35,
+    ticketmasterMarket: "Washington DC",
+    ticketmasterDmaId: 511,
+    timezone: "America/New_York",
+  },
+  {
+    // KC metro is bi-state (MO + KS). Using 'MO' as primary to match the
+    // existing pattern for multi-state metros. Overland Park / Olathe courses
+    // will be limited until the search state filter is multi-state-aware.
+    slug: "kansas-city",
+    label: "Kansas City, MO/KS",
+    state: "MO",
+    region: "Midwest",
+    cities: ["Kansas City", "Overland Park", "Olathe", "Lee's Summit", "Independence", "Shawnee", "Lenexa", "Blue Springs", "Leawood", "Prairie Village"],
+    center: { lat: 39.0997, lng: -94.5786 },
+    searchRadiusMiles: 30,
+    ticketmasterMarket: "Kansas City",
+    ticketmasterDmaId: 616,
+    timezone: "America/Chicago",
   },
 ];
 
