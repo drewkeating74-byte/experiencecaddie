@@ -48,7 +48,6 @@ export default function Packages() {
   const [searchParams] = useSearchParams();
   const categoryFilter = searchParams.get("category") || "all";
   const [sort, setSort] = useState("upcoming");
-  const [budgetTier, setBudgetTier] = useState("all");
   const [destination, setDestination] = useState("all");
   const [windowFilter, setWindowFilter] = useState("all"); // "all" | "this-month" | "60-days"
   const navigate = useNavigate();
@@ -152,11 +151,6 @@ export default function Packages() {
         // null event_date = evergreen/curated package — always passes time-window filter
       }
 
-      if (budgetTier !== "all") {
-        if (budgetTier === "low" && p.price > 900) return false;
-        if (budgetTier === "mid" && (p.price <= 900 || p.price > 1200)) return false;
-        if (budgetTier === "high" && p.price <= 1200) return false;
-      }
       return true;
     })
     .sort((a, b) => {
@@ -165,7 +159,7 @@ export default function Packages() {
       return comparePublicSoonestEventFirst(a, b);
     });
 
-  const hasActiveFilters = budgetTier !== "all" || destination !== "all" || windowFilter !== "all" || search !== "";
+  const hasActiveFilters = destination !== "all" || windowFilter !== "all" || search !== "";
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -210,17 +204,6 @@ export default function Packages() {
             className="pl-9"
           />
         </div>
-        <Select value={budgetTier} onValueChange={setBudgetTier}>
-          <SelectTrigger className="w-[145px]">
-            <SelectValue placeholder="Budget" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Budgets</SelectItem>
-            <SelectItem value="low">Budget-Friendly</SelectItem>
-            <SelectItem value="mid">Mid-Range</SelectItem>
-            <SelectItem value="high">Premium</SelectItem>
-          </SelectContent>
-        </Select>
         <Select value={destination} onValueChange={setDestination}>
           <SelectTrigger className="w-[165px]">
             <SelectValue placeholder="Destination" />
@@ -244,7 +227,7 @@ export default function Packages() {
         </Select>
         {hasActiveFilters && (
           <Button variant="ghost" size="sm"
-            onClick={() => { setBudgetTier("all"); setDestination("all"); setWindowFilter("all"); setSearch(""); }}
+            onClick={() => { setDestination("all"); setWindowFilter("all"); setSearch(""); }}
             className="text-muted-foreground">
             <RefreshCw className="mr-1 h-3.5 w-3.5" /> Reset
           </Button>
@@ -346,7 +329,7 @@ export default function Packages() {
           <div className="mt-6 flex flex-col sm:flex-row gap-3 justify-center">
             {hasActiveFilters && (
               <Button variant="outline" className="rounded-full"
-                onClick={() => { setBudgetTier("all"); setDestination("all"); setWindowFilter("all"); setSearch(""); }}>
+                onClick={() => { setDestination("all"); setWindowFilter("all"); setSearch(""); }}>
                 <RefreshCw className="mr-2 h-4 w-4" /> Show all current packages
               </Button>
             )}

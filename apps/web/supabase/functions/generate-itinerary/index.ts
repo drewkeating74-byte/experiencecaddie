@@ -1018,7 +1018,7 @@ ${!hasRealHotels && hotels.length > 0 ? `- HOTELS: (none provided – SEARCH the
 ${catalogVenuesForPrompt.length > 0 ? `- KNOWN CONCERT VENUES IN THIS METRO (real, confirmed venues — reference these when suggesting events or when Ticketmaster data is limited): ${JSON.stringify(catalogVenuesForPrompt)}` : ""}
 
 Use the URLs above when composing packages. Do not invent different events or links.
-PRICE RULE: When concerts or hotels include price_min/price_max, use them. For events: set price_range as a string like "$75–$250" or "From $50" using the provided numbers. For lodging: set price_per_night using the range (e.g. "$160–$320/night"). If no price data is provided, you may estimate based on the budget tier.${!hasRealHotels ? " For hotels, search the web as instructed." : ""}
+PRICE RULE: When concerts or hotels include price_min/price_max, use them. For events: set price_range as a string like "$75–$250" or "From $50" using the provided numbers. For lodging: set price_per_night using the range (e.g. "$160–$320/night"). If no price data is provided, estimate based on the Bronze/Silver/Gold tier of the package (Bronze = value, Silver = mid, Gold = premium).${!hasRealHotels ? " For hotels, search the web as instructed." : ""}
 ${events.length > 0 ? `
 CONCERT RULE (MANDATORY): For each package, use ONLY concerts from the CONCERTS list above. Do not add or substitute any event not in that list—these are verified events with active ticket listings. If only one concert is provided, ALL three tiers (Bronze, Silver, Gold) must use that exact same concert — same artist, same venue, same date, same URL. Only spread different events across tiers if multiple distinct concerts are listed.` : `
 NO CONCERTS RULE (MANDATORY): No concerts have been provided or confirmed for this trip. Do NOT include any events, concerts, or performances in the packages—not from your own web search, not from training data, not from any source. The "events" array in every package MUST be an empty array []. Build packages around golf and hotels only.`}
@@ -1041,7 +1041,6 @@ CRITICAL: Be concise. Keep "why" and "assumptions" to 1 short sentence each. Lim
 Trip details:
 - City: ${cityForSearch}
 - Dates: ${itinerary.start_date} to ${itinerary.end_date}
-- Budget: ${budgetLabel}
 - Group size: ${itinerary.group_size}
 ${prefs ? `- Preferences: ${prefsList || "none specified"}` : ""}
 ${itinerary.event_details ? `- Event details: ${itinerary.event_details}` : ""}
