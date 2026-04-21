@@ -13,6 +13,13 @@ import {
   venueMatchesUserCity,
   tmEventMatchesArtistQuery,
 } from "../_shared/ticketmaster.ts";
+import {
+  addCalendarDaysToYmd,
+  addMonthsToYmd,
+  calendarDateInTimeZone,
+  minTripStartYmdForTimezone,
+  normalizeClientTimeZone,
+} from "../_shared/tripWindow.ts";
 
 function json(body: unknown, status: number, headers?: Record<string, string>) {
   return new Response(JSON.stringify(body), {
@@ -38,6 +45,8 @@ type SearchRequest = {
   group_size?: number;
   budget_tier?: "low" | "mid" | "high";
   tee_time_window?: { start: string; end: string };
+  /** IANA timezone from the browser; used for "today + 14" trip and concert floors. */
+  client_timezone?: string;
   // When "background", skip live provider APIs (Ticketmaster/Google Places) that
   // must not be called from scheduled/automated jobs per their ToS. Background
   // callers (e.g. refresh-stale) must set this to avoid policy violations.
@@ -206,52 +215,39 @@ function addDays(date: Date, days: number): Date {
   return d;
 }
 
-function addMonths(date: Date, months: number): Date {
-  const d = new Date(date);
-  d.setMonth(d.getMonth() + months);
-  return d;
-}
-
-function toYYYYMMDD(d: Date): string {
-  return d.toISOString().slice(0, 10);
-}
-
 /**
- * Resolve the TM search window.
- *
- * minStartOffsetDays controls the earliest date we'll search from:
- *  - DEFAULT_START_OFFSET_DAYS (14) for discovery/flexible flows — ensures booking lead time.
- *  - 1 for specific-artist queries — the user knows the show; don't hide near-term dates.
+ * Resolve the TM search window using the user's local calendar when `clientTimezone` is set.
+ * Concert and trip search always enforce at least DEFAULT_START_OFFSET_DAYS (14) lead time.
  */
 function resolveDateWindow(
   startDate?: string,
   endDate?: string,
-  minStartOffsetDays: number = DEFAULT_START_OFFSET_DAYS
+  minStartOffsetDays: number = DEFAULT_START_OFFSET_DAYS,
+  clientTimezone?: string | null
 ): { start: string; end: string } {
-  const today = new Date();
-  const defaultStart = addDays(today, DEFAULT_START_OFFSET_DAYS);
-  const defaultEnd = addMonths(defaultStart, DEFAULT_WINDOW_MONTHS);
-  const minStart = addDays(today, minStartOffsetDays);
-  const minStartStr = toYYYYMMDD(minStart);
+  const tz = normalizeClientTimeZone(clientTimezone);
+  const todayYmd = calendarDateInTimeZone(new Date(), tz);
+  const minStartYmd = addCalendarDaysToYmd(todayYmd, minStartOffsetDays);
+  const defaultStartYmd = addCalendarDaysToYmd(todayYmd, DEFAULT_START_OFFSET_DAYS);
+  const defaultEndYmd = addMonthsToYmd(defaultStartYmd, DEFAULT_WINDOW_MONTHS);
 
-  let start: Date;
-  let end: Date;
-  if (startDate && endDate) {
-    start = new Date(startDate + "T12:00:00");
-    end = new Date(endDate + "T12:00:00");
-    if (isNaN(start.getTime())) start = defaultStart;
-    if (isNaN(end.getTime())) end = addMonths(defaultStart, DEFAULT_WINDOW_MONTHS);
-    // Enforce minimum start: never search past events
-    const startStr = toYYYYMMDD(start);
-    if (startStr < minStartStr) start = minStart;
-    if (end <= start) end = addMonths(start, DEFAULT_WINDOW_MONTHS);
+  const iso = /^\d{4}-\d{2}-\d{2}$/;
+  const sIn = startDate?.slice(0, 10);
+  const eIn = endDate?.slice(0, 10);
+  let startYmd: string;
+  let endYmd: string;
+  if (sIn && eIn && iso.test(sIn) && iso.test(eIn)) {
+    startYmd = sIn;
+    endYmd = eIn;
+    if (startYmd < minStartYmd) startYmd = minStartYmd;
+    if (endYmd <= startYmd) endYmd = addMonthsToYmd(startYmd, DEFAULT_WINDOW_MONTHS);
   } else {
-    start = minStart;
-    end = defaultEnd;
+    startYmd = minStartYmd;
+    endYmd = defaultEndYmd;
   }
-  const maxEnd = addMonths(start, MAX_WINDOW_MONTHS);
-  if (end > maxEnd) end = maxEnd;
-  return { start: toYYYYMMDD(start), end: toYYYYMMDD(end) };
+  const maxEndYmd = addMonthsToYmd(startYmd, MAX_WINDOW_MONTHS);
+  if (endYmd > maxEndYmd) endYmd = maxEndYmd;
+  return { start: startYmd, end: endYmd };
 }
 
 /**
@@ -1219,8 +1215,11 @@ function parseRequest(url: URL): SearchRequest {
   const budget_tier =
     rawBudget === "low" || rawBudget === "mid" || rawBudget === "high" ? rawBudget : undefined;
 
-  const defaultStart = toYYYYMMDD(addDays(new Date(), DEFAULT_START_OFFSET_DAYS));
-  const defaultEnd = toYYYYMMDD(addMonths(addDays(new Date(), DEFAULT_START_OFFSET_DAYS), DEFAULT_WINDOW_MONTHS));
+  const client_timezone = getString(url.searchParams.get("client_timezone"));
+  const tzNorm = normalizeClientTimeZone(client_timezone);
+  const todayYmd = calendarDateInTimeZone(new Date(), tzNorm);
+  const defaultStart = addCalendarDaysToYmd(todayYmd, DEFAULT_START_OFFSET_DAYS);
+  const defaultEnd = addMonthsToYmd(defaultStart, DEFAULT_WINDOW_MONTHS);
 
   return {
     artist: artist ?? undefined,
@@ -1232,6 +1231,7 @@ function parseRequest(url: URL): SearchRequest {
     budget_tier,
     tee_time_window:
       teeTimeStart || teeTimeEnd ? { start: teeTimeStart ?? "07:00", end: teeTimeEnd ?? "11:00" } : undefined,
+    client_timezone: client_timezone ?? undefined,
     _context,
   };
 }
@@ -1244,15 +1244,13 @@ Deno.serve(async (req: Request) => {
   try {
     const url = new URL(req.url);
     const payload = parseRequest(url);
-    // For specific-artist queries the user already knows the show — allow near-term dates
-    // so TM can return shows within the next few days. Discovery/flexible flows keep the
-    // 14-day minimum so there's enough lead time to book golf and hotels.
-    const minStartOffset = payload.artist?.trim() ? 1 : DEFAULT_START_OFFSET_DAYS;
     const { start: startDate, end: endDate } = resolveDateWindow(
       payload.dates?.start_date,
       payload.dates?.end_date,
-      minStartOffset
+      DEFAULT_START_OFFSET_DAYS,
+      payload.client_timezone
     );
+    const minConcertYmd = minTripStartYmdForTimezone(payload.client_timezone);
 
     const providers: SearchResponse["meta"]["providers"] = [];
     // For flexible/missing city: use Austin as default so we get real TM + golf instead of mock-only
@@ -1357,6 +1355,12 @@ Deno.serve(async (req: Request) => {
         }
       }
     }
+
+    events = events.filter((ev) => {
+      const raw = ev.date_time?.slice(0, 10);
+      if (!raw || !/^\d{4}-\d{2}-\d{2}$/.test(raw)) return true;
+      return raw >= minConcertYmd;
+    });
 
     let golfCourses: GolfCourseResult[];
     let bronzePool: GolfCourseResult[] = [];

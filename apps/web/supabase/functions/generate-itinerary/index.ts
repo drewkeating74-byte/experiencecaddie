@@ -7,6 +7,7 @@ import {
   resolveConcertFromTicketmaster,
   verifyDiscoveryConcertOptions,
 } from "../_shared/ticketmaster.ts";
+import { addMonthsToYmd, minTripStartYmdForTimezone, normalizeClientTimeZone } from "../_shared/tripWindow.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -197,6 +198,8 @@ serve(async (req) => {
       isRefreshMode = true;
     } else if (body?.payload) {
       const p = body.payload;
+      const payloadClientTz = normalizeClientTimeZone(p.client_timezone ?? body.client_timezone);
+      const minTripYmd = minTripStartYmdForTimezone(payloadClientTz);
       const validPaths = ["golf_music", "sports", "luxury", "custom"];
       const validBudgets = ["low", "mid", "high"];
       if (!validPaths.includes(p.path)) p.path = "golf_music";
@@ -211,20 +214,10 @@ serve(async (req) => {
         }
         const artistSearch = p.artist_search?.trim();
 
-        // Clamp dates: for discovery flows use 14-day minimum to allow booking lead time.
-        // For specific-artist queries use 1-day minimum so near-term shows aren't hidden
-        // (the user named the artist because they know the show — don't lie about the date).
-        const today = new Date();
-        const minOffsetDays = artistSearch ? 1 : 14;
-        const minStartDate = new Date(today);
-        minStartDate.setDate(minStartDate.getDate() + minOffsetDays);
-        const nineMonthsLater = new Date(minStartDate);
-        nineMonthsLater.setMonth(nineMonthsLater.getMonth() + 9);
-        const minStart = minStartDate.toISOString().slice(0, 10);
-        const maxEnd = nineMonthsLater.toISOString().slice(0, 10);
+        const maxEnd = addMonthsToYmd(minTripYmd, 9);
         let discStart = String(p.start_date).slice(0, 10);
         let discEnd = String(p.end_date).slice(0, 10);
-        if (discStart < minStart) discStart = minStart;
+        if (discStart < minTripYmd) discStart = minTripYmd;
         if (discEnd <= discStart) discEnd = maxEnd;
         if (discEnd > maxEnd) discEnd = maxEnd;
         // Support multiple cities: comma-separated string or single value
@@ -536,6 +529,16 @@ Rules: US only, venue 3000+ capacity, different artist each entry, url can be em
           status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
+      const startYmdGen = String(p.start_date).slice(0, 10);
+      if (startYmdGen < minTripYmd) {
+        return new Response(
+          JSON.stringify({
+            error: "invalid_start_date",
+            message: "Trip start must be at least 14 calendar days from today in your timezone.",
+          }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
       const selectedConcert = p.selected_concert;
       const cityFromConcert = selectedConcert?.city;
       const effectiveCity = cityFromConcert || (p.city && p.city !== "flexible" ? p.city : "Austin");
@@ -607,6 +610,11 @@ Rules: US only, venue 3000+ capacity, different artist each entry, url can be em
         }
       }
 
+      events = events.filter((e: any) => {
+        const ed = String(e.date_time || "").slice(0, 10);
+        return !ed || !/^\d{4}-\d{2}-\d{2}$/.test(ed) || ed >= minTripYmd;
+      });
+
       console.log("[TM_LINK_DEBUG] generate-itinerary input events", events.map((e: any) => ({ name: e.name, book_url: e.book_url, source_url: e.source_url })));
       let golfCourses = Array.isArray(rawSearchResults.golf_courses)
         ? rawSearchResults.golf_courses.slice(0, 12)
@@ -652,10 +660,7 @@ Rules: US only, venue 3000+ capacity, different artist each entry, url can be em
           // TM couldn't confirm. Try Perplexity secondary verification (Rule 2).
           // Use a ±14-day window around the hint so minor date shifts don't cause misses.
           const hintDate = hint || String(p.start_date).slice(0, 10);
-          const today = new Date();
-          const minAllowed = new Date(today);
-          minAllowed.setDate(minAllowed.getDate() + 1);
-          const minAllowedYmd = minAllowed.toISOString().slice(0, 10);
+          const minAllowedYmd = minTripYmd;
           const broadStartRaw = (() => {
             const d = new Date(hintDate + "T12:00:00Z");
             d.setDate(d.getDate() - 14);

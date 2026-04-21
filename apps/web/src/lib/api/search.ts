@@ -17,6 +17,8 @@ export type SearchRequest = {
   group_size?: number;
   budget_tier?: "low" | "mid" | "high";
   tee_time_window?: { start: string; end: string };
+  /** IANA timezone; used by the search function for trip/concert date floors. */
+  client_timezone?: string;
 };
 
 /** Outbound link shape for concerts (matches OutboundLink from types/outbound-link). */
@@ -154,6 +156,7 @@ export async function fetchSearch(request: SearchRequest): Promise<SearchRespons
   if (request.budget_tier) params.set("budget_tier", request.budget_tier);
   if (request.tee_time_window?.start) params.set("tee_time_start", request.tee_time_window.start);
   if (request.tee_time_window?.end) params.set("tee_time_end", request.tee_time_window.end);
+  if (request.client_timezone?.trim()) params.set("client_timezone", request.client_timezone.trim());
 
   const baseUrl = getSearchUrl();
   if (!baseUrl) throw new Error("VITE_SUPABASE_URL is not set");

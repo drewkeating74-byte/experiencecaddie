@@ -10,6 +10,7 @@ import { Music, Search, Sparkles, ArrowRight, ArrowLeft, Loader2, MapPin, Calend
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { fetchSearch, buildFallbackSearchResponse } from "@/lib/api/search";
+import { addMonthsToYmd, getBrowserTimeZone, minTripStartYmdForTimezone } from "@/lib/tripWindow";
 import { normalizeOutboundLink } from "@/types/outbound-link";
 import { buildTicketUrl, getTicketOutboundCtaLabel } from "@/lib/outboundLinks";
 
@@ -131,14 +132,9 @@ export default function ExperienceBuilder() {
     const cityNormalized = cityParam.trim();
     const isFlexibleCity = !cityNormalized || cityNormalized.toLowerCase() === "flexible";
 
-    // Don't use past dates from URL — search starts 2 weeks from today
-    const today = new Date();
-    const twoWeeksFromNow = new Date(today);
-    twoWeeksFromNow.setDate(twoWeeksFromNow.getDate() + 14);
-    const minStartStr = twoWeeksFromNow.toISOString().split("T")[0];
-    const nineMonthsLater = new Date(twoWeeksFromNow);
-    nineMonthsLater.setMonth(nineMonthsLater.getMonth() + 9);
-    const defaultEndStr = nineMonthsLater.toISOString().split("T")[0];
+    const tz = getBrowserTimeZone();
+    const minStartStr = minTripStartYmdForTimezone(tz);
+    const defaultEndStr = addMonthsToYmd(minStartStr, 9);
     const useUrlDates = startParam >= minStartStr && endParam > startParam;
     const resolvedStart = useUrlDates ? startParam : minStartStr;
     const resolvedEnd = useUrlDates ? endParam : defaultEndStr;
@@ -260,6 +256,7 @@ export default function ExperienceBuilder() {
         dates: { start_date: savedParams.finalStart, end_date: savedParams.finalEnd },
         group_size: Math.min(Math.max(savedParams.groupSize, 1), 20),
         budget_tier: savedParams.budget,
+        client_timezone: getBrowserTimeZone(),
       };
       let searchResult;
       try {
@@ -289,6 +286,7 @@ export default function ExperienceBuilder() {
         },
         selected_concert: concert,
         email: user?.email || null,
+        client_timezone: getBrowserTimeZone(),
       };
       const genRes = await fetch(`${supabaseUrl}/functions/v1/generate-itinerary`, {
         method: "POST",
@@ -377,16 +375,12 @@ export default function ExperienceBuilder() {
     }
 
     const finalCity = trimmedCity;
-    // Flexible dates: start 2 weeks from today, end 9 months later
+    const clientTz = getBrowserTimeZone();
     let finalStart: string;
     let finalEnd: string;
     if (flexibleDates) {
-      const twoWeeksFromNow = new Date();
-      twoWeeksFromNow.setDate(twoWeeksFromNow.getDate() + 14);
-      finalStart = twoWeeksFromNow.toISOString().split("T")[0];
-      const nineMonthsLater = new Date(twoWeeksFromNow);
-      nineMonthsLater.setMonth(nineMonthsLater.getMonth() + 9);
-      finalEnd = nineMonthsLater.toISOString().split("T")[0];
+      finalStart = minTripStartYmdForTimezone(clientTz);
+      finalEnd = addMonthsToYmd(finalStart, 9);
     } else {
       finalStart = startDate;
       finalEnd = endDate;
@@ -400,13 +394,9 @@ export default function ExperienceBuilder() {
       return;
     }
 
-    // Reject past dates — search starts 2 weeks from today
-    const today = new Date();
-    const twoWeeksFromNow = new Date(today);
-    twoWeeksFromNow.setDate(twoWeeksFromNow.getDate() + 14);
-    const minStartStr = twoWeeksFromNow.toISOString().split("T")[0];
+    const minStartStr = minTripStartYmdForTimezone(clientTz);
     if (finalStart < minStartStr) {
-      toast.error("Start date must be at least 2 weeks from today. Try flexible dates for automatic scheduling.");
+      toast.error("Start date must be at least 14 days from today in your time zone. Try flexible dates for automatic scheduling.");
       setGenerating(false);
       return;
     }
@@ -453,6 +443,7 @@ export default function ExperienceBuilder() {
               city: finalCity,
               event_details: typeof eventDetails === "string" ? eventDetails.slice(0, 500) : null,
               artist_search: selectedEntry === "artist" ? eventInput.trim().slice(0, 200) : null,
+              client_timezone: clientTz,
             },
           }),
           signal: controller.signal,
@@ -527,6 +518,7 @@ export default function ExperienceBuilder() {
         dates: { start_date: finalStart, end_date: finalEnd },
         group_size: Math.min(Math.max(groupSize, 1), 20),
         budget_tier: budget,
+        client_timezone: clientTz,
       };
       let searchResult;
       try {
@@ -556,6 +548,7 @@ export default function ExperienceBuilder() {
         event_details: typeof eventDetails === "string" ? eventDetails.slice(0, 1000) : null,
         search_results,
         email: user?.email || null,
+        client_timezone: clientTz,
       };
       if (import.meta.env.DEV) {
         console.log("Payload (sanitized):", { ...payload, user_id: "[REDACTED]", email: "[REDACTED]", search_results: search_results ? "[INCLUDED]" : undefined });
@@ -608,9 +601,9 @@ export default function ExperienceBuilder() {
                 : "No verified packages found"}
             </h2>
             <p className="text-muted-foreground max-w-md">
-              We only show packages tied to confirmed tour dates and bookable venues.{" "}
+              We only pair trips with confirmed shows on real calendars (US arenas, 14+ days out) plus golf and hotels.{" "}
               {artistName
-                ? `${artistName} may not have confirmed dates in our covered cities yet.`
+                ? `${artistName} may not have verified dates in this window or may not be on tour in the US right now.`
                 : "Try a different artist or city to find something available now."}
             </p>
           </div>

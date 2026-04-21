@@ -15,17 +15,16 @@ import {
 } from "@/lib/outboundLinks";
 import { logEvent } from "@/lib/analytics";
 import { fetchSearch, type SearchResponse } from "@/lib/api/search";
+import { addMonthsToYmd, getBrowserTimeZone, minTripStartYmdForTimezone } from "@/lib/tripWindow";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
-const today = new Date();
-const inTwoDays = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000);
-const toDate = (d: Date) => d.toISOString().split("T")[0];
-
 export default function SearchPreview() {
   const [city, setCity] = useState("Austin");
-  const [startDate, setStartDate] = useState(toDate(today));
-  const [endDate, setEndDate] = useState(toDate(inTwoDays));
+  const [startDate, setStartDate] = useState(() => minTripStartYmdForTimezone(getBrowserTimeZone()));
+  const [endDate, setEndDate] = useState(() =>
+    addMonthsToYmd(minTripStartYmdForTimezone(getBrowserTimeZone()), 1)
+  );
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<SearchResponse | null>(null);
 
@@ -39,6 +38,7 @@ export default function SearchPreview() {
       const result = await fetchSearch({
         destination: { city: city.trim() },
         dates: { start_date: startDate, end_date: endDate },
+        client_timezone: getBrowserTimeZone(),
       });
       setData(result);
     } catch (err: any) {

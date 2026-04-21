@@ -27,6 +27,7 @@ import {
   type HotelLinkSource,
 } from "@/lib/outboundLinks";
 import { logEvent } from "@/lib/analytics";
+import { firstFutureConcertDisplayYmd, getBrowserTimeZone } from "@/lib/tripWindow";
 import { savePostAuthReturn } from "@/lib/postAuthReturn";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
@@ -475,6 +476,7 @@ export default function ItineraryResults() {
 
   const summary = result.summary;
   const packages = result.packages ?? [];
+  const viewerEventFloorYmd = firstFutureConcertDisplayYmd(getBrowserTimeZone());
 
   // "New Trip" always starts fresh — no prefill from the current itinerary.
   // This avoids stale state (e.g. the previous artist persisting when the user
@@ -745,16 +747,12 @@ export default function ItineraryResults() {
                     Note: events schema has no "why" field. Future pass: add why to generate-itinerary
                     LLM schema (events array) and render e.why here for consistency with lodging/golf. */}
                 {(() => {
-                  // Hide events that are today or in the past — you can't realistically
-                  // plan and travel to a concert starting today or yesterday.
-                  const tomorrow = new Date();
-                  tomorrow.setDate(tomorrow.getDate() + 1);
-                  const tomorrowStr = tomorrow.toISOString().slice(0, 10);
+                  // Hide events that are today or in the past in the viewer's local calendar.
                   const extrasTypes = ["restaurant", "bar", "experience", "attraction"];
                   const allEventItems = (pkg.events || []).filter((e: any) => !extrasTypes.includes(e.type));
                   const eventItems = allEventItems.filter((e: any) => {
                     const d = toYYYYMMDD(e.date_time);
-                    return !d || d >= tomorrowStr;
+                    return !d || d >= viewerEventFloorYmd;
                   });
                   const pastCount = allEventItems.length - eventItems.length;
                   return (eventItems.length > 0 || pastCount > 0) && (
