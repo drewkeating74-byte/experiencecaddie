@@ -1,19 +1,16 @@
 name: Golf Course Verification
 
-# Runs 4× daily at 03:00 / 09:00 / 15:00 / 21:00 UTC. Both passes every run.
-#
-# Rationale:
-#   - Golf-course public-access status is effectively static once confirmed.
-#   - Post-drain the queues are empty, so each run is near-zero-cost
-#     (mostly empty queries; no Places / Perplexity when nothing is queued).
-#   - After a catalog flood, 4× daily drains the unreviewed + needs_review
-#     queues in ~1 week instead of ~1 month at a single daily cadence.
+# Runs 4× daily at 03:00 / 09:00 / 15:00 / 21:00 UTC.
+# Each run invokes verify-golf-courses TWICE in sequence:
+#   1) {"skip_llm": true}     — Pass 1 only (Google Places, cheap)
+#   2) {"skip_pass1": true}   — Pass 2 only (Perplexity)
+# A single combined run can exceed Supabase's Edge wall-clock and return
+# HTTP 546 (WORKER_LIMIT) when both passes are busy — splitting keeps each
+# invocation under the limit while preserving the same daily throughput.
 #
 # Manual dispatch:
-#   - Use workflow_dispatch for ad-hoc runs (e.g. right after ingesting
-#     a new metro).
-#   - skip_llm=true runs rule-based only; useful if Perplexity credits
-#     are temporarily exhausted.
+#   - skip_llm=true  → one call, rule-based only (no Perplexity cost).
+#   - skip_llm=false → same two-step sequence as schedule.
 #
 # Future: annual full-catalog re-verification can be added as a second
 # schedule with a dedicated payload that resets verification_status on
@@ -21,7 +18,7 @@ name: Golf Course Verification
 
 on:
   schedule:
-    - cron: "0 3,9,15,21 * * *"   # 4× daily UTC — both passes
+    - cron: "0 3,9,15,21 * * *"   # 4× daily UTC
   workflow_dispatch:
     inputs:
       skip_llm:
@@ -44,31 +41,41 @@ jobs:
         env:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
-          # Scheduled runs always run both passes.
-          # Manual dispatch respects the skip_llm input.
-          SKIP_LLM="false"
+          set -e
+          VERIFY_URL="https://kxibaydbhquospzoefva.supabase.co/functions/v1/verify-golf-courses"
+
+          call_verify() {
+            local BODY="$1"
+            local LABEL="$2"
+            echo "=== ${LABEL} ==="
+            RESPONSE=$(curl -s -w "\n%{http_code}" \
+              -X POST \
+              "$VERIFY_URL" \
+              -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+              -H "Content-Type: application/json" \
+              -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+              -d "$BODY")
+            HTTP_BODY=$(echo "$RESPONSE" | head -n -1)
+            HTTP_STATUS=$(echo "$RESPONSE" | tail -n 1)
+            echo "Status: $HTTP_STATUS"
+            echo "Response: $HTTP_BODY"
+            if [ "$HTTP_STATUS" -lt 200 ] || [ "$HTTP_STATUS" -ge 300 ]; then
+              echo "::error::verify-golf-courses (${LABEL}) returned HTTP $HTTP_STATUS"
+              exit 1
+            fi
+          }
+
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             SKIP_LLM="${{ github.event.inputs.skip_llm }}"
             echo "Manual run — skip_llm=${SKIP_LLM}"
+            if [ "$SKIP_LLM" = "true" ]; then
+              call_verify '{"skip_llm":true}' "rule-based only"
+            else
+              call_verify '{"skip_llm":true}' "step 1 — rule pass"
+              call_verify '{"skip_pass1":true}' "step 2 — LLM pass"
+            fi
           else
-            echo "Scheduled run — running both passes"
-          fi
-
-          RESPONSE=$(curl -s -w "\n%{http_code}" \
-            -X POST \
-            "https://kxibaydbhquospzoefva.supabase.co/functions/v1/verify-golf-courses" \
-            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
-            -H "Content-Type: application/json" \
-            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
-            -d "{\"skip_llm\": $SKIP_LLM}")
-
-          HTTP_BODY=$(echo "$RESPONSE" | head -n -1)
-          HTTP_STATUS=$(echo "$RESPONSE" | tail -n 1)
-
-          echo "Status: $HTTP_STATUS"
-          echo "Response: $HTTP_BODY"
-
-          if [ "$HTTP_STATUS" -lt 200 ] || [ "$HTTP_STATUS" -ge 300 ]; then
-            echo "::error::verify-golf-courses returned HTTP $HTTP_STATUS"
-            exit 1
+            echo "Scheduled run — two-step (rule pass, then LLM pass)"
+            call_verify '{"skip_llm":true}' "step 1 — rule pass"
+            call_verify '{"skip_pass1":true}' "step 2 — LLM pass"
           fi

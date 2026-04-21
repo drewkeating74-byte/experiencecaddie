@@ -36,13 +36,14 @@
  *   MAX_RULE_BASED_PER_RUN = 50   (Places API — low cost)
  *   MAX_LLM_PER_RUN        = 50   (Perplexity)
  *
- * Do not raise these much higher in one invocation: Supabase returns HTTP 546
- * (WORKER_LIMIT — wall clock / CPU) when the sequential Places + Perplexity
- * loop runs too long (~2–3 min is the danger zone). Throughput comes from
- * the 4× daily schedule + manual runs, not giant single batches.
+ * Do not run Pass 1 + Pass 2 in one long invocation during big backlogs:
+ * Supabase returns HTTP 546 (WORKER_LIMIT) when wall-clock exceeds the Edge
+ * budget. GitHub Actions calls the function twice: skip_llm (Pass 1 only),
+ * then skip_pass1 (Pass 2 only). Single-shot { } still works from the
+ * dashboard but may 546 when APIs are slow.
  *
  * SCHEDULE (see verify-golf-courses.yml)
- *   4× daily UTC — empty queues are near-free; backlog drains via frequency.
+ *   4× daily UTC — each tick is two HTTP calls (rule, then LLM).
  *
  * DB FIELDS UPDATED
  *   verification_status, course_type, excluded_reason, public_access,
@@ -350,13 +351,17 @@ Deno.serve(async (req: Request) => {
     return json({ error: "Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY" }, 500);
   }
 
-  // Optional body param: { "skip_llm": true } skips Pass 2 (Perplexity).
-  // Used by the weekly cron which runs rule-based only; monthly cron runs both.
   let skipLlm = false;
+  let skipPass1 = false;
   try {
     const body = await req.json().catch(() => ({}));
     skipLlm = body?.skip_llm === true;
+    skipPass1 = body?.skip_pass1 === true;
   } catch { /* no body — run both passes */ }
+
+  if (skipLlm && skipPass1) {
+    return json({ error: "skip_llm and skip_pass1 cannot both be true" }, 400);
+  }
 
   const supabase = createClient(supabaseUrl, serviceKey);
   const now = new Date().toISOString();
@@ -374,61 +379,65 @@ Deno.serve(async (req: Request) => {
 
   // ── PASS 1: Rule-based for unreviewed courses ─────────────────────────────
 
-  // Treat NULL verification_status as "never touched" — same as unreviewed.
-  // Catalog refresh upserts omit this column; PostgREST left rows NULL after
-  // the remediation migration widened the CHECK to allow NULL (Apr 2026).
-  const { data: unreviewedRows, error: unreviewedErr } = await supabase
-    .from("golf_courses")
-    .select("id,name,city,state,source_id,place_id,public_access_confidence,verification_status,course_type,excluded_reason")
-    .eq("active", true)
-    .or("verification_status.eq.unreviewed,verification_status.is.null")
-    .order("last_verified_at", { ascending: true, nullsFirst: true })
-    .limit(MAX_RULE_BASED_PER_RUN);
+  if (!skipPass1) {
+    // Treat NULL verification_status as "never touched" — same as unreviewed.
+    // Catalog refresh upserts omit this column; PostgREST left rows NULL after
+    // the remediation migration widened the CHECK to allow NULL (Apr 2026).
+    const { data: unreviewedRows, error: unreviewedErr } = await supabase
+      .from("golf_courses")
+      .select("id,name,city,state,source_id,place_id,public_access_confidence,verification_status,course_type,excluded_reason")
+      .eq("active", true)
+      .or("verification_status.eq.unreviewed,verification_status.is.null")
+      .order("last_verified_at", { ascending: true, nullsFirst: true })
+      .limit(MAX_RULE_BASED_PER_RUN);
 
-  if (unreviewedErr) {
-    console.error("[VERIFY] Pass 1 query error:", unreviewedErr.message);
-  } else {
-    for (const row of (unreviewedRows ?? []) as GolfCourseRow[]) {
-      runStats.pass1_processed++;
-      const placeId = getPlaceId(row);
-      const details = placeId && googleApiKey
-        ? await fetchPlaceDetails(placeId, googleApiKey)
-        : null;
+    if (unreviewedErr) {
+      console.error("[VERIFY] Pass 1 query error:", unreviewedErr.message);
+    } else {
+      for (const row of (unreviewedRows ?? []) as GolfCourseRow[]) {
+        runStats.pass1_processed++;
+        const placeId = getPlaceId(row);
+        const details = placeId && googleApiKey
+          ? await fetchPlaceDetails(placeId, googleApiKey)
+          : null;
 
-      const { status, evidence } = ruleBasedDecision(row, details);
+        const { status, evidence } = ruleBasedDecision(row, details);
 
-      const update: CourseUpdate = {
-        verification_status: status,
-        public_access: status === "verified",
-        verification_method: "rule_based",
-        last_verified_by: VERIFIER_VERSION,
-        last_agent_review_at: now,
-        last_verified_at: now,
-        verification_evidence_summary: evidence,
-      };
+        const update: CourseUpdate = {
+          verification_status: status,
+          public_access: status === "verified",
+          verification_method: "rule_based",
+          last_verified_by: VERIFIER_VERSION,
+          last_agent_review_at: now,
+          last_verified_at: now,
+          verification_evidence_summary: evidence,
+        };
 
-      if (status === "verified") {
-        runStats.pass1_verified++;
-        update.course_type = "public";
-      } else {
-        runStats.pass1_escalated++;
+        if (status === "verified") {
+          runStats.pass1_verified++;
+          update.course_type = "public";
+        } else {
+          runStats.pass1_escalated++;
+        }
+
+        await updateCourse(supabase, row.id, update);
+        console.log(`[VERIFY] Pass1 ${status.toUpperCase().padEnd(12)} ${row.name} (${row.city}) — ${evidence.slice(0, 100)}`);
       }
-
-      await updateCourse(supabase, row.id, update);
-      console.log(`[VERIFY] Pass1 ${status.toUpperCase().padEnd(12)} ${row.name} (${row.city}) — ${evidence.slice(0, 100)}`);
     }
+  } else {
+    console.log("[VERIFY] Pass 1 skipped (skip_pass1=true) — LLM-only invocation");
   }
 
   // ── PASS 2: LLM-assisted for needs_review courses ─────────────────────────
 
   if (skipLlm) {
     console.log("[VERIFY] LLM pass skipped (skip_llm=true) — rule-based only run");
-    return json({ ...runStats, skipped_llm_pass: true });
+    return json({ ...runStats, skipped_llm_pass: true, skipped_pass1: skipPass1 });
   }
 
   if (!perplexityKey) {
     console.warn("[VERIFY] PERPLEXITY_API_KEY not set — skipping LLM pass");
-    return json({ ...runStats, skipped_llm_pass: true });
+    return json({ ...runStats, skipped_llm_pass: true, skipped_pass1: skipPass1 });
   }
 
   // Pull every needs_review course regardless of public_access_confidence.
@@ -558,5 +567,5 @@ Deno.serve(async (req: Request) => {
     ` | Pass2: processed=${runStats.pass2_processed} verified=${runStats.pass2_verified} needs_review=${runStats.pass2_needs_review} excluded=${runStats.pass2_excluded} errors=${runStats.pass2_errors.length}`
   );
 
-  return json(runStats);
+  return json({ ...runStats, skipped_pass1: skipPass1, skipped_llm_pass: false });
 });
