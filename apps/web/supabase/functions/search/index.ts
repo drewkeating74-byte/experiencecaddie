@@ -17,6 +17,7 @@ import {
   addCalendarDaysToYmd,
   addMonthsToYmd,
   calendarDateInTimeZone,
+  extractIsoDateYmd,
   minTripStartYmdForTimezone,
   normalizeClientTimeZone,
 } from "../_shared/tripWindow.ts";
@@ -1357,8 +1358,8 @@ Deno.serve(async (req: Request) => {
     }
 
     events = events.filter((ev) => {
-      const raw = ev.date_time?.slice(0, 10);
-      if (!raw || !/^\d{4}-\d{2}-\d{2}$/.test(raw)) return true;
+      const raw = extractIsoDateYmd(ev.date_time);
+      if (!raw) return true;
       return raw >= minConcertYmd;
     });
 

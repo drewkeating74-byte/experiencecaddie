@@ -47,3 +47,15 @@ export function minTripStartYmdForTimezone(clientTimezone?: string | null): stri
   const today = calendarDateInTimeZone(new Date(), tz);
   return addCalendarDaysToYmd(today, MIN_TRIP_LEAD_CALENDAR_DAYS);
 }
+
+/** First YYYY-MM-DD from an ISO-ish or parseable date_time string; null if unknown. */
+export function extractIsoDateYmd(dateTime: string | null | undefined): string | null {
+  if (dateTime == null) return null;
+  const s = String(dateTime).trim();
+  if (!s) return null;
+  const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (m) return m[1];
+  const t = Date.parse(s);
+  if (Number.isNaN(t)) return null;
+  return new Date(t).toISOString().slice(0, 10);
+}

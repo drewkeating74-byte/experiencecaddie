@@ -367,6 +367,10 @@ export async function verifyDiscoveryConcertOptions(
         return null;
       }
       const ymd = resolved.date_time.slice(0, 10);
+      if (ymd < discStart || ymd > discEnd) {
+        console.log(`[DISCOVER_VERIFY] TM date ${ymd} outside [${discStart}, ${discEnd}] for ${artist} @ ${city}`);
+        return null;
+      }
       return {
         artist,
         city: resolved.venue.city,

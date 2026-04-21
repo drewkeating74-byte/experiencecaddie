@@ -7,7 +7,12 @@ import {
   resolveConcertFromTicketmaster,
   verifyDiscoveryConcertOptions,
 } from "../_shared/ticketmaster.ts";
-import { addMonthsToYmd, minTripStartYmdForTimezone, normalizeClientTimeZone } from "../_shared/tripWindow.ts";
+import {
+  addMonthsToYmd,
+  extractIsoDateYmd,
+  minTripStartYmdForTimezone,
+  normalizeClientTimeZone,
+} from "../_shared/tripWindow.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -358,19 +363,16 @@ Rules: US only, venue 3000+ capacity, dates between ${discStart} and ${discEnd},
         // Preserve every raw LLM row before any filtering — emergency fallback if nothing else survives.
         const rawLlmOpts: Record<string, unknown>[] = (concertOptions.concert_options || []).map((c: Record<string, unknown>) => ({ ...c }));
 
-        // Filter out clearly past concerts. Use a 1-week grace period so dates slightly before
-        // discStart (LLM rounding) aren't thrown away.
-        const graceCutoff = new Date(discStart);
-        graceCutoff.setDate(graceCutoff.getDate() - 7);
-        const graceCutoffYmd = graceCutoff.toISOString().slice(0, 10);
-        let opts = rawLlmOpts.filter((c: Record<string, unknown>) => {
+        const optionYmd = (c: Record<string, unknown>): string | null => {
           const raw = String(c.date || c.event_date || c.eventDate || "").trim();
-          if (!raw) return true;
-          const isoMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
-          if (isoMatch) return isoMatch[0] >= graceCutoffYmd;
-          const parsed = new Date(raw);
-          if (!isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10) >= graceCutoffYmd;
-          return true; // unknown format — keep it
+          if (!raw) return null;
+          return parseFlexibleDateToYmd(raw) || (raw.match(/^(\d{4}-\d{2}-\d{2})/)?.[1] ?? null);
+        };
+
+        let opts = rawLlmOpts.filter((c: Record<string, unknown>) => {
+          const ymd = optionYmd(c);
+          if (!ymd) return false;
+          return ymd >= minTripYmd && ymd <= discEnd;
         });
 
         // Deduplicate by artist (and by artist+city+date for single-artist tour searches).
@@ -398,12 +400,13 @@ Rules: US only, venue 3000+ capacity, dates between ${discStart} and ${discEnd},
           });
         }
 
-        // If the date filter wiped everything, fall back to the full raw LLM set (deduplicated by artist + city).
         if (opts.length === 0 && rawLlmOpts.length > 0) {
-          console.log(`[DISCOVER] Date filter removed all ${rawLlmOpts.length} LLM options — using raw fallback`);
+          console.log(`[DISCOVER] strict date filter removed all ${rawLlmOpts.length} LLM options — retrying raw with minTrip only`);
           const seenArtist = new Set<string>();
           const seenCity = new Set<string>();
           opts = rawLlmOpts.filter((c: Record<string, unknown>) => {
+            const ymd = optionYmd(c);
+            if (!ymd || ymd < minTripYmd || ymd > discEnd) return false;
             const artist = String(c.artist || "").toLowerCase().trim();
             const city = String(c.city || "").toLowerCase().trim();
             if (!artist) return false;
@@ -419,6 +422,10 @@ Rules: US only, venue 3000+ capacity, dates between ${discStart} and ${discEnd},
 
         // Replace LLM guesses with Ticketmaster-verified date, venue, and URL (US shows only).
         let verifiedOpts = await verifyDiscoveryConcertOptions(preVerifyOpts, discStart, discEnd);
+        verifiedOpts = verifiedOpts.filter((v) => {
+          const d = String(v.date || "").trim().slice(0, 10);
+          return /^\d{4}-\d{2}-\d{2}$/.test(d) && d >= minTripYmd && d <= discEnd;
+        });
 
         // TM may drop rows. Backfill from the raw LLM set to keep the picker populated.
         // These items are marked _verified_ticketmaster: false — the date comes from the
@@ -443,12 +450,13 @@ Rules: US only, venue 3000+ capacity, dates between ${discStart} and ${discEnd},
             if (!keyArtist || seenBackfill.has(key)) continue;
             seenBackfill.add(key);
             const dateRaw = String(raw.date || raw.event_date || raw.eventDate || "").trim();
-            const ymd = parseFlexibleDateToYmd(dateRaw) || (dateRaw.match(/^(\d{4}-\d{2}-\d{2})/)?.[0] ?? "");
+            const ymd = parseFlexibleDateToYmd(dateRaw) || (dateRaw.match(/^(\d{4}-\d{2}-\d{2})/)?.[1] ?? "");
+            if (!ymd || ymd < minTripYmd || ymd > discEnd) continue;
             verifiedOpts.push({
               artist: a,
               city: String(raw.city || "").trim() || "Various",
               venue: String(raw.venue || "").trim() || "Venue TBD",
-              date: ymd || dateRaw.slice(0, 10),
+              date: ymd,
               url: buildTicketmasterSearchUrl(a),
               _verified_ticketmaster: false,
             });
@@ -501,6 +509,7 @@ Rules: US only, venue 3000+ capacity, different artist each entry, url can be em
                 seenRetryCities.add(cityR);
                 const dateRaw = String(r.date || "").trim();
                 const ymd = parseFlexibleDateToYmd(dateRaw) || dateRaw.slice(0, 10);
+                if (!ymd || ymd < minTripYmd || ymd > discEnd) continue;
                 verifiedOpts.push({
                   artist: a,
                   city: String(r.city || "").trim() || "Various",
@@ -516,7 +525,12 @@ Rules: US only, venue 3000+ capacity, different artist each entry, url can be em
           }
         }
 
-        opts = verifiedOpts.slice(0, MAX_RETURN);
+        opts = verifiedOpts
+          .filter((v) => {
+            const d = String(v.date || "").trim().slice(0, 10);
+            return /^\d{4}-\d{2}-\d{2}$/.test(d) && d >= minTripYmd && d <= discEnd;
+          })
+          .slice(0, MAX_RETURN);
 
         return new Response(JSON.stringify({ success: true, concert_options: opts }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -611,8 +625,8 @@ Rules: US only, venue 3000+ capacity, different artist each entry, url can be em
       }
 
       events = events.filter((e: any) => {
-        const ed = String(e.date_time || "").slice(0, 10);
-        return !ed || !/^\d{4}-\d{2}-\d{2}$/.test(ed) || ed >= minTripYmd;
+        const ed = extractIsoDateYmd(e?.date_time);
+        return !ed || ed >= minTripYmd;
       });
 
       console.log("[TM_LINK_DEBUG] generate-itinerary input events", events.map((e: any) => ({ name: e.name, book_url: e.book_url, source_url: e.source_url })));
@@ -901,6 +915,28 @@ Rules: US only, venue 3000+ capacity, different artist each entry, url can be em
         ],
       };
     }
+
+    const genClientTz = normalizeClientTimeZone(body?.payload?.client_timezone ?? body?.client_timezone);
+    const genMinConcertYmd = minTripStartYmdForTimezone(genClientTz);
+    const tripStartYmd = String(itinerary.start_date ?? "").slice(0, 10);
+    const tripEndYmd = String(itinerary.end_date ?? "").slice(0, 10);
+    const tripStartOk = /^\d{4}-\d{2}-\d{2}$/.test(tripStartYmd);
+    const tripEndOk = /^\d{4}-\d{2}-\d{2}$/.test(tripEndYmd);
+    const filterSearchEventsForTrip = (evts: unknown[] | undefined) =>
+      (evts ?? []).filter((e: any) => {
+        const ymd = extractIsoDateYmd(e?.date_time);
+        if (!ymd) return true;
+        if (ymd < genMinConcertYmd) return false;
+        if (tripStartOk && ymd < tripStartYmd) return false;
+        if (tripEndOk && ymd > tripEndYmd) return false;
+        return true;
+      });
+    searchResults = {
+      ...searchResults,
+      events: filterSearchEventsForTrip(searchResults.events as unknown[]),
+    };
+    itinerary.search_results = searchResults;
+
     const events = searchResults.events || [];
     const golfCourses = (searchResults.golf_courses || []).slice(0, 12);
     const hotels = searchResults.hotels || [];
@@ -1243,6 +1279,18 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
         pkg.events = rows.map((r) => ({ ...r }));
       }
       console.log(`[CONCERT] clamped package.events to search_results (n=${nonMockEvents.length})`);
+    }
+
+    const floorConcertYmd = tripStartOk && tripStartYmd >= genMinConcertYmd ? tripStartYmd : genMinConcertYmd;
+    for (const pkg of parsedResult.packages || []) {
+      if (!Array.isArray(pkg.events)) continue;
+      pkg.events = pkg.events.filter((ev: any) => {
+        const ymd = extractIsoDateYmd(ev?.date_time);
+        if (!ymd) return true;
+        if (ymd < genMinConcertYmd || ymd < floorConcertYmd) return false;
+        if (tripEndOk && ymd > tripEndYmd) return false;
+        return true;
+      });
     }
 
     // Enrich packages with trust metadata from search_results (match by name)
