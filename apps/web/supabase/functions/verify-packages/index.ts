@@ -12,6 +12,7 @@
  *   ?suggest=1 — include metro_gaps (catalog metros with zero active curated packages).
  *   ?dry_run=1 — report only; no DB writes (use before a real run).
  *   ?strict_direct_tm=1 — require a direct Ticketmaster event URL from resolution (not Google fallback).
+ *   ?require_venue_match=1 — also require catalog venue name to overlap TM venue tokens (stricter; off by default).
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { METROS, getMetroByCity } from "../_shared/golfCities.ts";
@@ -135,6 +136,7 @@ Deno.serve(async (req) => {
   const suggest = url.searchParams.get("suggest") === "1";
   const dryRun = url.searchParams.get("dry_run") === "1";
   const strictDirectTm = url.searchParams.get("strict_direct_tm") === "1";
+  const requireVenueMatch = url.searchParams.get("require_venue_match") === "1";
 
   const sb = createClient(supabaseUrl, serviceKey);
 
@@ -157,6 +159,7 @@ Deno.serve(async (req) => {
   const result = {
     dry_run: dryRun,
     strict_direct_tm: strictDirectTm,
+    require_venue_match: requireVenueMatch,
     checked: 0,
     verified_ok: 0,
     deactivated: 0,
@@ -242,7 +245,7 @@ Deno.serve(async (req) => {
     let ok = Boolean(resolved && resolvedYmd === eventYmd);
     let blockReason: string | undefined;
 
-    if (ok && resolved) {
+    if (requireVenueMatch && ok && resolved) {
       const pkgVenue = ev?.venues?.name?.trim() ?? "";
       const tmVenue = resolved.venue?.name?.trim() ?? "";
       if (pkgVenue.length > 3 && tmVenue.length > 3 && !venuesRoughlyMatch(pkgVenue, tmVenue)) {

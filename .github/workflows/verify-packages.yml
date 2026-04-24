@@ -25,6 +25,11 @@ on:
         required: false
         default: "false"
         type: boolean
+      require_venue_match:
+        description: "Require catalog venue tokens to overlap TM venue (stricter; can mass-fail)"
+        required: false
+        default: "false"
+        type: boolean
 
 jobs:
   verify:
@@ -34,6 +39,7 @@ jobs:
       SUGGEST_INPUT: ${{ github.event.inputs.suggest || 'false' }}
       DRY_RUN_INPUT: ${{ github.event.inputs.dry_run || 'false' }}
       STRICT_TM_INPUT: ${{ github.event.inputs.strict_direct_tm || 'false' }}
+      REQUIRE_VENUE_INPUT: ${{ github.event.inputs.require_venue_match || 'false' }}
 
     steps:
       - name: Invoke verify-packages
@@ -44,6 +50,7 @@ jobs:
           [ "$SUGGEST_INPUT" = "true" ] && Q+=("suggest=1")
           [ "$DRY_RUN_INPUT" = "true" ] && Q+=("dry_run=1")
           [ "$STRICT_TM_INPUT" = "true" ] && Q+=("strict_direct_tm=1")
+          [ "$REQUIRE_VENUE_INPUT" = "true" ] && Q+=("require_venue_match=1")
           QUERY=""
           if [ ${#Q[@]} -gt 0 ]; then
             IFS='&'
