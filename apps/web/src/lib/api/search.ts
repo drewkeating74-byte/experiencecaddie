@@ -190,18 +190,25 @@ export function buildFallbackSearchResponse(request: SearchRequest): SearchRespo
   // Use artist name and city so the fallback is contextually accurate rather than generic
   const eventName = artist || "Live Concert";
   const venueName = `${city} Live Music Venue`;
-  const ticketUrl = artist
-    ? `https://www.ticketmaster.com/search?q=${encodeURIComponent(artist)}+${encodeURIComponent(city)}`
-    : `https://www.ticketmaster.com/search?q=concerts+${encodeURIComponent(city)}`;
+  const ymd = (startDate || "").slice(0, 10);
+  let datePart = "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(ymd)) {
+    const d = new Date(ymd + "T12:00:00Z");
+    if (!isNaN(d.getTime())) {
+      datePart = d.toLocaleString("en-US", { month: "long", day: "numeric", year: "numeric" });
+    }
+  }
+  const ticketQ = [eventName, venueName, city, datePart, "tickets"].filter(Boolean).join(" ");
+  const ticketUrl = `https://www.google.com/search?q=${encodeURIComponent(ticketQ || "concert tickets")}`;
   const concertLink: ConcertOutboundLink = {
     url: ticketUrl,
-    provider: "Ticketmaster",
+    provider: "Google",
     category: "concert",
     link_type: "provider_search",
-    label: "Search tickets on Ticketmaster",
+    label: "Find tickets",
     is_verified: false,
     confidence: "medium",
-    disclaimer: "Opens Ticketmaster search; specific tour dates and availability are not confirmed in Experience Caddie",
+    disclaimer: "Opens Google results; live dates and availability are not confirmed in Experience Caddie",
   };
   return {
     destination: { city, state, start_date: startDate, end_date: endDate },

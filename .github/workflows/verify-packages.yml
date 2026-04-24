@@ -1,0 +1,49 @@
+name: Verify packages (Ticketmaster)
+
+# ~Biweekly: 1st and 15th of each month at 05:15 UTC (~every two weeks on average).
+# Calls verify-packages to deactivate catalog rows that no longer match TM on the same date,
+# refresh direct ticket URLs on events, and optionally report metros with zero curated packages.
+#
+# Requires: secrets.SUPABASE_SERVICE_ROLE_KEY (same as packages-maintenance)
+on:
+  schedule:
+    - cron: "15 5 1,15 * *"
+  workflow_dispatch:
+    inputs:
+      suggest:
+        description: "Append metro_gaps (metros with no active curated package)"
+        required: false
+        default: "false"
+        type: boolean
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      SUGGEST_INPUT: ${{ github.event.inputs.suggest || 'false' }}
+
+    steps:
+      - name: Invoke verify-packages
+        env:
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          SUGGEST=""
+          if [ "$SUGGEST_INPUT" = "true" ]; then SUGGEST="?suggest=1"; fi
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            -X POST \
+            "https://kxibaydbhquospzoefva.supabase.co/functions/v1/verify-packages${SUGGEST}" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Content-Type: application/json" \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY")
+
+          HTTP_BODY=$(echo "$RESPONSE" | head -n -1)
+          HTTP_STATUS=$(echo "$RESPONSE" | tail -n 1)
+
+          echo "Status: $HTTP_STATUS"
+          echo "Response: $HTTP_BODY"
+
+          if [ "$HTTP_STATUS" -lt 200 ] || [ "$HTTP_STATUS" -ge 300 ]; then
+            echo "::error::verify-packages returned HTTP $HTTP_STATUS"
+            exit 1
+          fi

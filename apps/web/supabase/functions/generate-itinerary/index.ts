@@ -315,8 +315,15 @@ serve(async (req) => {
       if (selectedConcert?.artist && (selectedConcert?.date || selectedConcert?.date_time)) {
         const selArtistLower = String(selectedConcert.artist).toLowerCase().trim();
         const selDate = String(selectedConcert.date || selectedConcert.date_time || "").slice(0, 10);
-        // Try to find the matching TM-verified event in the search results
+        const isUsableSearchEventMatch = (e: any) => {
+          if (!e || e.provider === "mock") return false;
+          const u = String(e.book_url || e.source_url || "").toLowerCase();
+          if (u.includes("ticketmaster.com/search")) return false;
+          return true;
+        };
+        // Try to find a real search result (not mock / not TM artist search) matching artist + date
         const tmMatch = events.find((e: any) => {
+          if (!isUsableSearchEventMatch(e)) return false;
           const eName = String(e.name || "").toLowerCase();
           const eDate = String(e.date_time || "").slice(0, 10);
           const artistInName = eName.includes(selArtistLower) || selArtistLower.includes(eName.split(/\s+/)[0]);
@@ -427,8 +434,15 @@ serve(async (req) => {
           dateHintYmd: hint,
         });
         if (resolved) {
-          // Rule 1: TM confirmed the event
-          events = [{ ...resolved, provider: "user_selected" }];
+          const resolvedYmd = resolved.date_time.slice(0, 10);
+          // If the user/package gave a specific day, do not substitute a different TM show/date.
+          if (!hint || resolvedYmd === hint) {
+            events = [{ ...resolved, provider: "user_selected" }];
+          } else {
+            console.log(
+              `[CONCERT] TM resolved ${resolvedYmd} but selection hint is ${hint} — keeping locked event (package/picker date)`
+            );
+          }
         } else {
           // TM couldn't confirm. Try Perplexity secondary verification (Rule 2).
           // Use a ±14-day window around the hint so minor date shifts don't cause misses.
@@ -456,28 +470,59 @@ serve(async (req) => {
           );
 
           if (perplexityVerified) {
-            // Rule 2: Perplexity confirmed — use verified date + Google ticket search URL
-            events = [{
-              id: "selected_concert",
-              name: perplexityVerified.venue !== "Venue TBD"
-                ? `${perplexityVerified.artist} at ${perplexityVerified.venue}`
-                : perplexityVerified.artist,
-              date_time: `${perplexityVerified.date}T20:00:00`,
-              venue: { name: perplexityVerified.venue, city: perplexityVerified.city },
-              book_url: perplexityVerified.url,
-              source_url: perplexityVerified.url,
-              book_link: {
-                url: perplexityVerified.url,
-                provider: "Google",
-                category: "concert" as const,
-                link_type: "provider_search" as const,
-                label: "Find tickets",
-                is_verified: false,
-                confidence: "medium" as const,
-                disclaimer: "Date confirmed via web search — link opens Google ticket results",
-              },
-              provider: "user_selected",
-            }];
+            const pyYmd = parseFlexibleDateToYmd(String(perplexityVerified.date || ""));
+            if (hint && pyYmd && pyYmd !== hint) {
+              console.log(`[CONCERT] Perplexity date ${pyYmd} !== selection ${hint} — using hint + Google link`);
+              const fallbackDate = hint;
+              const concertUrl = buildGoogleTicketsSearchUrl({
+                performer: String(selectedConcert.artist).trim(),
+                city: String(selectedConcert.city || effectiveCity).trim(),
+                venue: selectedConcert.venue ? String(selectedConcert.venue).trim() : undefined,
+                dateYmd: fallbackDate,
+              });
+              events = [{
+                id: "selected_concert",
+                name: String(selectedConcert.artist).trim(),
+                date_time: `${fallbackDate}T20:00:00`,
+                venue: { name: String(selectedConcert.venue || "Venue TBD"), city: String(selectedConcert.city).trim() },
+                book_url: concertUrl,
+                source_url: concertUrl,
+                book_link: {
+                  url: concertUrl,
+                  provider: "Google",
+                  category: "concert" as const,
+                  link_type: "provider_search" as const,
+                  label: "Find tickets",
+                  is_verified: false,
+                  confidence: "low" as const,
+                  disclaimer: "Opens Google results for this show and date (multiple ticket options may appear)",
+                },
+                provider: "user_selected",
+              }];
+            } else {
+              // Rule 2: Perplexity confirmed — use verified date + Google ticket search URL
+              events = [{
+                id: "selected_concert",
+                name: perplexityVerified.venue !== "Venue TBD"
+                  ? `${perplexityVerified.artist} at ${perplexityVerified.venue}`
+                  : perplexityVerified.artist,
+                date_time: `${perplexityVerified.date}T20:00:00`,
+                venue: { name: perplexityVerified.venue, city: perplexityVerified.city },
+                book_url: perplexityVerified.url,
+                source_url: perplexityVerified.url,
+                book_link: {
+                  url: perplexityVerified.url,
+                  provider: "Google",
+                  category: "concert" as const,
+                  link_type: "provider_search" as const,
+                  label: "Find tickets",
+                  is_verified: false,
+                  confidence: "medium" as const,
+                  disclaimer: "Date confirmed via web search — link opens Google ticket results",
+                },
+                provider: "user_selected",
+              }];
+            }
           } else {
             // Neither TM nor Perplexity confirmed a specific date.
             // The user explicitly selected this concert, so always build the itinerary

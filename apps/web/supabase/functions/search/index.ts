@@ -6,6 +6,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { reportError, logProviderError } from "../_shared/monitoring.ts";
 import { METROS } from "../_shared/golfCities.ts";
 import {
+  buildGoogleTicketsSearchUrl,
   fetchTicketmasterEvents as searchTicketmaster,
   mapTmEventToResult as mapEventToResult,
   venueCityMatchesRequest,
@@ -348,18 +349,22 @@ function mockEvents(request: SearchRequest, startDate: string, endDate: string):
   // Use artist name and city so the fallback is at least contextually accurate
   const eventName = artist ? artist : "Live Concert";
   const venueName = `${city} Live Music Venue`;
-  const ticketUrl = artist
-    ? `https://www.ticketmaster.com/search?q=${encodeURIComponent(artist)}+${encodeURIComponent(city)}`
-    : `https://www.ticketmaster.com/search?q=concerts+${encodeURIComponent(city)}`;
+  const ymd = (startDate || "").slice(0, 10);
+  const ticketUrl = buildGoogleTicketsSearchUrl({
+    performer: eventName,
+    city,
+    venue: venueName,
+    dateYmd: /^\d{4}-\d{2}-\d{2}$/.test(ymd) ? ymd : undefined,
+  });
   const book_link: ConcertOutboundLink = {
     url: ticketUrl,
-    provider: "Ticketmaster",
+    provider: "Google",
     category: "concert",
     link_type: "provider_search",
-    label: "Search tickets on Ticketmaster",
+    label: "Find tickets",
     is_verified: false,
     confidence: "medium",
-    disclaimer: "Opens Ticketmaster search; specific tour dates and availability are not confirmed in Experience Caddie",
+    disclaimer: "Opens Google results; live dates and availability are not confirmed in Experience Caddie",
   };
   return [
     {
