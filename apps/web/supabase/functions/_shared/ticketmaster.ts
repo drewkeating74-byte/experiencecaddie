@@ -381,6 +381,68 @@ export async function resolveConcertFromTicketmaster(params: {
   return mapTmEventToResult(chosen, city, state);
 }
 
+function discoverEventDedupeKey(c: { event: TMEvent; metro: MetroConfig; ymd: string }): string {
+  const id = c.event.id?.trim();
+  if (id) return `id:${id}`;
+  const art = c.event._embedded?.attractions?.[0]?.name ?? c.event.name ?? "";
+  return `f:${c.metro.slug}|${c.ymd}|${art}`;
+}
+
+function discoverGenreArtistKey(c: { event: TMEvent }): string {
+  return (c.event._embedded?.attractions?.[0]?.name ?? c.event.name ?? "artist")
+    .split(/[,&]/)[0]
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * Distinct diversityKey (e.g. headliner for genre, or event id for artist tour),
+ * spread across calendar: first pick is earliest; each next pick maximizes minimum
+ * day-distance to picks already chosen (ties → earlier date).
+ */
+function pickConcertsWithDateSpread(
+  cands: { metro: MetroConfig; event: TMEvent; ymd: string }[],
+  maxReturn: number,
+  diversityKey: (c: { metro: MetroConfig; event: TMEvent; ymd: string }) => string
+): { metro: MetroConfig; event: TMEvent; ymd: string }[] {
+  const byDedupe = new Map<string, { metro: MetroConfig; event: TMEvent; ymd: string }>();
+  for (const c of cands) {
+    const dk = discoverEventDedupeKey(c);
+    if (!byDedupe.has(dk)) byDedupe.set(dk, c);
+  }
+  let pool = Array.from(byDedupe.values()).sort((a, b) => a.ymd.localeCompare(b.ymd));
+  const picked: { metro: MetroConfig; event: TMEvent; ymd: string }[] = [];
+  const usedDiversity = new Set<string>();
+
+  while (picked.length < maxReturn && pool.length > 0) {
+    const candidates = pool.filter((c) => !usedDiversity.has(diversityKey(c)));
+    if (candidates.length === 0) break;
+
+    let choice: (typeof cands)[0];
+    if (picked.length === 0) {
+      choice = candidates[0];
+    } else {
+      let best: (typeof cands)[0] | null = null;
+      let bestMinDist = -1;
+      for (const c of candidates) {
+        const minDist = Math.min(...picked.map((p) => daysBetween(p.ymd, c.ymd)));
+        if (minDist > bestMinDist || (minDist === bestMinDist && best != null && c.ymd < best.ymd)) {
+          bestMinDist = minDist;
+          best = c;
+        }
+      }
+      choice = best!;
+    }
+
+    picked.push(choice);
+    usedDiversity.add(diversityKey(choice));
+    const evKey = discoverEventDedupeKey(choice);
+    pool = pool.filter((c) => discoverEventDedupeKey(c) !== evKey);
+  }
+
+  return picked;
+}
+
 function tmEventToDiscoverOption(event: TMEvent, metro: MetroConfig): Record<string, unknown> {
   const res = mapTmEventToResult(event, metro.cities[0], metro.state);
   const venue = event._embedded?.venues?.[0];
@@ -450,31 +512,11 @@ export async function discoverConcertsFromCatalogMetros(params: {
   }
 
   if (artistKeyword) {
-    const byMetro = new Map<string, Cand>();
-    for (const c of cands.sort((a, b) => a.ymd.localeCompare(b.ymd))) {
-      if (byMetro.has(c.metro.slug)) continue;
-      byMetro.set(c.metro.slug, c);
-      if (byMetro.size >= maxReturn) break;
-    }
-    return Array.from(byMetro.values()).map((c) => tmEventToDiscoverOption(c.event, c.metro));
+    const picked = pickConcertsWithDateSpread(cands, maxReturn, discoverEventDedupeKey);
+    return picked.map((c) => tmEventToDiscoverOption(c.event, c.metro));
   }
 
-  cands.sort((a, b) => a.ymd.localeCompare(b.ymd));
-  const picked: Cand[] = [];
-  const seenMetro = new Set<string>();
-  const seenArtist = new Set<string>();
-  for (const c of cands) {
-    const primary = (c.event._embedded?.attractions?.[0]?.name ?? c.event.name ?? "artist").split(/[,&]/)[0]
-      .trim()
-      .toLowerCase();
-    if (!primary || primary.length < 2) continue;
-    if (seenMetro.has(c.metro.slug)) continue;
-    if (seenArtist.has(primary)) continue;
-    seenMetro.add(c.metro.slug);
-    seenArtist.add(primary);
-    picked.push(c);
-    if (picked.length >= maxReturn) break;
-  }
+  const picked = pickConcertsWithDateSpread(cands, maxReturn, discoverGenreArtistKey);
   return picked.map((c) => tmEventToDiscoverOption(c.event, c.metro));
 }
 
