@@ -65,6 +65,8 @@ export default function Packages() {
       startDate = before.toISOString().slice(0, 10);
       endDate   = after.toISOString().slice(0, 10);
     }
+    const eventYmd = eventDate ? String(eventDate).slice(0, 10) : "";
+    const venueName = pkg.events?.venues?.name ?? "";
     const params = new URLSearchParams({
       city,
       event_details: artistName,
@@ -72,7 +74,9 @@ export default function Packages() {
       group_size: "2",
       auto: "1",
       ...(startDate && { start_date: startDate }),
-      ...(endDate   && { end_date: endDate }),
+      ...(endDate && { end_date: endDate }),
+      ...(eventYmd && /^\d{4}-\d{2}-\d{2}$/.test(eventYmd) && { event_date: eventYmd }),
+      ...(venueName.trim() && { venue: venueName.trim() }),
     });
     return `/experience?${params.toString()}`;
   }

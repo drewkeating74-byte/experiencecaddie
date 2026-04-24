@@ -6,7 +6,6 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { reportError, logProviderError } from "../_shared/monitoring.ts";
 import { METROS } from "../_shared/golfCities.ts";
 import {
-  buildTicketmasterSearchUrl,
   fetchTicketmasterEvents as searchTicketmaster,
   mapTmEventToResult as mapEventToResult,
   venueCityMatchesRequest,

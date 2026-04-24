@@ -314,6 +314,7 @@ export function buildTicketUrl(params: TicketLinkParams): BuiltOutboundLink {
 
 function inferTicketProvider(url: string): string {
   const u = url.toLowerCase();
+  if (u.includes("google.com/search")) return "Google";
   if (u.includes("ticketmaster.com")) return "Ticketmaster";
   if (u.includes("livenation.com")) return "Live Nation";
   if (u.includes("axs.com")) return "AXS";

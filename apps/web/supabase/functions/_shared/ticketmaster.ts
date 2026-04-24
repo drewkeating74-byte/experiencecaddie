@@ -127,6 +127,29 @@ export function eventVenueBelongsToMetro(venue: TMVenue | undefined, metro: Metr
   return venueInMetroRadius(metro, lat, lng);
 }
 
+function genreMatchNeedles(raw: string): string[] {
+  const t = raw.trim().toLowerCase();
+  if (!t) return [];
+  const needles = new Set<string>([t, t.replace(/\s*\/\s*/g, " ")]);
+  for (const seg of t.split(/\s*\/\s*/).map((s) => s.trim()).filter(Boolean)) {
+    needles.add(seg);
+  }
+  const alias: Record<string, string[]> = {
+    edm: ["electronic", "dance", "techno", "house"],
+    rap: ["hip-hop", "hip hop"],
+    "hip-hop": ["rap", "hip hop"],
+    soul: ["r&b", "neo-soul"],
+    "r&b": ["soul"],
+    blues: ["jazz"],
+    jazz: ["blues"],
+    latin: ["reggaeton", "regional mexican", "tropical"],
+  };
+  for (const n of [...needles]) {
+    for (const x of alias[n] ?? []) needles.add(x);
+  }
+  return [...needles].filter((n) => n.length > 1);
+}
+
 /** Best-effort genre filter using TM classifications + event title (comma-separated UI genres). */
 export function tmEventMatchesGenreTokens(event: TMEvent, genreTokens: string[]): boolean {
   if (!genreTokens.length) return true;
@@ -135,12 +158,13 @@ export function tmEventMatchesGenreTokens(event: TMEvent, genreTokens: string[])
     .filter(Boolean) as string[];
   const blob = `${parts.join(" ")} ${event.name ?? ""}`.toLowerCase().replace(/\s+/g, " ");
   return genreTokens.some((raw) => {
-    const t = raw.trim().toLowerCase();
-    if (!t) return false;
-    if (blob.includes(t)) return true;
-    const slash = t.replace(/\s*\/\s*/g, " ");
-    if (slash !== t && blob.includes(slash)) return true;
-    const words = t.split(/\s+/).filter((w) => w.length > 2);
+    const needles = genreMatchNeedles(raw);
+    if (!needles.length) return false;
+    if (needles.some((n) => blob.includes(n))) return true;
+    const words = raw
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((w) => w.length > 2);
     if (words.length > 1) return words.every((w) => blob.includes(w));
     return false;
   });
@@ -161,9 +185,30 @@ export function tmEventMatchesArtistQuery(event: TMEvent, artist: string | undef
   return tokens.every((t) => hay.includes(t));
 }
 
-export function buildTicketmasterSearchUrl(searchTerm: string): string {
-  const q = (searchTerm || "").trim() || "concerts";
-  return `https://www.ticketmaster.com/search?q=${encodeURIComponent(q)}`;
+/** Web search for this specific show — surfaces StubHub, AXS, venue, resale, etc. */
+export function buildGoogleTicketsSearchUrl(params: {
+  performer: string;
+  city: string;
+  venue?: string;
+  dateYmd?: string;
+}): string {
+  let datePart = "";
+  const ymd = params.dateYmd?.trim();
+  if (ymd && /^\d{4}-\d{2}-\d{2}$/.test(ymd)) {
+    const d = new Date(ymd + "T12:00:00Z");
+    if (!isNaN(d.getTime())) {
+      datePart = d.toLocaleString("en-US", { month: "long", day: "numeric", year: "numeric" });
+    }
+  }
+  const parts = [
+    params.performer.trim(),
+    params.venue?.trim(),
+    params.city.trim(),
+    datePart,
+    "tickets",
+  ].filter((p): p is string => Boolean(p && p.length > 0));
+  const q = parts.length ? parts.join(" ") : "concert tickets";
+  return `https://www.google.com/search?q=${encodeURIComponent(q)}`;
 }
 
 function isUsableTicketmasterEventUrl(url: string | undefined): boolean {
@@ -197,7 +242,15 @@ export function mapTmEventToResult(
   const city = venue?.city?.name ?? fallbackCity;
   const state = venue?.state?.stateCode ?? venue?.state?.name ?? fallbackState;
   const useDirectUrl = isUsableTicketmasterEventUrl(event.url);
-  const ticketUrl = useDirectUrl ? event.url!.trim() : buildTicketmasterSearchUrl(artistName);
+  const venueName = venue?.name;
+  const ticketUrl = useDirectUrl
+    ? event.url!.trim()
+    : buildGoogleTicketsSearchUrl({
+        performer: eventName,
+        city,
+        venue: venueName,
+        dateYmd: localDate,
+      });
 
   const book_link: ConcertOutboundLink = useDirectUrl
     ? {
@@ -212,13 +265,13 @@ export function mapTmEventToResult(
       }
     : {
         url: ticketUrl,
-        provider: "Ticketmaster",
+        provider: "Google",
         category: "concert",
         link_type: "provider_search",
         label: "Find tickets",
         is_verified: false,
         confidence: "medium",
-        disclaimer: "Opens Ticketmaster search results for this event",
+        disclaimer: "Opens Google results for this show and date (multiple ticket options may appear)",
       };
 
   return {
@@ -388,17 +441,10 @@ function discoverEventDedupeKey(c: { event: TMEvent; metro: MetroConfig; ymd: st
   return `f:${c.metro.slug}|${c.ymd}|${art}`;
 }
 
-function discoverGenreArtistKey(c: { event: TMEvent }): string {
-  return (c.event._embedded?.attractions?.[0]?.name ?? c.event.name ?? "artist")
-    .split(/[,&]/)[0]
-    .trim()
-    .toLowerCase();
-}
-
 /**
- * Distinct diversityKey (e.g. headliner for genre, or event id for artist tour),
- * spread across calendar: first pick is earliest; each next pick maximizes minimum
- * day-distance to picks already chosen (ties → earlier date).
+ * Deduped events (per `diversityKey`, usually TM event id), spread across the calendar:
+ * first pick is earliest; each next pick maximizes minimum day-distance to dates already
+ * chosen (ties → earlier date).
  */
 function pickConcertsWithDateSpread(
   cands: { metro: MetroConfig; event: TMEvent; ymd: string }[],
@@ -511,12 +557,7 @@ export async function discoverConcertsFromCatalogMetros(params: {
     }
   }
 
-  if (artistKeyword) {
-    const picked = pickConcertsWithDateSpread(cands, maxReturn, discoverEventDedupeKey);
-    return picked.map((c) => tmEventToDiscoverOption(c.event, c.metro));
-  }
-
-  const picked = pickConcertsWithDateSpread(cands, maxReturn, discoverGenreArtistKey);
+  const picked = pickConcertsWithDateSpread(cands, maxReturn, discoverEventDedupeKey);
   return picked.map((c) => tmEventToDiscoverOption(c.event, c.metro));
 }
 

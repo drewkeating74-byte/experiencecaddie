@@ -105,6 +105,9 @@ export default function ExperienceBuilder() {
   const autoSubmitFiredRef = useRef(false);
   // When true, handleGenerate skips the discover_concerts step (used for featured package cards)
   const skipDiscoveryRef = useRef(false);
+  /** From /packages or homepage cards (?event_date= / ?venue=) — locks itinerary to that show. */
+  const [urlPackageEventDate, setUrlPackageEventDate] = useState("");
+  const [urlPackageVenue, setUrlPackageVenue] = useState("");
 
   // Prefill "New Trip" context when returning from an itinerary page.
   // This avoids forcing users to go back through the entire start flow.
@@ -117,6 +120,8 @@ export default function ExperienceBuilder() {
     const budgetParam = params.get("budget_tier") ?? "mid";
     const groupSizeParamRaw = params.get("group_size") ?? "2";
     const eventDetailsParam = params.get("event_details") ?? "";
+    const eventDateParam = params.get("event_date") ?? "";
+    const venueParam = params.get("venue") ?? "";
 
     const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
     const validBudgets = ["low", "mid", "high"] as const;
@@ -127,7 +132,14 @@ export default function ExperienceBuilder() {
       dateRegex.test(endParam) &&
       eventDetailsParam.trim().length > 0;
 
-    if (!hasCore) return;
+    if (!hasCore) {
+      setUrlPackageEventDate("");
+      setUrlPackageVenue("");
+      return;
+    }
+
+    setUrlPackageEventDate(dateRegex.test(eventDateParam) ? eventDateParam : "");
+    setUrlPackageVenue(venueParam.trim().slice(0, 200));
 
     const cityNormalized = cityParam.trim();
     const isFlexibleCity = !cityNormalized || cityNormalized.toLowerCase() === "flexible";
@@ -536,6 +548,22 @@ export default function ExperienceBuilder() {
         gold_golf_candidates: searchResult.gold_golf_candidates,
         hotels: searchResult.hotels?.slice(0, 6) || [],
       };
+      const packageConcertCity =
+        !flexibleLocation && selectedCities.length > 0 ? selectedCities[0].trim() : "";
+      const selectedConcertFromCard =
+        urlPackageEventDate &&
+        dateRegex.test(urlPackageEventDate) &&
+        selectedEntry === "artist" &&
+        eventInput.trim().length > 0 &&
+        packageConcertCity
+          ? {
+              artist: eventInput.trim(),
+              city: packageConcertCity,
+              date: urlPackageEventDate,
+              ...(urlPackageVenue.trim() ? { venue: urlPackageVenue.trim() } : {}),
+            }
+          : null;
+
       const payload = {
         user_id: user?.id || null,
         path: "golf_music",
@@ -549,6 +577,7 @@ export default function ExperienceBuilder() {
         search_results,
         email: user?.email || null,
         client_timezone: clientTz,
+        ...(selectedConcertFromCard ? { selected_concert: selectedConcertFromCard } : {}),
       };
       if (import.meta.env.DEV) {
         console.log("Payload (sanitized):", { ...payload, user_id: "[REDACTED]", email: "[REDACTED]", search_results: search_results ? "[INCLUDED]" : undefined });

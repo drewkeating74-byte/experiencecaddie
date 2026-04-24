@@ -2,7 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { reportError } from "../_shared/monitoring.ts";
 import {
-  buildTicketmasterSearchUrl,
+  buildGoogleTicketsSearchUrl,
   discoverConcertsFromCatalogMetros,
   parseFlexibleDateToYmd,
   resolveConcertFromTicketmaster,
@@ -334,8 +334,20 @@ serve(async (req) => {
               name: selectedConcert.venue || "Concert Venue",
               city: selectedConcert.city || effectiveCity,
             },
-            book_url: selectedConcert.url || buildTicketmasterSearchUrl(selectedConcert.artist),
-            source_url: selectedConcert.url || buildTicketmasterSearchUrl(selectedConcert.artist),
+            book_url: selectedConcert.url ||
+              buildGoogleTicketsSearchUrl({
+                performer: String(selectedConcert.artist).trim(),
+                city: String(selectedConcert.city || effectiveCity).trim(),
+                venue: selectedConcert.venue ? String(selectedConcert.venue).trim() : undefined,
+                dateYmd: selDate || undefined,
+              }),
+            source_url: selectedConcert.url ||
+              buildGoogleTicketsSearchUrl({
+                performer: String(selectedConcert.artist).trim(),
+                city: String(selectedConcert.city || effectiveCity).trim(),
+                venue: selectedConcert.venue ? String(selectedConcert.venue).trim() : undefined,
+                dateYmd: selDate || undefined,
+              }),
             provider: "user_selected",
           }];
         }
@@ -371,7 +383,9 @@ serve(async (req) => {
 
       events = events.filter((e: any) => {
         const ed = extractIsoDateYmd(e?.date_time);
-        return !ed || ed >= minTripYmd;
+        if (!ed) return true;
+        if (e.provider === "user_selected") return true;
+        return ed >= minTripYmd;
       });
 
       console.log("[TM_LINK_DEBUG] generate-itinerary input events", events.map((e: any) => ({ name: e.name, book_url: e.book_url, source_url: e.source_url })));
@@ -469,8 +483,13 @@ serve(async (req) => {
             // The user explicitly selected this concert, so always build the itinerary
             // around it using the best available date (picker hint) and a TM search link.
             const fallbackDate = hint || String(p.start_date).slice(0, 10);
-            const concertUrl = buildTicketmasterSearchUrl(String(selectedConcert.artist).trim());
-            console.log(`[CONCERT] TM + Perplexity unconfirmed for ${selectedConcert.artist} — using hint date ${fallbackDate} with TM search link`);
+            const concertUrl = buildGoogleTicketsSearchUrl({
+              performer: String(selectedConcert.artist).trim(),
+              city: String(selectedConcert.city || effectiveCity).trim(),
+              venue: selectedConcert.venue ? String(selectedConcert.venue).trim() : undefined,
+              dateYmd: fallbackDate,
+            });
+            console.log(`[CONCERT] TM + Perplexity unconfirmed for ${selectedConcert.artist} — using hint date ${fallbackDate} with Google ticket search link`);
             events = [{
               id: "selected_concert",
               name: String(selectedConcert.artist).trim(),
@@ -480,13 +499,13 @@ serve(async (req) => {
               source_url: concertUrl,
               book_link: {
                 url: concertUrl,
-                provider: "Ticketmaster",
+                provider: "Google",
                 category: "concert" as const,
                 link_type: "provider_search" as const,
                 label: "Find tickets",
                 is_verified: false,
                 confidence: "low" as const,
-                disclaimer: "Date sourced from web search — link opens Ticketmaster search results",
+                disclaimer: "Opens Google results for this show and date (multiple ticket options may appear)",
               },
               provider: "user_selected",
             }];
@@ -669,6 +688,7 @@ serve(async (req) => {
     const tripEndOk = /^\d{4}-\d{2}-\d{2}$/.test(tripEndYmd);
     const filterSearchEventsForTrip = (evts: unknown[] | undefined) =>
       (evts ?? []).filter((e: any) => {
+        if (e?.provider === "user_selected") return true;
         const ymd = extractIsoDateYmd(e?.date_time);
         if (!ymd) return true;
         if (ymd < genMinConcertYmd) return false;

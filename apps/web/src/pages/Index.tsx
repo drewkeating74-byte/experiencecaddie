@@ -214,6 +214,8 @@ function PackageCard({ pkg }: { pkg: Package }) {
       endDate   = after.toISOString().slice(0, 10);
     }
 
+    const eventYmd = eventDate ? String(eventDate).slice(0, 10) : "";
+    const venueName = event?.venues?.name ?? "";
     const params = new URLSearchParams({
       city,
       event_details: artistName,
@@ -222,6 +224,8 @@ function PackageCard({ pkg }: { pkg: Package }) {
       auto: "1",
       ...(startDate && { start_date: startDate }),
       ...(endDate && { end_date: endDate }),
+      ...(eventYmd && /^\d{4}-\d{2}-\d{2}$/.test(eventYmd) && { event_date: eventYmd }),
+      ...(venueName.trim() && { venue: venueName.trim() }),
     });
     return `/experience?${params.toString()}`;
   }
