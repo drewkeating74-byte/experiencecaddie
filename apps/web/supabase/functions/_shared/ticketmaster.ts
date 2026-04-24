@@ -20,6 +20,11 @@ export type TMEvent = {
   images?: Array<{ url?: string; width?: number }>;
   dates?: { start?: { localDate?: string; localTime?: string } };
   priceRanges?: Array<{ min?: number; max?: number }>;
+  classifications?: Array<{
+    segment?: { name?: string };
+    genre?: { name?: string };
+    subGenre?: { name?: string };
+  }>;
   _embedded?: {
     venues?: TMVenue[];
     attractions?: Array<{ name?: string }>;
@@ -111,6 +116,34 @@ export function venueMatchesUserCity(
   const lat = venue?.location?.latitude ? parseFloat(venue.location.latitude) : undefined;
   const lng = venue?.location?.longitude ? parseFloat(venue.location.longitude) : undefined;
   return venueInMetroRadius(metro, lat, lng);
+}
+
+/** True if the venue sits in the given catalog metro (anchor city or radius). */
+export function eventVenueBelongsToMetro(venue: TMVenue | undefined, metro: MetroConfig): boolean {
+  const anchor = metro.cities[0] ?? metro.label;
+  if (venueMatchesUserCity(anchor, venue)) return true;
+  const lat = venue?.location?.latitude ? parseFloat(venue.location.latitude) : undefined;
+  const lng = venue?.location?.longitude ? parseFloat(venue.location.longitude) : undefined;
+  return venueInMetroRadius(metro, lat, lng);
+}
+
+/** Best-effort genre filter using TM classifications + event title (comma-separated UI genres). */
+export function tmEventMatchesGenreTokens(event: TMEvent, genreTokens: string[]): boolean {
+  if (!genreTokens.length) return true;
+  const parts = (event.classifications ?? [])
+    .flatMap((c) => [c.segment?.name, c.genre?.name, c.subGenre?.name])
+    .filter(Boolean) as string[];
+  const blob = `${parts.join(" ")} ${event.name ?? ""}`.toLowerCase().replace(/\s+/g, " ");
+  return genreTokens.some((raw) => {
+    const t = raw.trim().toLowerCase();
+    if (!t) return false;
+    if (blob.includes(t)) return true;
+    const slash = t.replace(/\s*\/\s*/g, " ");
+    if (slash !== t && blob.includes(slash)) return true;
+    const words = t.split(/\s+/).filter((w) => w.length > 2);
+    if (words.length > 1) return words.every((w) => blob.includes(w));
+    return false;
+  });
 }
 
 export function tmEventMatchesArtistQuery(event: TMEvent, artist: string | undefined): boolean {
@@ -217,6 +250,8 @@ export async function fetchTicketmasterEvents(params: {
   startDate: string;
   endDate: string;
   size?: number;
+  /** Ticketmaster DMA id — when set, scopes events to that market (preferred for catalog metros). */
+  dmaId?: number | null;
 }): Promise<TMEvent[]> {
   const apiKey = Deno.env.get("TICKETMASTER_API_KEY") || Deno.env.get("TICKETMASTER_CONSUMER_KEY");
   if (!apiKey) throw new Error("TICKETMASTER_API_KEY or TICKETMASTER_CONSUMER_KEY not set");
@@ -227,8 +262,12 @@ export async function fetchTicketmasterEvents(params: {
   url.searchParams.set("size", String(params.size ?? 20));
   url.searchParams.set("sort", "date,asc");
   if (params.artist?.trim()) url.searchParams.set("keyword", params.artist.trim());
-  if (params.city?.trim() && params.city !== "flexible") url.searchParams.set("city", params.city.trim());
-  if (params.state?.trim()) url.searchParams.set("stateCode", params.state.trim().toUpperCase().slice(0, 2));
+  if (params.dmaId != null && params.dmaId > 0) {
+    url.searchParams.set("dmaId", String(params.dmaId));
+  } else {
+    if (params.city?.trim() && params.city !== "flexible") url.searchParams.set("city", params.city.trim());
+    if (params.state?.trim()) url.searchParams.set("stateCode", params.state.trim().toUpperCase().slice(0, 2));
+  }
   url.searchParams.set("startDateTime", `${params.startDate}T00:00:00Z`);
   url.searchParams.set("endDateTime", `${params.endDate}T23:59:59Z`);
   const res = await fetch(url.toString(), { signal: AbortSignal.timeout(12000) });
@@ -340,6 +379,103 @@ export async function resolveConcertFromTicketmaster(params: {
   }
 
   return mapTmEventToResult(chosen, city, state);
+}
+
+function tmEventToDiscoverOption(event: TMEvent, metro: MetroConfig): Record<string, unknown> {
+  const res = mapTmEventToResult(event, metro.cities[0], metro.state);
+  const venue = event._embedded?.venues?.[0];
+  const artist = event._embedded?.attractions?.[0]?.name ?? res.name;
+  return {
+    artist,
+    city: res.venue.city,
+    venue: venue?.name ?? res.venue.name,
+    date: res.date_time.slice(0, 10),
+    url: res.book_url,
+    _verified_ticketmaster: true,
+  };
+}
+
+/**
+ * Discovery picker: real Ticketmaster events only, scoped to catalog golf metros.
+ * Genre / artist filtering is best-effort against TM classifications + titles.
+ */
+export async function discoverConcertsFromCatalogMetros(params: {
+  metros: MetroConfig[];
+  startDate: string;
+  endDate: string;
+  artistKeyword?: string;
+  genreTokens: string[];
+  maxReturn: number;
+}): Promise<Array<Record<string, unknown>>> {
+  const apiKey = Deno.env.get("TICKETMASTER_API_KEY") || Deno.env.get("TICKETMASTER_CONSUMER_KEY");
+  if (!apiKey) {
+    console.warn("[DISCOVER_TM] TICKETMASTER key missing — discover returns empty");
+    return [];
+  }
+
+  const { metros, startDate, endDate, artistKeyword, genreTokens, maxReturn } = params;
+
+  const settled = await Promise.allSettled(
+    metros.map(async (metro) => {
+      const useDma = metro.ticketmasterDmaId != null && metro.ticketmasterDmaId > 0;
+      const events = await fetchTicketmasterEvents({
+        artist: artistKeyword,
+        startDate,
+        endDate,
+        size: artistKeyword ? 30 : 50,
+        dmaId: useDma ? metro.ticketmasterDmaId : null,
+        ...(!useDma ? { city: metro.cities[0], state: metro.state } : {}),
+      });
+      return { metro, events };
+    })
+  );
+
+  type Cand = { metro: MetroConfig; event: TMEvent; ymd: string };
+  const cands: Cand[] = [];
+  for (const s of settled) {
+    if (s.status !== "fulfilled") {
+      console.log("[DISCOVER_TM] metro fetch rejected:", s.reason);
+      continue;
+    }
+    const { metro, events } = s.value;
+    for (const e of events) {
+      const v = e._embedded?.venues?.[0];
+      if (!eventVenueBelongsToMetro(v, metro)) continue;
+      if (artistKeyword && !tmEventMatchesArtistQuery(e, artistKeyword)) continue;
+      if (!artistKeyword && genreTokens.length > 0 && !tmEventMatchesGenreTokens(e, genreTokens)) continue;
+      const ymd = e.dates?.start?.localDate ?? "";
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) continue;
+      cands.push({ metro, event: e, ymd });
+    }
+  }
+
+  if (artistKeyword) {
+    const byMetro = new Map<string, Cand>();
+    for (const c of cands.sort((a, b) => a.ymd.localeCompare(b.ymd))) {
+      if (byMetro.has(c.metro.slug)) continue;
+      byMetro.set(c.metro.slug, c);
+      if (byMetro.size >= maxReturn) break;
+    }
+    return Array.from(byMetro.values()).map((c) => tmEventToDiscoverOption(c.event, c.metro));
+  }
+
+  cands.sort((a, b) => a.ymd.localeCompare(b.ymd));
+  const picked: Cand[] = [];
+  const seenMetro = new Set<string>();
+  const seenArtist = new Set<string>();
+  for (const c of cands) {
+    const primary = (c.event._embedded?.attractions?.[0]?.name ?? c.event.name ?? "artist").split(/[,&]/)[0]
+      .trim()
+      .toLowerCase();
+    if (!primary || primary.length < 2) continue;
+    if (seenMetro.has(c.metro.slug)) continue;
+    if (seenArtist.has(primary)) continue;
+    seenMetro.add(c.metro.slug);
+    seenArtist.add(primary);
+    picked.push(c);
+    if (picked.length >= maxReturn) break;
+  }
+  return picked.map((c) => tmEventToDiscoverOption(c.event, c.metro));
 }
 
 /** After Perplexity discovery — keep only options that Ticketmaster confirms in-window. */

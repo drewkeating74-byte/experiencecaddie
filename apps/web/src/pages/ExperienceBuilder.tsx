@@ -601,10 +601,10 @@ export default function ExperienceBuilder() {
                 : "No verified packages found"}
             </h2>
             <p className="text-muted-foreground max-w-md">
-              We only pair trips with confirmed shows on real calendars (US arenas, 14+ days out) plus golf and hotels.{" "}
+              We only list shows we can match in Ticketmaster across our supported golf metros, 14+ days out.{" "}
               {artistName
-                ? `${artistName} may not have verified dates in this window or may not be on tour in the US right now.`
-                : "Try a different artist or city to find something available now."}
+                ? `${artistName} may have no upcoming stop in those cities in this window, or shows may not be listed yet.`
+                : "Try different genres, dates, or cities — or pick a specific artist and city you know is on sale."}
             </p>
           </div>
 

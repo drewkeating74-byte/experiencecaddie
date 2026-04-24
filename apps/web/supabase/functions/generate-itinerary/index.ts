@@ -3,16 +3,30 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { reportError } from "../_shared/monitoring.ts";
 import {
   buildTicketmasterSearchUrl,
+  discoverConcertsFromCatalogMetros,
   parseFlexibleDateToYmd,
   resolveConcertFromTicketmaster,
-  verifyDiscoveryConcertOptions,
 } from "../_shared/ticketmaster.ts";
+import { METROS, getMetroByCity, type MetroConfig } from "../_shared/golfCities.ts";
 import {
   addMonthsToYmd,
   extractIsoDateYmd,
   minTripStartYmdForTimezone,
   normalizeClientTimeZone,
 } from "../_shared/tripWindow.ts";
+
+/** Cities user selected must all map to catalog metros, or we fan out to all 29. */
+function resolveDiscoverTargetMetros(cityList: string[]): MetroConfig[] {
+  if (cityList.length === 0) return [...METROS];
+  const allSupported = cityList.every((c) => getMetroByCity(c) !== null);
+  if (allSupported) {
+    const metros = cityList.map((c) => getMetroByCity(c)).filter(Boolean) as MetroConfig[];
+    const bySlug = new Map<string, MetroConfig>();
+    for (const m of metros) bySlug.set(m.slug, m);
+    return Array.from(bySlug.values());
+  }
+  return [...METROS];
+}
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -210,7 +224,7 @@ serve(async (req) => {
       if (!validPaths.includes(p.path)) p.path = "golf_music";
       if (!validBudgets.includes(p.budget_tier)) p.budget_tier = "mid";
 
-      // Stage 1: Concert discovery — min 3 picks; up to 8 for wide "best shows" / surprise flows
+      // Stage 1: Concert discovery — Ticketmaster-only across catalog golf metros (no LLM inventing cities/dates).
       if (p.discover_concerts) {
         if (!p.start_date || !p.end_date) {
           return new Response(JSON.stringify({ error: "Missing start_date or end_date" }), {
@@ -225,307 +239,38 @@ serve(async (req) => {
         if (discStart < minTripYmd) discStart = minTripYmd;
         if (discEnd <= discStart) discEnd = maxEnd;
         if (discEnd > maxEnd) discEnd = maxEnd;
-        // Support multiple cities: comma-separated string or single value
+
         const rawCityInput = p.city && p.city !== "flexible" ? String(p.city).trim() : "";
         const cityList = rawCityInput
           ? rawCityInput.split(",").map((s: string) => s.trim()).filter(Boolean)
           : [];
-        const cityHint = cityList.length > 0
-          ? `Prioritize these cities: ${cityList.join(", ")}. Only use other cities if you can't reach ${10} options from this list.`
-          : "Search cities like Nashville, Phoenix, Austin, Las Vegas, Denver, Atlanta, Dallas, Tampa, Charlotte, Miami — places with large arenas and good golf nearby.";
-        const eventDetails = String(p.event_details || "").toLowerCase();
 
-        // Extract specific genres if the user explicitly selected any (not "any")
         const genreMatch = String(p.event_details || "").match(/genres:\s*(.+)$/i);
         const specifiedGenres = genreMatch ? genreMatch[1].trim() : null;
         const hasSpecificGenres = Boolean(specifiedGenres && specifiedGenres.toLowerCase() !== "any");
+        const genreTokens =
+          hasSpecificGenres && specifiedGenres
+            ? specifiedGenres.split(",").map((s) => s.trim()).filter(Boolean)
+            : [];
 
-        // Wide/broad flows only apply when no specific genres were chosen
-        const isBroadDiscover = !artistSearch && !hasSpecificGenres && (eventDetails.includes("genres: any") || eventDetails.includes("discover for me") || !eventDetails.trim());
-        const isSurpriseFlow = !artistSearch && !hasSpecificGenres && eventDetails.includes("surprise me");
-        /** Wide intent: best shows / fully flexible genres / surprise — ask for more LLM rows and return up to 7 after TM verify. */
-        const isWideDiscover = !artistSearch && (isBroadDiscover || isSurpriseFlow);
-        // All flows target at least 5 options so the picker always feels substantial.
-        // Artist search asks for 10 tour stops; discovery asks for 12 across different artists.
-        const MIN_DISCOVER_OPTIONS = 5;
-        const LLM_COUNT = artistSearch ? 10 : 12;
+        const targetMetros = resolveDiscoverTargetMetros(cityList);
         const MAX_RETURN = artistSearch ? 5 : 7;
-        const discoverMaxTokens = 2048;
 
-        const PREFERRED_CITIES = cityList.length > 0
-          ? cityList
-          : ["Nashville", "Austin", "Las Vegas", "Phoenix", "Dallas", "Atlanta", "Denver", "Tampa", "Charlotte", "Miami", "San Diego", "Los Angeles", "Seattle", "Chicago"];
+        console.log(
+          `[DISCOVER_TM] metros=${targetMetros.length} slug=${targetMetros.map((m) => m.slug).join(",")} ` +
+            `artist=${artistSearch || "(genre)"} genres=${genreTokens.join("|") || "any"} window=${discStart}..${discEnd}`
+        );
 
-        const genreDescription = artistSearch
-          ? `"${artistSearch}"`
-          : isWideDiscover
-          ? "any genre (pop, country, rock, hip-hop, R&B, Latin, etc.)"
-          : hasSpecificGenres
-          ? `${specifiedGenres} (include mainstream acts, rising stars, and any well-known touring ${specifiedGenres} artist — think broadly)`
-          : p.event_details
-          ? String(p.event_details).slice(0, 150)
-          : "popular";
-
-        const discoverPrompt = artistSearch
-          ? `Find up to ${LLM_COUNT} upcoming US tour dates for "${artistSearch}" in different cities between ${discStart} and ${discEnd}.
-
-Return ONLY valid JSON (no markdown):
-{"concert_options":[{"artist":"NAME","city":"CITY","venue":"VENUE","date":"YYYY-MM-DD","url":"TICKET_URL_OR_EMPTY"}]}
-
-Rules: US only, venue 3000+ capacity, each entry a different city, url can be empty string.`
-          : `Find ${LLM_COUNT} upcoming US concerts in the ${genreDescription} genre(s) between ${discStart} and ${discEnd}.
-
-CRITICAL REQUIREMENTS:
-1. Return exactly ${LLM_COUNT} different artists — if you cannot find ${LLM_COUNT}, return as many as you can (minimum 5)
-2. Each concert must be in a DIFFERENT city — no two concerts in the same city
-3. Preferred cities (use as many as possible): ${PREFERRED_CITIES.slice(0, 10).join(", ")} — but use ANY US city if needed to reach ${LLM_COUNT} results
-4. Do NOT skip cities just because your top choice is unavailable — find ANY ${genreDescription} artist playing there
-
-Return ONLY valid JSON (no markdown, no text before or after):
-{"concert_options":[{"artist":"NAME","city":"CITY","venue":"VENUE","date":"YYYY-MM-DD","url":"TICKET_URL_OR_EMPTY"}]}
-
-Rules: US only, venue 3000+ capacity, dates between ${discStart} and ${discEnd}, url can be empty string.`;
-
-        const discRes = await fetch("https://api.perplexity.ai/chat/completions", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${PERPLEXITY_API_KEY}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            model: "sonar-pro",
-            messages: [
-              { role: "system", content: "You are a concert data assistant. Return only valid JSON with no markdown fences, no explanation, and no extra text before or after the JSON object." },
-              { role: "user", content: discoverPrompt },
-            ],
-            temperature: 0.3,
-            max_tokens: discoverMaxTokens,
-          }),
-        });
-        if (!discRes.ok) {
-          const errText = await discRes.text();
-          console.error("Perplexity discover error:", discRes.status, errText);
-          let errMsg = "Concert discovery failed";
-          try {
-            const errJson = JSON.parse(errText);
-            errMsg = errJson?.error?.message || errJson?.error || errMsg;
-          } catch { /* use default */ }
-          return new Response(JSON.stringify({ error: errMsg }), {
-            status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
-        }
-        const discData = await discRes.json();
-        const discContent = discData.choices?.[0]?.message?.content;
-        if (!discContent) {
-          return new Response(JSON.stringify({ error: "Empty discovery response" }), {
-            status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
-        }
-        let concertOptions: any;
-        try {
-          // Strip markdown fences, then try to extract the JSON object even if surrounded by text
-          let cleaned = discContent.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-          // If not valid top-level JSON, try to find the first { ... } block
-          if (!cleaned.startsWith("{") && !cleaned.startsWith("[")) {
-            const start = cleaned.indexOf("{");
-            const end = cleaned.lastIndexOf("}");
-            if (start !== -1 && end > start) cleaned = cleaned.slice(start, end + 1);
-          }
-          concertOptions = JSON.parse(cleaned);
-        } catch {
-          const lower = discContent.toLowerCase();
-          const cannotFind = [
-            "no upcoming", "couldn't find", "could not find", "not touring",
-            "no concerts", "unable to", "i don't have", "i cannot", "i'm unable",
-            "no results", "no information", "i apologize", "not available",
-          ];
-          if (cannotFind.some((kw) => lower.includes(kw))) {
-            console.log("[DISCOVER] LLM returned no-results text, triggering backfill-only path");
-            concertOptions = { concert_options: [] };
-          } else {
-            console.error("Failed to parse discovery JSON:", discContent.substring(0, 500));
-            // Try one more time — extract anything that looks like a JSON array
-            const arrStart = discContent.indexOf("[");
-            const arrEnd = discContent.lastIndexOf("]");
-            if (arrStart !== -1 && arrEnd > arrStart) {
-              try {
-                const arr = JSON.parse(discContent.slice(arrStart, arrEnd + 1));
-                concertOptions = { concert_options: arr };
-              } catch {
-                concertOptions = { concert_options: [] };
-              }
-            } else {
-              concertOptions = { concert_options: [] };
-            }
-          }
-        }
-
-        // Preserve every raw LLM row before any filtering — emergency fallback if nothing else survives.
-        const rawLlmOpts: Record<string, unknown>[] = (concertOptions.concert_options || []).map((c: Record<string, unknown>) => ({ ...c }));
-
-        const optionYmd = (c: Record<string, unknown>): string | null => {
-          const raw = String(c.date || c.event_date || c.eventDate || "").trim();
-          if (!raw) return null;
-          return parseFlexibleDateToYmd(raw) || (raw.match(/^(\d{4}-\d{2}-\d{2})/)?.[1] ?? null);
-        };
-
-        let opts = rawLlmOpts.filter((c: Record<string, unknown>) => {
-          const ymd = optionYmd(c);
-          if (!ymd) return false;
-          return ymd >= minTripYmd && ymd <= discEnd;
+        let opts = await discoverConcertsFromCatalogMetros({
+          metros: targetMetros,
+          startDate: discStart,
+          endDate: discEnd,
+          artistKeyword: artistSearch || undefined,
+          genreTokens,
+          maxReturn: MAX_RETURN,
         });
 
-        // Deduplicate by artist (and by artist+city+date for single-artist tour searches).
-        const seenKeys = new Set<string>();
-        opts = opts.filter((c: Record<string, unknown>) => {
-          const artist = String(c.artist || "").toLowerCase().trim();
-          if (!artist) return false;
-          const cityKey = String(c.city || "").toLowerCase().trim();
-          const dateKey = String(c.date || c.event_date || c.eventDate || "").trim().slice(0, 10);
-          const key = artistSearch ? `${artist}|${cityKey}|${dateKey}` : artist;
-          if (seenKeys.has(key)) return false;
-          seenKeys.add(key);
-          return true;
-        });
-
-        // Enforce one concert per city (LLM often ignores this constraint).
-        // For single-artist tour searches every city slot is intentional, so skip.
-        if (!artistSearch) {
-          const seenCities = new Set<string>();
-          opts = opts.filter((c: Record<string, unknown>) => {
-            const cityNorm = String(c.city || "").toLowerCase().trim();
-            if (!cityNorm || seenCities.has(cityNorm)) return false;
-            seenCities.add(cityNorm);
-            return true;
-          });
-        }
-
-        if (opts.length === 0 && rawLlmOpts.length > 0) {
-          console.log(`[DISCOVER] strict date filter removed all ${rawLlmOpts.length} LLM options — retrying raw with minTrip only`);
-          const seenArtist = new Set<string>();
-          const seenCity = new Set<string>();
-          opts = rawLlmOpts.filter((c: Record<string, unknown>) => {
-            const ymd = optionYmd(c);
-            if (!ymd || ymd < minTripYmd || ymd > discEnd) return false;
-            const artist = String(c.artist || "").toLowerCase().trim();
-            const city = String(c.city || "").toLowerCase().trim();
-            if (!artist) return false;
-            if (seenArtist.has(artist)) return false;
-            if (!artistSearch && city && seenCity.has(city)) return false;
-            seenArtist.add(artist);
-            if (city) seenCity.add(city);
-            return true;
-          });
-        }
-
-        const preVerifyOpts = opts.map((c) => ({ ...c })) as Record<string, unknown>[];
-
-        // Replace LLM guesses with Ticketmaster-verified date, venue, and URL (US shows only).
-        let verifiedOpts = await verifyDiscoveryConcertOptions(preVerifyOpts, discStart, discEnd);
-        verifiedOpts = verifiedOpts.filter((v) => {
-          const d = String(v.date || "").trim().slice(0, 10);
-          return /^\d{4}-\d{2}-\d{2}$/.test(d) && d >= minTripYmd && d <= discEnd;
-        });
-
-        // TM may drop rows. Backfill from the raw LLM set to keep the picker populated.
-        // These items are marked _verified_ticketmaster: false — the date comes from the
-        // LLM's web search and may be approximate. Strict TM/Perplexity verification is
-        // applied in Stage 2 when the user actually selects a concert and builds an itinerary.
-        const backfillPool = rawLlmOpts;
-        if (verifiedOpts.length < MIN_DISCOVER_OPTIONS && backfillPool.length > 0) {
-          const seenBackfill = new Set<string>();
-          for (const v of verifiedOpts) {
-            const a = String(v.artist || "").toLowerCase().trim();
-            const c = String(v.city || "").toLowerCase().trim();
-            const d = String(v.date || "").trim().slice(0, 10);
-            seenBackfill.add(artistSearch ? `${a}|${c}|${d}` : a);
-          }
-          for (const raw of backfillPool) {
-            if (verifiedOpts.length >= MIN_DISCOVER_OPTIONS) break;
-            const a = String(raw.artist || "").trim();
-            const keyArtist = a.toLowerCase();
-            const cityK = String(raw.city || "").toLowerCase().trim();
-            const dateK = String(raw.date || raw.event_date || raw.eventDate || "").trim().slice(0, 10);
-            const key = artistSearch ? `${keyArtist}|${cityK}|${dateK}` : keyArtist;
-            if (!keyArtist || seenBackfill.has(key)) continue;
-            seenBackfill.add(key);
-            const dateRaw = String(raw.date || raw.event_date || raw.eventDate || "").trim();
-            const ymd = parseFlexibleDateToYmd(dateRaw) || (dateRaw.match(/^(\d{4}-\d{2}-\d{2})/)?.[1] ?? "");
-            if (!ymd || ymd < minTripYmd || ymd > discEnd) continue;
-            verifiedOpts.push({
-              artist: a,
-              city: String(raw.city || "").trim() || "Various",
-              venue: String(raw.venue || "").trim() || "Venue TBD",
-              date: ymd,
-              url: buildTicketmasterSearchUrl(a),
-              _verified_ticketmaster: false,
-            });
-          }
-        }
-
-        // If still below minimum after backfill, make one more broad call with no city constraints.
-        // This helps niche genres (R&B, Jazz, Latin) where the LLM can't fill every city slot.
-        if (verifiedOpts.length < MIN_DISCOVER_OPTIONS && !artistSearch) {
-          const need = MIN_DISCOVER_OPTIONS - verifiedOpts.length;
-          const seenRetry = new Set(verifiedOpts.map((v) => String(v.artist || "").toLowerCase().trim()));
-          const seenRetryCities = new Set(verifiedOpts.map((v) => String(v.city || "").toLowerCase().trim()));
-          const retryGenre = hasSpecificGenres ? specifiedGenres : "popular";
-          const retryPrompt = `Find ${need + 3} more upcoming US ${retryGenre} concerts between ${discStart} and ${discEnd}. Any US city is fine. Return only artists NOT in this list: ${Array.from(seenRetry).join(", ") || "none"}.
-
-Return ONLY valid JSON:
-{"concert_options":[{"artist":"NAME","city":"CITY","venue":"VENUE","date":"YYYY-MM-DD","url":""}]}
-
-Rules: US only, venue 3000+ capacity, different artist each entry, url can be empty string.`;
-          try {
-            const retryRes = await fetch("https://api.perplexity.ai/chat/completions", {
-              method: "POST",
-              headers: { Authorization: `Bearer ${PERPLEXITY_API_KEY}`, "Content-Type": "application/json" },
-              body: JSON.stringify({
-                model: "sonar-pro",
-                messages: [
-                  { role: "system", content: "Return only valid JSON with no markdown." },
-                  { role: "user", content: retryPrompt },
-                ],
-                temperature: 0.5,
-                max_tokens: 1024,
-              }),
-            });
-            if (retryRes.ok) {
-              const retryData = await retryRes.json();
-              const retryContent = retryData.choices?.[0]?.message?.content || "";
-              let retryCleaned = retryContent.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-              if (!retryCleaned.startsWith("{")) {
-                const s = retryCleaned.indexOf("{"); const e = retryCleaned.lastIndexOf("}");
-                if (s !== -1 && e > s) retryCleaned = retryCleaned.slice(s, e + 1);
-              }
-              const retryParsed = JSON.parse(retryCleaned);
-              for (const r of (retryParsed.concert_options || [])) {
-                if (verifiedOpts.length >= MIN_DISCOVER_OPTIONS) break;
-                const a = String(r.artist || "").trim();
-                const cityR = String(r.city || "").toLowerCase().trim();
-                if (!a || seenRetry.has(a.toLowerCase())) continue;
-                if (seenRetryCities.has(cityR)) continue;
-                seenRetry.add(a.toLowerCase());
-                seenRetryCities.add(cityR);
-                const dateRaw = String(r.date || "").trim();
-                const ymd = parseFlexibleDateToYmd(dateRaw) || dateRaw.slice(0, 10);
-                if (!ymd || ymd < minTripYmd || ymd > discEnd) continue;
-                verifiedOpts.push({
-                  artist: a,
-                  city: String(r.city || "").trim() || "Various",
-                  venue: String(r.venue || "").trim() || "Venue TBD",
-                  date: ymd,
-                  url: buildTicketmasterSearchUrl(a),
-                  _verified_ticketmaster: false,
-                });
-              }
-            }
-          } catch (retryErr) {
-            console.log("[DISCOVER_RETRY] retry call failed:", retryErr);
-          }
-        }
-
-        opts = verifiedOpts
+        opts = opts
           .filter((v) => {
             const d = String(v.date || "").trim().slice(0, 10);
             return /^\d{4}-\d{2}-\d{2}$/.test(d) && d >= minTripYmd && d <= discEnd;
