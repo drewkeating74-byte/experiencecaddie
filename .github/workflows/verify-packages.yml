@@ -15,6 +15,16 @@ on:
         required: false
         default: "false"
         type: boolean
+      dry_run:
+        description: "Preview only — no deactivations or URL updates"
+        required: false
+        default: "false"
+        type: boolean
+      strict_direct_tm:
+        description: "Require direct Ticketmaster event URL (stricter)"
+        required: false
+        default: "false"
+        type: boolean
 
 jobs:
   verify:
@@ -22,17 +32,27 @@ jobs:
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
       SUGGEST_INPUT: ${{ github.event.inputs.suggest || 'false' }}
+      DRY_RUN_INPUT: ${{ github.event.inputs.dry_run || 'false' }}
+      STRICT_TM_INPUT: ${{ github.event.inputs.strict_direct_tm || 'false' }}
 
     steps:
       - name: Invoke verify-packages
         env:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
-          SUGGEST=""
-          if [ "$SUGGEST_INPUT" = "true" ]; then SUGGEST="?suggest=1"; fi
+          Q=()
+          [ "$SUGGEST_INPUT" = "true" ] && Q+=("suggest=1")
+          [ "$DRY_RUN_INPUT" = "true" ] && Q+=("dry_run=1")
+          [ "$STRICT_TM_INPUT" = "true" ] && Q+=("strict_direct_tm=1")
+          QUERY=""
+          if [ ${#Q[@]} -gt 0 ]; then
+            IFS='&'
+            QUERY="?${Q[*]}"
+            unset IFS
+          fi
           RESPONSE=$(curl -s -w "\n%{http_code}" \
             -X POST \
-            "https://kxibaydbhquospzoefva.supabase.co/functions/v1/verify-packages${SUGGEST}" \
+            "https://kxibaydbhquospzoefva.supabase.co/functions/v1/verify-packages${QUERY}" \
             -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
             -H "Content-Type: application/json" \
             -H "apikey: $SUPABASE_SERVICE_ROLE_KEY")

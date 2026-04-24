@@ -8,7 +8,10 @@
  *
  * Auth: Authorization: Bearer <SUPABASE_SERVICE_ROLE_KEY>
  *
- * Query: ?suggest=1 — include metro_gaps (catalog metros with zero active curated packages).
+ * Query:
+ *   ?suggest=1 — include metro_gaps (catalog metros with zero active curated packages).
+ *   ?dry_run=1 — report only; no DB writes (use before a real run).
+ *   ?strict_direct_tm=1 — require a direct Ticketmaster event URL from resolution (not Google fallback).
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { METROS, getMetroByCity } from "../_shared/golfCities.ts";
@@ -37,6 +40,22 @@ function toYmd(val: unknown): string | null {
   if (val == null) return null;
   const s = String(val).trim().slice(0, 10);
   return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
+}
+
+/** True if at least one significant token overlaps (catches wrong venue on same night). */
+function venuesRoughlyMatch(catalogVenue: string, ticketmasterVenue: string): boolean {
+  const words = (s: string) =>
+    s
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim()
+      .split(/\s+/)
+      .filter((w) => w.length > 2);
+  const a = words(catalogVenue);
+  const b = words(ticketmasterVenue);
+  if (a.length === 0 || b.length === 0) return true;
+  const bset = new Set(b);
+  return a.some((w) => bset.has(w));
 }
 
 async function updatePackage(
@@ -112,7 +131,10 @@ Deno.serve(async (req) => {
     return json({ error: "TICKETMASTER_API_KEY not configured — cannot verify packages" }, 503);
   }
 
-  const suggest = new URL(req.url).searchParams.get("suggest") === "1";
+  const url = new URL(req.url);
+  const suggest = url.searchParams.get("suggest") === "1";
+  const dryRun = url.searchParams.get("dry_run") === "1";
+  const strictDirectTm = url.searchParams.get("strict_direct_tm") === "1";
 
   const sb = createClient(supabaseUrl, serviceKey);
 
@@ -133,6 +155,8 @@ Deno.serve(async (req) => {
   }
 
   const result = {
+    dry_run: dryRun,
+    strict_direct_tm: strictDirectTm,
     checked: 0,
     verified_ok: 0,
     deactivated: 0,
@@ -143,6 +167,7 @@ Deno.serve(async (req) => {
       name: string;
       outcome: "ok" | "deactivated" | "skipped";
       reason?: string;
+      ticketmaster_venue?: string;
     }>,
   };
 
@@ -171,13 +196,15 @@ Deno.serve(async (req) => {
     }
 
     if (eventYmd < today) {
-      await updatePackage(sb, row.id, {
-        active: false,
-        featured: false,
-        last_ticketmaster_check_at: new Date().toISOString(),
-        ticketmaster_last_ok: false,
-      });
       result.deactivated++;
+      if (!dryRun) {
+        await updatePackage(sb, row.id, {
+          active: false,
+          featured: false,
+          last_ticketmaster_check_at: new Date().toISOString(),
+          ticketmaster_last_ok: false,
+        });
+      }
       result.details.push({
         package_id: row.id,
         name: row.name,
@@ -187,7 +214,6 @@ Deno.serve(async (req) => {
       continue;
     }
 
-    result.checked++;
     const winStart = addCalendarDaysYmd(eventYmd, -90);
     const winEnd = addCalendarDaysYmd(eventYmd, 90);
 
@@ -211,51 +237,77 @@ Deno.serve(async (req) => {
       continue;
     }
 
+    result.checked++;
     const resolvedYmd = resolved ? resolved.date_time.slice(0, 10) : null;
-    const ok = Boolean(resolved && resolvedYmd === eventYmd);
+    let ok = Boolean(resolved && resolvedYmd === eventYmd);
+    let blockReason: string | undefined;
+
+    if (ok && resolved) {
+      const pkgVenue = ev?.venues?.name?.trim() ?? "";
+      const tmVenue = resolved.venue?.name?.trim() ?? "";
+      if (pkgVenue.length > 3 && tmVenue.length > 3 && !venuesRoughlyMatch(pkgVenue, tmVenue)) {
+        ok = false;
+        blockReason = `venue mismatch: catalog "${pkgVenue}" vs Ticketmaster "${tmVenue}"`;
+      }
+    }
+    if (ok && resolved && strictDirectTm && resolved.book_link?.link_type !== "direct_event") {
+      ok = false;
+      blockReason = blockReason ?? "no direct Ticketmaster event URL (strict_direct_tm)";
+    }
 
     if (ok && resolved) {
       result.verified_ok++;
-      await updatePackage(sb, row.id, {
-        last_ticketmaster_check_at: new Date().toISOString(),
-        ticketmaster_last_ok: true,
-      });
+      if (!dryRun) {
+        await updatePackage(sb, row.id, {
+          last_ticketmaster_check_at: new Date().toISOString(),
+          ticketmaster_last_ok: true,
+        });
 
-      const evId = ev?.id ?? row.event_id;
-      const linkType = resolved.book_link?.link_type;
-      const newUrl = resolved.book_url?.trim();
-      if (evId && linkType === "direct_event" && newUrl && newUrl.startsWith("https://")) {
-        const old = ev?.ticket_url ?? "";
-        if (old !== newUrl) {
-          await sb
-            .from("events")
-            .update({ ticket_url: newUrl, updated_at: new Date().toISOString() })
-            .eq("id", evId);
-          result.ticket_url_refreshed++;
+        const evId = ev?.id ?? row.event_id;
+        const linkType = resolved.book_link?.link_type;
+        const newUrl = resolved.book_url?.trim();
+        if (evId && linkType === "direct_event" && newUrl && newUrl.startsWith("https://")) {
+          const old = ev?.ticket_url ?? "";
+          if (old !== newUrl) {
+            await sb
+              .from("events")
+              .update({ ticket_url: newUrl, updated_at: new Date().toISOString() })
+              .eq("id", evId);
+            result.ticket_url_refreshed++;
+          }
         }
       }
 
-      result.details.push({ package_id: row.id, name: row.name, outcome: "ok" });
+      result.details.push({
+        package_id: row.id,
+        name: row.name,
+        outcome: "ok",
+        ticketmaster_venue: resolved.venue?.name,
+      });
     } else {
       result.deactivated++;
-      await updatePackage(sb, row.id, {
-        active: false,
-        featured: false,
-        last_ticketmaster_check_at: new Date().toISOString(),
-        ticketmaster_last_ok: false,
-      });
+      if (!dryRun) {
+        await updatePackage(sb, row.id, {
+          active: false,
+          featured: false,
+          last_ticketmaster_check_at: new Date().toISOString(),
+          ticketmaster_last_ok: false,
+        });
+      }
 
       const reason =
-        resolved == null
+        blockReason ??
+        (resolved == null
           ? "no matching Ticketmaster event in window"
-          : `Ticketmaster date ${resolvedYmd} !== package ${eventYmd}`;
+          : `Ticketmaster date ${resolvedYmd} !== package ${eventYmd}`);
       result.details.push({
         package_id: row.id,
         name: row.name,
         outcome: "deactivated",
         reason,
+        ...(resolved?.venue?.name ? { ticketmaster_venue: resolved.venue.name } : {}),
       });
-      console.log(`[verify-packages] deactivated ${row.id} — ${reason}`);
+      console.log(`[verify-packages] ${dryRun ? "[dry_run] would deactivate" : "deactivated"} ${row.id} — ${reason}`);
     }
 
     await new Promise((r) => setTimeout(r, 200));
@@ -286,7 +338,7 @@ Deno.serve(async (req) => {
   }
 
   console.log(
-    `[verify-packages] done checked=${result.checked} ok=${result.verified_ok} deactivated=${result.deactivated} skipped=${result.skipped_incomplete} urls=${result.ticket_url_refreshed}`
+    `[verify-packages] done dry_run=${dryRun} checked=${result.checked} ok=${result.verified_ok} deactivated=${result.deactivated} skipped=${result.skipped_incomplete} urls=${result.ticket_url_refreshed}`
   );
 
   return json({ ...result, ...(suggest ? { metro_gaps } : {}) });
