@@ -39,6 +39,7 @@ interface GolfCourseRow {
   last_verified_at: string | null;
   excluded_reason: string | null;
   active: boolean | null;
+  created_at: string | null;
 }
 
 // ── Badge helpers ──────────────────────────────────────────────────────────────
@@ -124,12 +125,29 @@ const EXCLUDE_REASONS = [
 // ── Filter tabs ────────────────────────────────────────────────────────────────
 
 const STATUS_TABS = [
-  { value: "all",          label: "All" },
-  { value: "needs_review", label: "Needs Review" },
-  { value: "unreviewed",   label: "Unreviewed" },
-  { value: "verified",     label: "Verified" },
-  { value: "excluded",     label: "Excluded" },
+  { value: "all",            label: "All" },
+  { value: "review_queue",   label: "Review queue" },
+  { value: "unreviewed",     label: "Unreviewed" },
+  { value: "needs_review",   label: "Needs review" },
+  { value: "verified",       label: "Verified" },
+  { value: "excluded",       label: "Excluded" },
 ];
+
+/** Canonical status string (null DB → treated as unreviewed for workflows). */
+function effectiveStatus(raw: string | null): string {
+  return canonStatus(raw) ?? "unreviewed";
+}
+
+function isInReviewQueue(raw: string | null): boolean {
+  const s = effectiveStatus(raw);
+  return s === "unreviewed" || s === "needs_review";
+}
+
+/** Normalize DB status for filtering (handles stray spaces / casing). */
+function canonStatus(raw: string | null): string | null {
+  const s = (raw ?? "").trim().toLowerCase();
+  return s || null;
+}
 
 // ── Component ──────────────────────────────────────────────────────────────────
 
@@ -139,7 +157,7 @@ export default function GolfReview() {
 
   const [courses, setCourses] = useState<GolfCourseRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState("needs_review");
+  const [statusFilter, setStatusFilter] = useState("review_queue");
   const [privateOnly, setPrivateOnly] = useState(false);
   const [staleOnly, setStaleOnly] = useState(false);
   const [search, setSearch] = useState("");
@@ -157,15 +175,38 @@ export default function GolfReview() {
 
   const loadCourses = async () => {
     setLoading(true);
+    const cols =
+      "id,name,city,state,metro,verification_status,course_type,public_access_confidence,last_verified_at,excluded_reason,active,created_at";
     const { data, error } = await (supabase as any)
       .from("golf_courses")
-      .select("id,name,city,state,metro,verification_status,course_type,public_access_confidence,last_verified_at,excluded_reason,active")
-      .order("verification_status", { ascending: true })
-      .order("public_access_confidence", { ascending: true })
-      .order("name", { ascending: true })
-      .limit(300);
-    if (error) toast.error("Failed to load courses: " + error.message);
-    else setCourses(data ?? []);
+      .select(cols)
+      .limit(10000);
+
+    if (error) {
+      toast.error("Failed to load courses: " + error.message);
+      setCourses([]);
+      setLoading(false);
+      return;
+    }
+
+    const rows = ((data ?? []) as GolfCourseRow[]).map((r) => ({
+      ...r,
+      verification_status: canonStatus(r.verification_status),
+    }));
+
+    const rank = (s: string | null) =>
+      s === "unreviewed" || !s ? 0 : s === "needs_review" ? 1 : 2;
+
+    rows.sort((a, b) => {
+      const d = rank(a.verification_status) - rank(b.verification_status);
+      if (d !== 0) return d;
+      const ca = a.created_at ?? "";
+      const cb = b.created_at ?? "";
+      if (rank(a.verification_status) < 2) return cb.localeCompare(ca);
+      return (a.name ?? "").localeCompare(b.name ?? "", undefined, { sensitivity: "base" });
+    });
+
+    setCourses(rows);
     setLoading(false);
   };
 
@@ -210,7 +251,14 @@ export default function GolfReview() {
   // ── Filtering ────────────────────────────────────────────────────────────────
 
   const filtered = courses.filter((c) => {
-    if (statusFilter !== "all" && c.verification_status !== statusFilter) return false;
+    const eff = effectiveStatus(c.verification_status);
+    if (statusFilter === "all") {
+      /* keep row */
+    } else if (statusFilter === "review_queue") {
+      if (!isInReviewQueue(c.verification_status)) return false;
+    } else if (eff !== statusFilter) {
+      return false;
+    }
     if (privateOnly && !isPrivateConcern(c)) return false;
     if (staleOnly && !isStale(c.last_verified_at)) return false;
     if (search) {
@@ -228,9 +276,12 @@ export default function GolfReview() {
   // ── Counts ───────────────────────────────────────────────────────────────────
 
   const counts = STATUS_TABS.reduce<Record<string, number>>((acc, t) => {
-    acc[t.value] = t.value === "all"
-      ? courses.length
-      : courses.filter((c) => c.verification_status === t.value).length;
+    if (t.value === "all") acc[t.value] = courses.length;
+    else if (t.value === "review_queue") {
+      acc[t.value] = courses.filter((c) => isInReviewQueue(c.verification_status)).length;
+    } else {
+      acc[t.value] = courses.filter((c) => effectiveStatus(c.verification_status) === t.value).length;
+    }
     return acc;
   }, {});
 
@@ -251,7 +302,8 @@ export default function GolfReview() {
         <div>
           <h1 className="font-serif text-3xl font-bold">Golf Course Review</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {courses.length} courses — {privateCount} flagged as private/likely-private — {staleCount} stale (&gt;{STALE_DAYS}d)
+            {courses.length} courses — {privateCount} flagged as private/likely-private — {staleCount} stale (&gt;{STALE_DAYS}d).
+            Default tab is <strong className="text-foreground">Review queue</strong> (<span className="text-foreground">unreviewed</span> + <span className="text-foreground">needs review</span>). Use <strong>Unreviewed</strong> alone if you only want never-touched imports.
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={loadCourses} disabled={loading}>
@@ -307,7 +359,11 @@ export default function GolfReview() {
             checked={staleOnly}
             onCheckedChange={setStaleOnly}
           />
-          <Label htmlFor="stale-filter" className="text-xs cursor-pointer">
+          <Label
+            htmlFor="stale-filter"
+            className="text-xs cursor-pointer"
+            title={`Only shows rows with no verified timestamp or last verified more than ${STALE_DAYS} days ago — hides newer needs_review rows`}
+          >
             <span className="inline-flex items-center gap-1">
               <Clock className="h-3 w-3 text-orange-500" />
               Stale only
@@ -338,6 +394,7 @@ export default function GolfReview() {
             <thead>
               <tr className="border-b border-border bg-muted/30 text-xs text-muted-foreground">
                 <th className="px-3 py-2.5 text-left font-medium">Course</th>
+                <th className="px-3 py-2.5 text-left font-medium">Added</th>
                 <th className="px-3 py-2.5 text-left font-medium">Location</th>
                 <th className="px-3 py-2.5 text-left font-medium">Status</th>
                 <th className="px-3 py-2.5 text-left font-medium">Access Type</th>
@@ -373,6 +430,16 @@ export default function GolfReview() {
                       >
                         <ExternalLink className="h-2.5 w-2.5" /> Search
                       </a>
+                    </td>
+
+                    <td className="px-3 py-2.5 text-xs text-muted-foreground whitespace-nowrap">
+                      {course.created_at
+                        ? new Date(course.created_at).toLocaleDateString("en-US", {
+                            month: "short",
+                            day: "numeric",
+                            year: "numeric",
+                          })
+                        : "—"}
                     </td>
 
                     {/* Location */}

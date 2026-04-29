@@ -1,24 +1,21 @@
 name: Golf Course Verification
 
-# Runs 4× daily at 03:00 / 09:00 / 15:00 / 21:00 UTC.
-# Each run invokes verify-golf-courses TWICE in sequence:
+# Scheduled runs are disabled: new / unreviewed courses are handled in the
+# admin Golf Course Review screen. Re-enable a `schedule:` block here if you
+# want the automated two-pass verifier (Places + optional Perplexity) again.
+#
+# Each manual run invokes verify-golf-courses TWICE in sequence:
 #   1) {"skip_llm": true}     — Pass 1 only (Google Places, cheap)
 #   2) {"skip_pass1": true}   — Pass 2 only (Perplexity)
 # A single combined run can exceed Supabase's Edge wall-clock and return
 # HTTP 546 (WORKER_LIMIT) when both passes are busy — splitting keeps each
-# invocation under the limit while preserving the same daily throughput.
+# invocation under the limit.
 #
 # Manual dispatch:
 #   - skip_llm=true  → one call, rule-based only (no Perplexity cost).
-#   - skip_llm=false → same two-step sequence as schedule.
-#
-# Future: annual full-catalog re-verification can be added as a second
-# schedule with a dedicated payload that resets verification_status on
-# all courses. Not needed at MVP scale.
+#   - skip_llm=false → same two-step sequence as above.
 
 on:
-  schedule:
-    - cron: "0 3,9,15,21 * * *"   # 4× daily UTC
   workflow_dispatch:
     inputs:
       skip_llm:
@@ -65,17 +62,11 @@ jobs:
             fi
           }
 
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            SKIP_LLM="${{ github.event.inputs.skip_llm }}"
-            echo "Manual run — skip_llm=${SKIP_LLM}"
-            if [ "$SKIP_LLM" = "true" ]; then
-              call_verify '{"skip_llm":true}' "rule-based only"
-            else
-              call_verify '{"skip_llm":true}' "step 1 — rule pass"
-              call_verify '{"skip_pass1":true}' "step 2 — LLM pass"
-            fi
+          SKIP_LLM="${{ github.event.inputs.skip_llm }}"
+          echo "Manual run — skip_llm=${SKIP_LLM}"
+          if [ "$SKIP_LLM" = "true" ]; then
+            call_verify '{"skip_llm":true}' "rule-based only"
           else
-            echo "Scheduled run — two-step (rule pass, then LLM pass)"
             call_verify '{"skip_llm":true}' "step 1 — rule pass"
             call_verify '{"skip_pass1":true}' "step 2 — LLM pass"
           fi
