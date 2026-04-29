@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { toast } from "sonner";
 import { Plus, Trash2, Edit, Copy } from "lucide-react";
 import { normalizeOptionalHttpUrl } from "@/lib/httpUrl";
+import { fetchAllPaged } from "@/lib/adminTableFetch";
 import {
   getPackageInventoryStatus,
   getAdminExpirationLabel,
@@ -77,25 +78,44 @@ export function AdminPackagesManager() {
 
   const refresh = async () => {
     setLoading(true);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data } = await (supabase.from("packages") as any)
-      .select("*, events(name, event_date, artists(name), venues(name)), golf_courses(name), destinations(name, city))")
-      .order("updated_at", { ascending: false });
-    if (data) setItems(data as PkgRow[]);
-    setLoading(false);
+    try {
+      const rows = await fetchAllPaged<PkgRow>((from, to) =>
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (supabase.from("packages") as any)
+          .select(
+            "*, events(name, event_date, artists(name), venues(name)), golf_courses(name), destinations(name, city))",
+          )
+          .order("updated_at", { ascending: false })
+          .range(from, to),
+      );
+      setItems(rows);
+    } catch (e: unknown) {
+      toast.error(`Failed to load packages: ${e instanceof Error ? e.message : String(e)}`);
+      setItems([]);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
     refresh();
-    supabase.from("events").select("id, name, event_date").order("event_date").then(({ data }) => {
-      if (data) setEvents(data);
-    });
-    supabase.from("golf_courses").select("id, name").order("name").then(({ data }) => {
-      if (data) setCourses(data);
-    });
-    supabase.from("destinations").select("id, name, city").order("name").then(({ data }) => {
-      if (data) setDestinations(data);
-    });
+    fetchAllPaged<{ id: string; name: string; event_date: string }>((from, to) =>
+      supabase.from("events").select("id, name, event_date").order("event_date").range(from, to),
+    )
+      .then(setEvents)
+      .catch(() => toast.error("Failed to load events for package form"));
+
+    fetchAllPaged<{ id: string; name: string }>((from, to) =>
+      supabase.from("golf_courses").select("id, name").order("name").range(from, to),
+    )
+      .then(setCourses)
+      .catch(() => toast.error("Failed to load golf courses for package form"));
+
+    fetchAllPaged<{ id: string; name: string; city: string | null }>((from, to) =>
+      supabase.from("destinations").select("id, name, city").order("name").range(from, to),
+    )
+      .then(setDestinations)
+      .catch(() => toast.error("Failed to load destinations for package form"));
   }, []);
 
   const eventDateById = useMemo(() => {
