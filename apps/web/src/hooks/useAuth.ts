@@ -36,7 +36,6 @@ export function useAuth() {
         if (!mounted) return;
         setSession(session);
         setUser(session?.user ?? null);
-        setIsAdmin(false);
         finishLoading();
 
         if (session?.user) {
@@ -49,11 +48,21 @@ export function useAuth() {
             .eq("user_id", session.user.id)
             .eq("role", "admin")
             .maybeSingle())
-            .then(({ data }) => { if (mounted) { setIsAdmin(!!data); setAdminChecked(true); } })
-            .catch((err: unknown) => { console.error("Failed to check admin role:", err); if (mounted) setAdminChecked(true); });
+            .then(({ data }) => {
+              if (!mounted) return;
+              setIsAdmin(!!data);
+              setAdminChecked(true);
+            })
+            .catch((err: unknown) => {
+              console.error("Failed to check admin role:", err);
+              if (mounted) setAdminChecked(true);
+            });
         } else {
           clearUser();
-          if (mounted) setAdminChecked(true);
+          if (mounted) {
+            setIsAdmin(false);
+            setAdminChecked(true);
+          }
         }
       }
     );

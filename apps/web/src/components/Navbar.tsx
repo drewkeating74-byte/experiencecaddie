@@ -19,6 +19,12 @@ function authRedirectPath(location: ReturnType<typeof useLocation>): string {
   return fromQuery && fromQuery.startsWith("/") ? fromQuery : "/";
 }
 
+function scrollToTopSmooth() {
+  window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+  document.documentElement.scrollTop = 0;
+  document.body.scrollTop = 0;
+}
+
 export default function Navbar() {
   const { user, isAdmin, signOut } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -33,7 +39,11 @@ export default function Navbar() {
   return (
     <header className="sticky top-0 z-50 border-b border-border/50 bg-background/80 backdrop-blur-md">
       <nav className="container mx-auto flex h-16 items-center justify-between px-4">
-        <Link to="/" className="flex items-center gap-2">
+        <Link
+          to="/"
+          className="flex items-center gap-2"
+          onClick={() => scrollToTopSmooth()}
+        >
           <img src={ecLogo} alt="Experience Caddie logo" className="h-10 w-auto" />
           <span className="font-serif text-xl font-bold text-[#2D472C]">Experience</span>
           <span className="font-serif text-xl text-accent"> Caddie</span>
@@ -51,7 +61,13 @@ export default function Navbar() {
           {user ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="rounded-full">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="rounded-full"
+                  onClick={() => scrollToTopSmooth()}
+                >
                   <User className="h-5 w-5" />
                 </Button>
               </DropdownMenuTrigger>
