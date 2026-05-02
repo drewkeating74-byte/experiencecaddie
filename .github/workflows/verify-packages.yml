@@ -96,10 +96,10 @@ jobs:
             "  provider_errors: \(.provider_errors // 0)",
             "  skipped_incomplete: \(.skipped_incomplete // 0)",
             "  ticket_url_refreshed: \(.ticket_url_refreshed // 0)",
-            "  backfill_active_before: \(.backfill_result.active_curated_before // \"n/a\")",
-            "  backfill_gap: \(.backfill_result.gap // \"n/a\")",
-            "  backfill_candidates_considered: \(.backfill_result.candidates_considered // \"n/a\")",
-            "  backfill_inserted: \(.backfill_result.inserted // \"n/a\")"
+            "  backfill_active_before: \(.backfill_result.active_curated_before // "n/a")",
+            "  backfill_gap: \(.backfill_result.gap // "n/a")",
+            "  backfill_candidates_considered: \(.backfill_result.candidates_considered // "n/a")",
+            "  backfill_inserted: \(.backfill_result.inserted // "n/a")"
           ' || true
 
           if [ "$HTTP_STATUS" -lt 200 ] || [ "$HTTP_STATUS" -ge 300 ]; then
