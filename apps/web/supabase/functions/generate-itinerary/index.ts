@@ -254,7 +254,7 @@ serve(async (req) => {
             : [];
 
         const targetMetros = resolveDiscoverTargetMetros(cityList);
-        const MAX_RETURN = artistSearch ? 5 : 7;
+        const MAX_RETURN = 5;
 
         console.log(
           `[DISCOVER_TM] metros=${targetMetros.length} slug=${targetMetros.map((m) => m.slug).join(",")} ` +

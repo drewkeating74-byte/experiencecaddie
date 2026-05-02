@@ -433,7 +433,7 @@ export default function ExperienceBuilder() {
     const eventDetails = getEventDetails();
 
     if (useDiscoveryFlow && discoveryStep === "form") {
-      // Stage 1: Discover 3 concerts
+      // Stage 1: discover a short list of verified concerts before building the trip.
       setDiscoveryStep("discovering");
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 60000);

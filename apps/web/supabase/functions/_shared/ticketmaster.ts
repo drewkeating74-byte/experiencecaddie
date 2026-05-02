@@ -170,6 +170,24 @@ export function tmEventMatchesGenreTokens(event: TMEvent, genreTokens: string[])
   });
 }
 
+function tmEventGenreMatchConfidence(event: TMEvent, genreTokens: string[]): "none" | "title" | "classification" {
+  if (!genreTokens.length) return "classification";
+  const classificationBlob = (event.classifications ?? [])
+    .flatMap((c) => [c.segment?.name, c.genre?.name, c.subGenre?.name])
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+  const titleBlob = (event.name ?? "").toLowerCase().replace(/\s+/g, " ");
+  for (const raw of genreTokens) {
+    const needles = genreMatchNeedles(raw);
+    if (!needles.length) continue;
+    if (needles.some((n) => classificationBlob.includes(n))) return "classification";
+    if (needles.some((n) => titleBlob.includes(n))) return "title";
+  }
+  return "none";
+}
+
 export function tmEventMatchesArtistQuery(event: TMEvent, artist: string | undefined): boolean {
   if (!artist?.trim()) return true;
   const needle = artist.trim().toLowerCase();
@@ -332,6 +350,43 @@ export async function fetchTicketmasterEvents(params: {
   return data._embedded?.events ?? [];
 }
 
+async function fetchTicketmasterEventsPage(params: {
+  artist?: string;
+  city?: string;
+  state?: string;
+  startDate: string;
+  endDate: string;
+  size: number;
+  page: number;
+  dmaId?: number | null;
+}): Promise<TMEvent[]> {
+  const apiKey = Deno.env.get("TICKETMASTER_API_KEY") || Deno.env.get("TICKETMASTER_CONSUMER_KEY");
+  if (!apiKey) throw new Error("TICKETMASTER_API_KEY or TICKETMASTER_CONSUMER_KEY not set");
+  const url = new URL(`${BASE_URL}/events.json`);
+  url.searchParams.set("apikey", apiKey);
+  url.searchParams.set("countryCode", "US");
+  url.searchParams.set("classificationName", "Music");
+  url.searchParams.set("size", String(params.size));
+  url.searchParams.set("page", String(params.page));
+  url.searchParams.set("sort", "date,asc");
+  if (params.artist?.trim()) url.searchParams.set("keyword", params.artist.trim());
+  if (params.dmaId != null && params.dmaId > 0) {
+    url.searchParams.set("dmaId", String(params.dmaId));
+  } else {
+    if (params.city?.trim() && params.city !== "flexible") url.searchParams.set("city", params.city.trim());
+    if (params.state?.trim()) url.searchParams.set("stateCode", params.state.trim().toUpperCase().slice(0, 2));
+  }
+  url.searchParams.set("startDateTime", `${params.startDate}T00:00:00Z`);
+  url.searchParams.set("endDateTime", `${params.endDate}T23:59:59Z`);
+  const res = await fetch(url.toString(), { signal: AbortSignal.timeout(12000) });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Ticketmaster API error ${res.status}: ${text.slice(0, 200)}`);
+  }
+  const data = (await res.json()) as TMResponse;
+  return data._embedded?.events ?? [];
+}
+
 function daysBetween(aYmd: string, bYmd: string): number {
   const a = new Date(aYmd + "T12:00:00").getTime();
   const b = new Date(bYmd + "T12:00:00").getTime();
@@ -441,49 +496,169 @@ function discoverEventDedupeKey(c: { event: TMEvent; metro: MetroConfig; ymd: st
   return `f:${c.metro.slug}|${c.ymd}|${art}`;
 }
 
-/**
- * Deduped events (per `diversityKey`, usually TM event id), spread across the calendar:
- * first pick is earliest; each next pick maximizes minimum day-distance to dates already
- * chosen (ties → earlier date).
- */
-function pickConcertsWithDateSpread(
-  cands: { metro: MetroConfig; event: TMEvent; ymd: string }[],
-  maxReturn: number,
-  diversityKey: (c: { metro: MetroConfig; event: TMEvent; ymd: string }) => string
-): { metro: MetroConfig; event: TMEvent; ymd: string }[] {
-  const byDedupe = new Map<string, { metro: MetroConfig; event: TMEvent; ymd: string }>();
+type DiscoveryCandidate = {
+  metro: MetroConfig;
+  event: TMEvent;
+  ymd: string;
+  score: number;
+  artist: string;
+  city: string;
+};
+
+const DISCOVERY_WARM_WEATHER_METROS = new Set([
+  "las-vegas",
+  "phoenix",
+  "dallas",
+  "austin",
+  "nashville",
+  "atlanta",
+  "charlotte",
+  "tampa",
+  "miami",
+  "san-diego",
+  "los-angeles",
+  "new-orleans",
+  "palm-springs",
+  "orlando",
+  "houston",
+]);
+
+function eventMonth(ymd: string): number {
+  return Number(ymd.slice(5, 7));
+}
+
+function eventIsSeasonallyPlayable(metro: MetroConfig, ymd: string): boolean {
+  if (DISCOVERY_WARM_WEATHER_METROS.has(metro.slug)) return true;
+  const month = eventMonth(ymd);
+  if (metro.region === "Midwest" || metro.region === "Northeast") return month >= 5 && month <= 9;
+  if (metro.slug === "denver" || metro.slug === "seattle" || metro.slug === "portland") return month >= 5 && month <= 10;
+  return month >= 4 && month <= 10;
+}
+
+function eventLooksLikeAddOn(event: TMEvent): boolean {
+  return /parking|upgrade|club access|vip|lounge|fast lane|testing|do not purchase|parkwhiz|add-on|2-day ticket|cannot split|suite|premium|pass|tailgate|tribute|experience|immersive|jabbawockeez|blue man group|cirque|magic|piano man|sin city|male revue|burlesque|drag brunch/i.test(
+    event.name ?? ""
+  );
+}
+
+function venueTypeScore(name: string | undefined): number {
+  const venue = name ?? "";
+  if (/stadium|field/i.test(venue)) return 35;
+  if (/arena|center|centre|garden|forum|sphere/i.test(venue)) return 30;
+  if (/amphitheat(er|re)|outdoors|fairgrounds/i.test(venue)) return 25;
+  if (/theatre|theater|hall|ballroom|club/i.test(venue)) return 10;
+  return 0;
+}
+
+function scoreDiscoveryConcert(event: TMEvent, metro: MetroConfig, ymd: string, genreTokens: string[]): number {
+  const res = mapTmEventToResult(event, metro.cities[0], metro.state);
+  const venue = event._embedded?.venues?.[0];
+  const genreConfidence = tmEventGenreMatchConfidence(event, genreTokens);
+  let score = 0;
+  if (res.book_link.link_type === "direct_event") score += 45;
+  if (res.image_url) score += 25;
+  if (event._embedded?.attractions?.[0]?.name) score += 25;
+  if (res.price_min != null || res.price_max != null) score += 15;
+  score += venueTypeScore(venue?.name ?? res.venue.name);
+  if (genreConfidence === "classification") score += 35;
+  if (genreConfidence === "title") score += 10;
+  if (DISCOVERY_WARM_WEATHER_METROS.has(metro.slug) && eventMonth(ymd) >= 10) score += 12;
+  const daysFromStart = Math.max(0, daysBetween(ymd, new Date().toISOString().slice(0, 10)));
+  score += Math.max(0, 20 - Math.min(daysFromStart, 180) / 18);
+  return score;
+}
+
+async function fetchDiscoveryGenreEvents(params: {
+  city?: string;
+  state?: string;
+  startDate: string;
+  endDate: string;
+  dmaId?: number | null;
+  genreTokens: string[];
+}): Promise<TMEvent[]> {
+  const keywordQueries = Array.from(
+    new Set(
+      params.genreTokens.flatMap((g) =>
+        g
+          .toLowerCase()
+          .split(/\s*\/\s*|,\s*/)
+          .flatMap((part) => genreMatchNeedles(part))
+          .filter((part) => part.length > 2 && !part.includes("/"))
+      )
+    )
+  ).slice(0, 4);
+  const requests = [
+    fetchTicketmasterEventsPage({ ...params, size: 50, page: 0 }),
+    fetchTicketmasterEventsPage({ ...params, size: 50, page: 1 }),
+    ...keywordQueries.flatMap((artist) => [
+      fetchTicketmasterEventsPage({ ...params, artist, size: 50, page: 0 }),
+      fetchTicketmasterEventsPage({ ...params, artist, size: 50, page: 1 }),
+    ]),
+  ];
+  const pages = await Promise.allSettled(requests);
+  const byId = new Map<string, TMEvent>();
+  for (const page of pages) {
+    if (page.status !== "fulfilled") continue;
+    for (const event of page.value) {
+      byId.set(event.id ?? `${event.name}|${event.dates?.start?.localDate}`, event);
+    }
+  }
+  return [...byId.values()];
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T) => Promise<R>
+): Promise<PromiseSettledResult<R>[]> {
+  const results: PromiseSettledResult<R>[] = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const idx = next++;
+      try {
+        results[idx] = { status: "fulfilled", value: await mapper(items[idx]) };
+      } catch (reason) {
+        results[idx] = { status: "rejected", reason };
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker));
+  return results;
+}
+
+function pickBestDiverseConcerts(cands: DiscoveryCandidate[], maxReturn: number): DiscoveryCandidate[] {
+  const byDedupe = new Map<string, DiscoveryCandidate>();
   for (const c of cands) {
     const dk = discoverEventDedupeKey(c);
-    if (!byDedupe.has(dk)) byDedupe.set(dk, c);
+    const existing = byDedupe.get(dk);
+    if (!existing || c.score > existing.score) byDedupe.set(dk, c);
   }
-  let pool = Array.from(byDedupe.values()).sort((a, b) => a.ymd.localeCompare(b.ymd));
-  const picked: { metro: MetroConfig; event: TMEvent; ymd: string }[] = [];
-  const usedDiversity = new Set<string>();
+  const pool = Array.from(byDedupe.values()).sort((a, b) => b.score - a.score || a.ymd.localeCompare(b.ymd));
+  const picked: DiscoveryCandidate[] = [];
+  const usedMetros = new Set<string>();
+  const usedCities = new Set<string>();
+  const usedArtists = new Set<string>();
 
-  while (picked.length < maxReturn && pool.length > 0) {
-    const candidates = pool.filter((c) => !usedDiversity.has(diversityKey(c)));
-    if (candidates.length === 0) break;
+  const passes = [
+    (c: DiscoveryCandidate) => !usedMetros.has(c.metro.slug) && !usedArtists.has(c.artist.toLowerCase()),
+    (c: DiscoveryCandidate) => !usedCities.has(c.city.toLowerCase()) && !usedArtists.has(c.artist.toLowerCase()),
+    (c: DiscoveryCandidate) => !usedMetros.has(c.metro.slug),
+    (c: DiscoveryCandidate) => !usedCities.has(c.city.toLowerCase()),
+    (c: DiscoveryCandidate) => !usedArtists.has(c.artist.toLowerCase()),
+    () => true,
+  ];
 
-    let choice: (typeof cands)[0];
-    if (picked.length === 0) {
-      choice = candidates[0];
-    } else {
-      let best: (typeof cands)[0] | null = null;
-      let bestMinDist = -1;
-      for (const c of candidates) {
-        const minDist = Math.min(...picked.map((p) => daysBetween(p.ymd, c.ymd)));
-        if (minDist > bestMinDist || (minDist === bestMinDist && best != null && c.ymd < best.ymd)) {
-          bestMinDist = minDist;
-          best = c;
-        }
-      }
-      choice = best!;
+  for (const pass of passes) {
+    for (const c of pool) {
+      if (picked.length >= maxReturn) break;
+      if (picked.some((p) => discoverEventDedupeKey(p) === discoverEventDedupeKey(c))) continue;
+      if (!pass(c)) continue;
+      picked.push(c);
+      usedMetros.add(c.metro.slug);
+      usedCities.add(c.city.toLowerCase());
+      usedArtists.add(c.artist.toLowerCase());
     }
-
-    picked.push(choice);
-    usedDiversity.add(diversityKey(choice));
-    const evKey = discoverEventDedupeKey(choice);
-    pool = pool.filter((c) => discoverEventDedupeKey(c) !== evKey);
   }
 
   return picked;
@@ -523,23 +698,26 @@ export async function discoverConcertsFromCatalogMetros(params: {
 
   const { metros, startDate, endDate, artistKeyword, genreTokens, maxReturn } = params;
 
-  const settled = await Promise.allSettled(
-    metros.map(async (metro) => {
+  const settled = await mapWithConcurrency(
+    metros,
+    5,
+    async (metro) => {
       const useDma = metro.ticketmasterDmaId != null && metro.ticketmasterDmaId > 0;
-      const events = await fetchTicketmasterEvents({
+      const baseParams = {
         artist: artistKeyword,
         startDate,
         endDate,
-        size: artistKeyword ? 30 : 50,
         dmaId: useDma ? metro.ticketmasterDmaId : null,
         ...(!useDma ? { city: metro.cities[0], state: metro.state } : {}),
-      });
+      };
+      const events = artistKeyword
+        ? await fetchTicketmasterEvents({ ...baseParams, size: 30 })
+        : await fetchDiscoveryGenreEvents({ ...baseParams, genreTokens });
       return { metro, events };
-    })
+    }
   );
 
-  type Cand = { metro: MetroConfig; event: TMEvent; ymd: string };
-  const cands: Cand[] = [];
+  const cands: DiscoveryCandidate[] = [];
   for (const s of settled) {
     if (s.status !== "fulfilled") {
       console.log("[DISCOVER_TM] metro fetch rejected:", s.reason);
@@ -553,11 +731,16 @@ export async function discoverConcertsFromCatalogMetros(params: {
       if (!artistKeyword && genreTokens.length > 0 && !tmEventMatchesGenreTokens(e, genreTokens)) continue;
       const ymd = e.dates?.start?.localDate ?? "";
       if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) continue;
-      cands.push({ metro, event: e, ymd });
+      if (!eventIsSeasonallyPlayable(metro, ymd)) continue;
+      if (eventLooksLikeAddOn(e)) continue;
+      const score = scoreDiscoveryConcert(e, metro, ymd, genreTokens);
+      const artist = e._embedded?.attractions?.[0]?.name ?? e.name ?? "";
+      const city = v?.city?.name ?? metro.cities[0];
+      cands.push({ metro, event: e, ymd, score, artist, city });
     }
   }
 
-  const picked = pickConcertsWithDateSpread(cands, maxReturn, discoverEventDedupeKey);
+  const picked = pickBestDiverseConcerts(cands, maxReturn);
   return picked.map((c) => tmEventToDiscoverOption(c.event, c.metro));
 }
 
