@@ -115,6 +115,13 @@ export interface Package {
   /** Optional Fri–Sun (or similar) window for the trip; event should fall in range. */
   package_start_date?: string | null;
   package_end_date?: string | null;
+  verification_status?: "unverified" | "verified" | "needs_review" | "failed_twice" | "expired" | null;
+  verification_fail_count?: number | null;
+  last_verification_at?: string | null;
+  last_verification_failed_at?: string | null;
+  last_verification_source?: "ticketmaster" | "perplexity" | "manual" | "system" | null;
+  verification_notes?: string | null;
+  verification_evidence_url?: string | null;
   created_at: string;
   updated_at: string;
   // Joined

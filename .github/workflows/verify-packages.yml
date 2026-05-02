@@ -20,6 +20,11 @@ on:
         required: false
         default: "false"
         type: boolean
+      recover:
+        description: "Include inactive future packages and reactivate only verified rows"
+        required: false
+        default: "false"
+        type: boolean
       strict_direct_tm:
         description: "Require direct Ticketmaster event URL (stricter)"
         required: false
@@ -38,6 +43,7 @@ jobs:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
       SUGGEST_INPUT: ${{ github.event.inputs.suggest || 'false' }}
       DRY_RUN_INPUT: ${{ github.event.inputs.dry_run || 'false' }}
+      RECOVER_INPUT: ${{ github.event.inputs.recover || 'false' }}
       STRICT_TM_INPUT: ${{ github.event.inputs.strict_direct_tm || 'false' }}
       REQUIRE_VENUE_INPUT: ${{ github.event.inputs.require_venue_match || 'false' }}
 
@@ -49,6 +55,7 @@ jobs:
           Q=()
           [ "$SUGGEST_INPUT" = "true" ] && Q+=("suggest=1")
           [ "$DRY_RUN_INPUT" = "true" ] && Q+=("dry_run=1")
+          [ "$RECOVER_INPUT" = "true" ] && Q+=("recover=1")
           [ "$STRICT_TM_INPUT" = "true" ] && Q+=("strict_direct_tm=1")
           [ "$REQUIRE_VENUE_INPUT" = "true" ] && Q+=("require_venue_match=1")
           QUERY=""
@@ -69,6 +76,20 @@ jobs:
 
           echo "Status: $HTTP_STATUS"
           echo "Response: $HTTP_BODY"
+
+          echo "Verification summary:"
+          echo "$HTTP_BODY" | jq -r '
+            "  checked: \(.checked // 0)",
+            "  verified_ticketmaster: \(.verified_ticketmaster // 0)",
+            "  verified_perplexity: \(.verified_perplexity // 0)",
+            "  first_failed_needs_review: \(.first_failed // 0)",
+            "  second_failed_hidden: \(.second_failed_hidden // 0)",
+            "  expired_hidden: \(.expired_hidden // 0)",
+            "  recovered: \(.recovered // 0)",
+            "  provider_errors: \(.provider_errors // 0)",
+            "  skipped_incomplete: \(.skipped_incomplete // 0)",
+            "  ticket_url_refreshed: \(.ticket_url_refreshed // 0)"
+          ' || true
 
           if [ "$HTTP_STATUS" -lt 200 ] || [ "$HTTP_STATUS" -ge 300 ]; then
             echo "::error::verify-packages returned HTTP $HTTP_STATUS"

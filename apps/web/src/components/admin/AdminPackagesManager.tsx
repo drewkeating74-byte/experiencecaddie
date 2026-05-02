@@ -30,6 +30,13 @@ type PkgRow = PackageFreshnessInput & {
   created_at: string;
   updated_at: string;
   featured?: boolean | null;
+  verification_status?: "unverified" | "verified" | "needs_review" | "failed_twice" | "expired" | null;
+  verification_fail_count?: number | null;
+  last_verification_at?: string | null;
+  last_verification_failed_at?: string | null;
+  last_verification_source?: string | null;
+  verification_notes?: string | null;
+  verification_evidence_url?: string | null;
   events?: {
     name?: string;
     event_date?: string;
@@ -355,6 +362,31 @@ export function AdminPackagesManager() {
     return <Badge className="bg-emerald-700 text-white">Live</Badge>;
   };
 
+  const verificationBadge = (pkg: PkgRow) => {
+    const status = pkg.verification_status ?? "unverified";
+    if (status === "verified") {
+      return <Badge className="bg-emerald-700 text-white">Verified</Badge>;
+    }
+    if (status === "needs_review") {
+      return <Badge className="bg-amber-600 text-white">Needs review</Badge>;
+    }
+    if (status === "failed_twice") {
+      return <Badge variant="destructive">Failed twice</Badge>;
+    }
+    if (status === "expired") {
+      return <Badge variant="secondary">Expired</Badge>;
+    }
+    return <Badge variant="outline">Unverified</Badge>;
+  };
+
+  const verificationLine = (pkg: PkgRow) => {
+    const parts = [
+      pkg.last_verification_source ? `via ${pkg.last_verification_source}` : "",
+      pkg.verification_fail_count ? `${pkg.verification_fail_count} failed check${pkg.verification_fail_count === 1 ? "" : "s"}` : "",
+    ].filter(Boolean);
+    return parts.join(" · ");
+  };
+
   const venueLine = (pkg: PkgRow) => pkg.events?.venues?.name ?? "—";
   const cityLine = (pkg: PkgRow) => pkg.destinations?.city || pkg.destinations?.name || "—";
 
@@ -652,6 +684,7 @@ export function AdminPackagesManager() {
                   <TableHead>Venue</TableHead>
                   <TableHead>Event</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead>Verification</TableHead>
                   <TableHead>Expiry</TableHead>
                   <TableHead>Featured</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
@@ -685,6 +718,19 @@ export function AdminPackagesManager() {
                         : "—"}
                     </TableCell>
                     <TableCell>{statusBadge(p)}</TableCell>
+                    <TableCell className="max-w-[220px]">
+                      <div className="space-y-1">
+                        {verificationBadge(p)}
+                        {verificationLine(p) && (
+                          <div className="text-[11px] text-muted-foreground">{verificationLine(p)}</div>
+                        )}
+                        {p.verification_notes && (
+                          <div className="text-[11px] text-muted-foreground line-clamp-2" title={p.verification_notes}>
+                            {p.verification_notes}
+                          </div>
+                        )}
+                      </div>
+                    </TableCell>
                     <TableCell className="text-xs whitespace-nowrap">{getAdminExpirationLabel(p, now)}</TableCell>
                     <TableCell>
                       <button
