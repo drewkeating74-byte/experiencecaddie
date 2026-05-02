@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Music, MapPin, Calendar, Search, Check, ArrowRight, RefreshCw } from "lucide-react";
 import { DEFAULT_PACKAGE_IMAGE } from "@/lib/constants";
 import { logEvent } from "@/lib/analytics";
+import { supabase } from "@/integrations/supabase/client";
 import {
   comparePublicSoonestEventFirst,
   getPackageInventoryStatus,
@@ -28,6 +29,14 @@ function pkgCity(pkg: Package): string | null {
 }
 function pkgGolfName(pkg: Package): string | null {
   return (pkg as any).golf_course_name ?? pkg.golf_courses?.name ?? null;
+}
+
+/** Local calendar YYYY-MM-DD (matches how we interpret event_date + "T12:00:00"). */
+function formatLocalYmd(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 function getIncludes(pkg: Package): string[] {
@@ -94,26 +103,31 @@ export default function Packages() {
 
   useEffect(() => {
     const fetchPackages = async () => {
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-      const headers: Record<string, string> = {
-        "apikey": supabaseKey,
-        "Authorization": `Bearer ${supabaseKey}`,
-      };
-      const select = "*, events(*, artists(*), venues(*)), golf_courses(*), destinations(*)";
+      setLoading(true);
       const nowIso = new Date().toISOString();
-      let url = `${supabaseUrl}/rest/v1/packages?select=${encodeURIComponent(select)}&active=eq.true&or=(expires_at.is.null,expires_at.gt.${nowIso})`;
-      if (categoryFilter !== "all") {
-        url += `&category=eq.${encodeURIComponent(categoryFilter)}`;
-      }
       try {
-        const res = await fetch(url, { headers });
-        const data = await res.json();
-        if (Array.isArray(data)) setPackages(data as unknown as Package[]);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let q = (supabase as any)
+          .from("packages")
+          .select("*, events(*, artists(*), venues(*)), golf_courses(*), destinations(*)")
+          .eq("active", true)
+          .or(`expires_at.is.null,expires_at.gt.${nowIso}`);
+        if (categoryFilter !== "all") {
+          q = q.eq("category", categoryFilter);
+        }
+        const { data, error } = await q;
+        if (error) {
+          console.error("Failed to fetch packages:", error.message, error);
+          setPackages([]);
+          return;
+        }
+        setPackages(Array.isArray(data) ? (data as Package[]) : []);
       } catch (e) {
         console.error("Failed to fetch packages:", e);
+        setPackages([]);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     };
     fetchPackages();
   }, [categoryFilter]);
@@ -122,9 +136,9 @@ export default function Packages() {
   const destinations = [...new Set(packages.map(p => p.destinations?.name).filter(Boolean))] as string[];
 
   const now = new Date();
-  const tomorrow = new Date(now);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const tomorrowStr = tomorrow.toISOString().slice(0, 10);
+  const tomorrowLocal = new Date(now);
+  tomorrowLocal.setDate(tomorrowLocal.getDate() + 1);
+  const tomorrowStr = formatLocalYmd(tomorrowLocal);
   const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
   const in60Days = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000);
 

@@ -22,14 +22,16 @@ export default function Index() {
   useEffect(() => {
     const nowIso = new Date().toISOString();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (supabase as any)
+    void (supabase as any)
       .from("packages")
       .select("*, events(*, artists(*), venues(*)), golf_courses(*), destinations(*)")
-      .eq("featured", true)
       .eq("active", true)
       .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
       .limit(40)
-      .then(({ data }: { data: unknown }) => {
+      .then(({ data, error }: { data: unknown; error?: { message?: string } | null }) => {
+        if (error?.message) {
+          console.error("Failed to fetch featured packages:", error.message);
+        }
         if (data && Array.isArray(data)) {
           const arr = [...(data as Package[])];
           arr.sort(comparePublicFeaturedThenEvent);
