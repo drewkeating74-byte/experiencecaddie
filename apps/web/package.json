@@ -48,6 +48,7 @@
     "@sentry/vite-plugin": "^5.1.1",
     "@supabase/supabase-js": "^2.97.0",
     "@tanstack/react-query": "^5.83.0",
+    "@vercel/analytics": "^2.0.1",
     "@vercel/speed-insights": "^2.0.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
