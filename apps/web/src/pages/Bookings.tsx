@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Calendar, MapPin, Music } from "lucide-react";
 import { toast } from "sonner";
+import { formatUsDate } from "@/lib/dateFormat";
 
 const statusColors: Record<string, string> = {
   pending: "bg-yellow-100 text-yellow-800",
@@ -63,8 +64,8 @@ export default function Bookings() {
                   <div className="flex-1 space-y-1">
                     <h3 className="font-serif text-lg font-semibold">{pkg?.name || "Package"}</h3>
                     {event?.artists && <p className="flex items-center gap-1 text-sm text-muted-foreground"><Music className="h-3.5 w-3.5" />{event.artists.name}</p>}
-                    {booking.event_date && <p className="flex items-center gap-1 text-sm text-muted-foreground"><Calendar className="h-3.5 w-3.5" />{new Date(booking.event_date).toLocaleDateString()}</p>}
-                    <p className="text-sm text-muted-foreground">Booked: {new Date(booking.created_at).toLocaleDateString()}</p>
+                    {booking.event_date && <p className="flex items-center gap-1 text-sm text-muted-foreground"><Calendar className="h-3.5 w-3.5" />{formatUsDate(booking.event_date)}</p>}
+                    <p className="text-sm text-muted-foreground">Booked: {formatUsDate(booking.created_at)}</p>
                   </div>
                   <div className="flex items-center gap-4">
                     <div className="text-right">

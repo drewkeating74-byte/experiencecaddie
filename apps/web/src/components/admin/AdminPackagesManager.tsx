@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import { Plus, Trash2, Edit, Copy } from "lucide-react";
 import { normalizeOptionalHttpUrl } from "@/lib/httpUrl";
 import { fetchAllPaged } from "@/lib/adminTableFetch";
+import { formatUsDate } from "@/lib/dateFormat";
 import {
   getPackageInventoryStatus,
   getAdminExpirationLabel,
@@ -443,7 +444,7 @@ export function AdminPackagesManager() {
                     <SelectContent>
                       {events.map((e) => (
                         <SelectItem key={e.id} value={e.id}>
-                          {e.name} {e.event_date ? `(${e.event_date})` : ""}
+                          {e.name} {e.event_date ? `(${formatUsDate(e.event_date)})` : ""}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -709,13 +710,7 @@ export function AdminPackagesManager() {
                       {venueLine(p)}
                     </TableCell>
                     <TableCell className="text-sm whitespace-nowrap">
-                      {p.events?.event_date
-                        ? new Date(p.events.event_date + "T12:00:00").toLocaleDateString("en-US", {
-                            month: "short",
-                            day: "numeric",
-                            year: "numeric",
-                          })
-                        : "—"}
+                      {p.events?.event_date ? formatUsDate(p.events.event_date) : "—"}
                     </TableCell>
                     <TableCell>{statusBadge(p)}</TableCell>
                     <TableCell className="max-w-[220px]">

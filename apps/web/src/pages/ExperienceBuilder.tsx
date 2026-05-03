@@ -13,6 +13,7 @@ import { fetchSearch, buildFallbackSearchResponse } from "@/lib/api/search";
 import { addMonthsToYmd, getBrowserTimeZone, minTripStartYmdForTimezone } from "@/lib/tripWindow";
 import { normalizeOutboundLink } from "@/types/outbound-link";
 import { buildTicketUrl, getTicketOutboundCtaLabel } from "@/lib/outboundLinks";
+import { formatUsDate } from "@/lib/dateFormat";
 
 
 
@@ -718,7 +719,7 @@ export default function ExperienceBuilder() {
                       </p>
                       <p className="text-sm text-muted-foreground flex items-center gap-1">
                         <Calendar className="h-3.5 w-3 shrink-0" />
-                        {opt.date}
+                        {formatUsDate(opt.date)}
                       </p>
                     </div>
                     <Button

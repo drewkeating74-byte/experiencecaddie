@@ -16,6 +16,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { toast } from "sonner";
 import { Plus, Trash2, Edit, ExternalLink } from "lucide-react";
 import { normalizeOptionalHttpUrl } from "@/lib/httpUrl";
+import { formatUsDate } from "@/lib/dateFormat";
 import { AdminPackagesManager } from "@/components/admin/AdminPackagesManager";
 import type { KnownTable } from "@/lib/adminTableFetch";
 import { fetchAllIdNamePairs, fetchAllPaged } from "@/lib/adminTableFetch";
@@ -772,7 +773,7 @@ function AdminEvents() {
                       <TableCell className="font-medium">{e.name}</TableCell>
                       <TableCell>{e.artists?.name}</TableCell>
                       <TableCell>{e.venues?.name}</TableCell>
-                      <TableCell>{e.event_date}</TableCell>
+                      <TableCell>{formatUsDate(e.event_date)}</TableCell>
                       <TableCell>
                         {e.min_price ? `$${e.min_price}` : "—"}
                         {e.max_price ? ` – $${e.max_price}` : ""}
@@ -1059,7 +1060,7 @@ function AdminBookings() {
                   {items.map((b: any) => (
                     <TableRow key={b.id}>
                       <TableCell className="font-medium">{b.packages?.name}</TableCell>
-                      <TableCell>{b.event_date || b.booking_date}</TableCell>
+                      <TableCell>{formatUsDate(b.event_date || b.booking_date)}</TableCell>
                       <TableCell>{b.guests}</TableCell>
                       <TableCell>${b.total_price}</TableCell>
                       <TableCell><Badge>{b.status}</Badge></TableCell>

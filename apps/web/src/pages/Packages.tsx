@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Music, MapPin, Calendar, Search, Check, ArrowRight, RefreshCw } from "lucide-react";
 import { DEFAULT_PACKAGE_IMAGE } from "@/lib/constants";
 import { logEvent } from "@/lib/analytics";
+import { formatUsDate } from "@/lib/dateFormat";
 import { supabase } from "@/integrations/supabase/client";
 import {
   comparePublicSoonestEventFirst,
@@ -303,7 +304,7 @@ export default function Packages() {
                   )}
                   {pkgEventDate(pkg) && (
                     <p className="mt-1 flex items-center gap-1 text-sm text-muted-foreground">
-                      <Calendar className="h-3.5 w-3.5" /> {new Date(pkgEventDate(pkg)! + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      <Calendar className="h-3.5 w-3.5" /> {formatUsDate(pkgEventDate(pkg))}
                     </p>
                   )}
                   {getIncludes(pkg).length > 0 && (

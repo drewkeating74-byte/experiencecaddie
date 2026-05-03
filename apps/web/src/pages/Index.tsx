@@ -10,6 +10,7 @@ import heroImage from "@/assets/hero-image.jpg";
 import { DEFAULT_PACKAGE_IMAGE } from "@/lib/constants";
 import { logEvent } from "@/lib/analytics";
 import { comparePublicFeaturedThenEvent, getPackageInventoryStatus, daysUntilExpiration } from "@/lib/packageFreshness";
+import { formatUsDate } from "@/lib/dateFormat";
 
 const categories = [
   { icon: Music, label: "Golf + Concert", description: "Build a weekend around a show", link: "/experience" },
@@ -284,7 +285,7 @@ function PackageCard({ pkg }: { pkg: Package }) {
           )}
           {event?.event_date && (
             <p className="mt-1 flex items-center gap-1 text-sm text-muted-foreground">
-              <Calendar className="h-3.5 w-3.5" /> {new Date(event.event_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+              <Calendar className="h-3.5 w-3.5" /> {formatUsDate(event.event_date)}
             </p>
           )}
           <div className="mt-3 flex items-end justify-between">

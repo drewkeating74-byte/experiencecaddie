@@ -18,6 +18,7 @@ import {
   getGolfOutboundCtaLabel,
 } from "@/lib/outboundLinks";
 import { logEvent } from "@/lib/analytics";
+import { formatUsDate } from "@/lib/dateFormat";
 
 export default function PackageDetail() {
   const { id } = useParams<{ id: string }>();
@@ -122,7 +123,7 @@ export default function PackageDetail() {
                   <span className="text-muted-foreground">Date</span>
                   <span className="font-medium flex items-center gap-1">
                     <Calendar className="h-3.5 w-3.5" />
-                    {new Date(event.event_date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+                    {formatUsDate(event.event_date)}
                   </span>
                 </div>
                 {event.event_time && (
@@ -336,7 +337,7 @@ export default function PackageDetail() {
                 {event?.event_date && (
                   <div className="flex items-center gap-2">
                     <Calendar className="h-4 w-4 text-muted-foreground" />
-                    <span>{new Date(event.event_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                    <span>{formatUsDate(event.event_date)}</span>
                   </div>
                 )}
                 {destination && (

@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Music, MapPin, Calendar, Search, ExternalLink } from "lucide-react";
 import { buildTicketUrl, getTicketOutboundCtaLabel } from "@/lib/outboundLinks";
 import { logEvent } from "@/lib/analytics";
+import { formatUsDate } from "@/lib/dateFormat";
 
 export default function Events() {
   const [events, setEvents] = useState<Event[]>([]);
@@ -61,7 +62,7 @@ export default function Events() {
                 {event.venues && <p className="mt-1 flex items-center gap-1 text-sm text-muted-foreground"><MapPin className="h-3.5 w-3.5" />{event.venues.name}{event.venues.city ? `, ${event.venues.city}` : ""}</p>}
                 <p className="mt-1 flex items-center gap-1 text-sm text-muted-foreground">
                   <Calendar className="h-3.5 w-3.5" />
-                  {new Date(event.event_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                  {formatUsDate(event.event_date)}
                 </p>
                 {(event.min_price || event.max_price) && (
                   <p className="mt-2 font-semibold">${event.min_price}{event.max_price ? ` – $${event.max_price}` : ""}</p>
