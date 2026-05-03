@@ -9,8 +9,9 @@
 -- 2. Replace <PACKAGE_QUALITY_MONITOR_SECRET> with the same secret you set on
 --    the Edge Function as PACKAGE_QUALITY_MONITOR_SECRET.
 --
--- The Edge Function also accepts the service role key, but using a dedicated
--- monitor secret avoids storing the service role key in cron metadata.
+-- The Edge Function also accepts the service role key through Authorization,
+-- but using x-monitor-secret avoids Supabase dashboard/API tooling conflicts
+-- around the Authorization header.
 
 create table if not exists public.package_quality_log (
   id uuid primary key default gen_random_uuid(),
@@ -69,7 +70,7 @@ select cron.schedule(
     url := 'https://<PROJECT_REF>.functions.supabase.co/package-quality-monitor',
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
-      'Authorization', 'Bearer <PACKAGE_QUALITY_MONITOR_SECRET>'
+      'x-monitor-secret', '<PACKAGE_QUALITY_MONITOR_SECRET>'
     ),
     body := jsonb_build_object('scheduled', true),
     timeout_milliseconds := 300000

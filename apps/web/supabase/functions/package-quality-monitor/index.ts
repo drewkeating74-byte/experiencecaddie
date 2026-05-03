@@ -5,8 +5,8 @@
  * created in the last 24 hours. Sends a Resend alert only when quality rules
  * fail or an internal score is below 6/10.
  *
- * Auth: Authorization: Bearer <SUPABASE_SERVICE_ROLE_KEY>
- *   or Authorization: Bearer <PACKAGE_QUALITY_MONITOR_SECRET>
+ * Auth: x-monitor-secret: <PACKAGE_QUALITY_MONITOR_SECRET>
+ *   or Authorization: Bearer <SUPABASE_SERVICE_ROLE_KEY>
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -205,9 +205,29 @@ function isMockGolfName(name: string): boolean {
   return /\b(mock|sample|placeholder|test|demo|fake|lorem|example)\b/i.test(name);
 }
 
+function isNonCourseGolfExperience(name: string): boolean {
+  return /\b(topgolf|driving range|practice range|simulator|indoor golf|mini golf|putt[- ]?putt|putting course|golf lounge|golf bar)\b/i.test(name);
+}
+
 function isPrivateGolfByName(name: string): boolean {
   if (/municipal|muny|public\b|city\b|park\b|recreation|community\b/i.test(name)) return false;
   return /\b(private|members[- ]only|member guests?|invitation[- ]only|invite[- ]only|military[- ]only|reciprocal only|country club|golf and country|golf & country)\b/i.test(name);
+}
+
+function requestedSpecificMusicGenre(eventDetails: string | null): boolean {
+  const details = (eventDetails ?? "").toLowerCase();
+  const match = details.match(/genres:\s*(.+)$/i);
+  if (!match) return false;
+  const genreText = match[1].trim();
+  if (!genreText || genreText === "any") return false;
+  return /\b(country|rock|pop|hip[- ]?hop|rap|edm|electronic|techno|house|r&b|soul|latin|jazz|blues|metal|alternative|punk)\b/i.test(
+    genreText
+  );
+}
+
+function eventLooksLikePerformingArts(eventName: string, venue: string): boolean {
+  const blob = `${eventName} ${venue}`.toLowerCase();
+  return /\b(nutcracker|ballet|opera|orchestra|symphony|theatre|theater|performing arts|stageplay|musical)\b/i.test(blob);
 }
 
 function golfAccessFails(course: GolfCourseRow | null, golfName: string): string[] {
@@ -392,6 +412,16 @@ async function reviewPackage(params: {
     rulesFailed.push("concert_anchor_missing");
   }
 
+  if (
+    event &&
+    requestedSpecificMusicGenre(params.itinerary.event_details) &&
+    eventLooksLikePerformingArts(str(event.name), venueLabel(event))
+  ) {
+    rulesFailed.push("concert_does_not_match_requested_music_genre");
+  } else if (event) {
+    rulesPassed.push("concert_matches_requested_music_context");
+  }
+
   if (!golfName) {
     rulesFailed.push("golf_course_missing");
   } else {
@@ -401,6 +431,9 @@ async function reviewPackage(params: {
 
     if (isMockGolfName(golfName)) rulesFailed.push("golf_course_mock_placeholder_or_test");
     else rulesPassed.push("golf_course_not_mock_placeholder_or_test");
+
+    if (isNonCourseGolfExperience(golfName)) rulesFailed.push("golf_is_not_traditional_course");
+    else rulesPassed.push("golf_is_traditional_course");
   }
 
   let audit: LlmAudit;
@@ -538,7 +571,10 @@ Deno.serve(async (req: Request) => {
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   const monitorSecret = Deno.env.get("PACKAGE_QUALITY_MONITOR_SECRET");
   const auth = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "").trim();
-  if (!auth || (auth !== serviceKey && (!monitorSecret || auth !== monitorSecret))) {
+  const monitorHeader = req.headers.get("x-monitor-secret")?.trim();
+  const authorizedByServiceRole = Boolean(auth && auth === serviceKey);
+  const authorizedByMonitorSecret = Boolean(monitorSecret && monitorHeader && monitorHeader === monitorSecret);
+  if (!authorizedByServiceRole && !authorizedByMonitorSecret) {
     return json({ error: "Unauthorized" }, 401);
   }
 

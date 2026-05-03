@@ -26,3 +26,6 @@ verify_jwt = true
 
 [functions.verify-golf-courses]
 verify_jwt = true
+
+[functions.package-quality-monitor]
+verify_jwt = false
