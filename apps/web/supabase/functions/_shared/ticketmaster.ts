@@ -135,7 +135,7 @@ function genreMatchNeedles(raw: string): string[] {
     needles.add(seg);
   }
   const alias: Record<string, string[]> = {
-    edm: ["electronic", "dance", "techno", "house"],
+    edm: ["electronic", "dance/electronic", "dance electronic", "techno", "house"],
     rap: ["hip-hop", "hip hop"],
     "hip-hop": ["rap", "hip hop"],
     soul: ["r&b", "neo-soul"],
@@ -150,16 +150,46 @@ function genreMatchNeedles(raw: string): string[] {
   return [...needles].filter((n) => n.length > 1);
 }
 
-/** Best-effort genre filter using TM classifications + event title (comma-separated UI genres). */
-export function tmEventMatchesGenreTokens(event: TMEvent, genreTokens: string[]): boolean {
-  if (!genreTokens.length) return true;
+function eventClassificationBlob(event: TMEvent): string {
   const parts = (event.classifications ?? [])
     .flatMap((c) => [c.segment?.name, c.genre?.name, c.subGenre?.name])
     .filter(Boolean) as string[];
-  const blob = `${parts.join(" ")} ${event.name ?? ""}`.toLowerCase().replace(/\s+/g, " ");
+  return parts.join(" ").toLowerCase().replace(/\//g, " ").replace(/\s+/g, " ");
+}
+
+function genreTokenIsEdmLike(raw: string): boolean {
+  return genreMatchNeedles(raw).some((needle) =>
+    ["edm", "electronic", "dance/electronic", "dance electronic", "techno", "house"].includes(needle)
+  );
+}
+
+function genreTokensRequestEdm(genreTokens: string[]): boolean {
+  return genreTokens.some(genreTokenIsEdmLike);
+}
+
+function eventLooksLikePerformingArtsNoise(event: TMEvent): boolean {
+  const classifications = eventClassificationBlob(event);
+  const title = (event.name ?? "").toLowerCase();
+  return (
+    /\b(arts theatre|arts & theatre|ballet|classical|opera|orchestra|symphony|performance art|children's theatre|theatre|theater)\b/.test(
+      classifications
+    ) ||
+    /\b(nutcracker|ballet|orchestra|symphony|opera)\b/.test(title)
+  );
+}
+
+/** Best-effort genre filter using TM classifications + event title (comma-separated UI genres). */
+export function tmEventMatchesGenreTokens(event: TMEvent, genreTokens: string[]): boolean {
+  if (!genreTokens.length) return true;
+  if (genreTokensRequestEdm(genreTokens) && eventLooksLikePerformingArtsNoise(event)) return false;
+  const classificationBlob = eventClassificationBlob(event);
+  const blob = `${classificationBlob} ${event.name ?? ""}`.toLowerCase().replace(/\s+/g, " ");
   return genreTokens.some((raw) => {
     const needles = genreMatchNeedles(raw);
     if (!needles.length) return false;
+    if (genreTokenIsEdmLike(raw)) {
+      return needles.some((n) => classificationBlob.includes(n.replace(/\//g, " ")));
+    }
     if (needles.some((n) => blob.includes(n))) return true;
     const words = raw
       .toLowerCase()
@@ -172,17 +202,14 @@ export function tmEventMatchesGenreTokens(event: TMEvent, genreTokens: string[])
 
 function tmEventGenreMatchConfidence(event: TMEvent, genreTokens: string[]): "none" | "title" | "classification" {
   if (!genreTokens.length) return "classification";
-  const classificationBlob = (event.classifications ?? [])
-    .flatMap((c) => [c.segment?.name, c.genre?.name, c.subGenre?.name])
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase()
-    .replace(/\s+/g, " ");
+  if (genreTokensRequestEdm(genreTokens) && eventLooksLikePerformingArtsNoise(event)) return "none";
+  const classificationBlob = eventClassificationBlob(event);
   const titleBlob = (event.name ?? "").toLowerCase().replace(/\s+/g, " ");
   for (const raw of genreTokens) {
     const needles = genreMatchNeedles(raw);
     if (!needles.length) continue;
     if (needles.some((n) => classificationBlob.includes(n))) return "classification";
+    if (genreTokenIsEdmLike(raw)) continue;
     if (needles.some((n) => titleBlob.includes(n))) return "title";
   }
   return "none";
