@@ -24,6 +24,7 @@ import {
   buildGoogleTicketsSearchUrl,
   eventVenueBelongsToMetro,
   fetchTicketmasterEvents,
+  isWeekendGetawayYmd,
   mapTmEventToResult,
   parseFlexibleDateToYmd,
   resolveConcertFromTicketmaster,
@@ -540,6 +541,8 @@ function scoreGolfCourse(course: BackfillGolfCourse): number {
 function isUsableGolfCourse(course: BackfillGolfCourse): boolean {
   if (!course.id || !course.name?.trim()) return false;
   if (/topgolf|mini|putt|disc|simulator|driving range/i.test(course.name)) return false;
+  if (/military|naval|navy|marine corps|air force|army|coast guard|\bbase\b|\bmwr\b|\bdod\b|camp pendleton|miramar|sea 'n air|sea n air/i.test(course.name)) return false;
+  if (course.course_type === "military") return false;
   return (
     course.public_access === true ||
     course.course_type === "public" ||
@@ -679,6 +682,7 @@ async function discoverBackfillCandidates(params: {
     for (const event of events) {
       const ymd = event.dates?.start?.localDate ?? "";
       if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) continue;
+      if (!isWeekendGetawayYmd(ymd)) continue;
       if (!isSeasonallyPlayable(metro, ymd)) continue;
       if (excludedEventName(event.name ?? "")) continue;
       if (!tmEventMatchesGenreTokens(event, BACKFILL_GENRES)) continue;

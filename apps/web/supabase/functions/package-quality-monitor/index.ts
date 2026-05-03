@@ -211,7 +211,7 @@ function isNonCourseGolfExperience(name: string): boolean {
 
 function isPrivateGolfByName(name: string): boolean {
   if (/municipal|muny|public\b|city\b|park\b|recreation|community\b/i.test(name)) return false;
-  return /\b(private|members[- ]only|member guests?|invitation[- ]only|invite[- ]only|military[- ]only|reciprocal only|country club|golf and country|golf & country)\b/i.test(name);
+  return /\b(private|members[- ]only|member guests?|invitation[- ]only|invite[- ]only|military[- ]only|reciprocal only|country club|golf and country|golf & country|military|naval|navy|marine corps|air force|army|coast guard|base|mwr|dod|camp pendleton|miramar|sea 'n air|sea n air)\b/i.test(name);
 }
 
 function requestedSpecificMusicGenre(eventDetails: string | null): boolean {

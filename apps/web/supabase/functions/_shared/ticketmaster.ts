@@ -486,6 +486,11 @@ export async function resolveConcertFromTicketmaster(params: {
       console.log(`[TM_RESOLVE] skip artist: event="${e.name}" want="${artist}"`);
       return false;
     }
+    const ymd = e.dates?.start?.localDate ?? "";
+    if (!isWeekendGetawayYmd(ymd)) {
+      console.log(`[TM_RESOLVE] skip weekday: event="${e.name}" date="${ymd}"`);
+      return false;
+    }
     return true;
   });
 
@@ -553,6 +558,12 @@ const DISCOVERY_WARM_WEATHER_METROS = new Set([
 
 function eventMonth(ymd: string): number {
   return Number(ymd.slice(5, 7));
+}
+
+export function isWeekendGetawayYmd(ymd: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return false;
+  const day = new Date(`${ymd}T12:00:00Z`).getUTCDay();
+  return day === 0 || day >= 4;
 }
 
 function eventIsSeasonallyPlayable(metro: MetroConfig, ymd: string): boolean {
@@ -773,6 +784,7 @@ export async function discoverConcertsFromCatalogMetros(params: {
       if (!artistKeyword && genreTokens.length > 0 && !tmEventMatchesGenreTokens(e, genreTokens)) continue;
       const ymd = e.dates?.start?.localDate ?? "";
       if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) continue;
+      if (!isWeekendGetawayYmd(ymd)) continue;
       if (!eventIsSeasonallyPlayable(metro, ymd)) continue;
       if (eventLooksLikeAddOn(e)) continue;
       const score = scoreDiscoveryConcert(e, metro, ymd, genreTokens);

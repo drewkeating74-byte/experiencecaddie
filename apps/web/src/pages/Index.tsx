@@ -124,7 +124,7 @@ export default function Index() {
         <div className="mx-auto mt-10 grid max-w-4xl gap-10 sm:grid-cols-3">
           {[
             { step: "1", title: "Choose Your City or Artist" },
-            { step: "2", title: "We Build 3 Weekend Options" },
+            { step: "2", title: "We Build 5 Weekend Options" },
             { step: "3", title: "You Book What You Like" },
           ].map((item) => (
             <div key={item.step} className="flex flex-col items-center text-center">

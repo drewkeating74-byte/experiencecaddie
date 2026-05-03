@@ -8,6 +8,7 @@ import { METROS } from "../_shared/golfCities.ts";
 import {
   buildGoogleTicketsSearchUrl,
   fetchTicketmasterEvents as searchTicketmaster,
+  isWeekendGetawayYmd,
   mapTmEventToResult as mapEventToResult,
   venueCityMatchesRequest,
   venueMatchesUserCity,
@@ -216,6 +217,17 @@ function addDays(date: Date, days: number): Date {
   return d;
 }
 
+function nextWeekendGetawayYmd(startYmd: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(startYmd)) return startYmd;
+  let d = new Date(`${startYmd}T12:00:00Z`);
+  for (let i = 0; i < 7; i++) {
+    const ymd = d.toISOString().slice(0, 10);
+    if (isWeekendGetawayYmd(ymd)) return ymd;
+    d = addDays(d, 1);
+  }
+  return startYmd;
+}
+
 /**
  * Resolve the TM search window using the user's local calendar when `clientTimezone` is set.
  * Concert and trip search always enforce at least DEFAULT_START_OFFSET_DAYS (14) lead time.
@@ -299,7 +311,7 @@ async function findCatalogEvents(
       const cityMatch = venueCityMatchesRequest(city, rowCity);
       // Only surface catalog events that have a real, confirmed ticket URL
       const hasConfirmedUrl = isConfirmedEventUrl(row.ticket_url);
-      return artistMatch && cityMatch && hasConfirmedUrl;
+      return artistMatch && cityMatch && hasConfirmedUrl && isWeekendGetawayYmd(String(row.event_date ?? "").slice(0, 10));
     })
     .map((row: any) => {
       const artistN = row.artists?.name ?? artistName;
@@ -349,7 +361,7 @@ function mockEvents(request: SearchRequest, startDate: string, endDate: string):
   // Use artist name and city so the fallback is at least contextually accurate
   const eventName = artist ? artist : "Live Concert";
   const venueName = `${city} Live Music Venue`;
-  const ymd = (startDate || "").slice(0, 10);
+  const ymd = nextWeekendGetawayYmd((startDate || "").slice(0, 10));
   const ticketUrl = buildGoogleTicketsSearchUrl({
     performer: eventName,
     city,
@@ -370,7 +382,7 @@ function mockEvents(request: SearchRequest, startDate: string, endDate: string):
     {
       id: "event_mock_1",
       name: eventName,
-      date_time: `${startDate}T20:00:00Z`,
+      date_time: `${ymd}T20:00:00Z`,
       venue: { name: venueName, city, state, capacity: 12000 },
       image_url: "https://images.unsplash.com/photo-1540039155733-5bb30b53aa14?w=1200",
       source_url: ticketUrl,
@@ -444,12 +456,14 @@ function publicAccessConfidence(name: string): "likely_public" | "unknown" | "li
   // "Golf Club" alone is NOT a reliable private indicator — the vast majority of courses
   // marketed as tee-time-bookable venues use this naming convention (e.g. "Avery Ranch Golf Club").
   if (/private club|private\b golf|members[- ]only|members'? club|invitation[- ]only|invite[- ]only|proprietary|exclusive\b.*club/i.test(n)) return "likely_private";
+  if (/military|naval|navy|marine corps|air force|army|coast guard|\bbase\b|\bmwr\b|\bdod\b|camp pendleton|miramar|sea 'n air|sea n air/i.test(n)) return "likely_private";
   if (/(country club|golf & country|golf and country)\b/i.test(n) && !/resort|lodge|inn|hotel|spa/i.test(n)) return "likely_private";
   return "unknown";
 }
 
 function isLikelyPlayableCourse(name: string): boolean {
   const n = (name || "").toLowerCase();
+  if (/military|naval|navy|marine corps|air force|army|coast guard|\bbase\b|\bmwr\b|\bdod\b|camp pendleton|miramar|sea 'n air|sea n air/i.test(n)) return false;
   if (/gym\b|fitness|workout|training\s*center|performance\s*center/i.test(n)) return false;
   if (/simulator|indoor\s*golf|golf\s*simulator/i.test(n)) return false;
   if (/mini\s*golf|minigolf|putt-?putt|pitch\s*and\s*putt|executive\s*course/i.test(n)) return false;
@@ -790,7 +804,7 @@ type DbGolfRow = {
 //
 // Access-type rules (course_type values come from the verifier):
 //   public, municipal, unknown, NULL → eligible
-//   private, semi_private, resort    → NEVER eligible for packages
+//   private, semi_private, resort, military → NEVER eligible for packages
 //
 // The verifier classifies semi_private and resort courses based on whether
 // playing requires membership or resort-guest status. Drew's call (Apr 2026):
@@ -811,8 +825,8 @@ async function findGolfFromDb(
     .in("public_access_confidence", ["likely_public", "unknown"])
     .in("verification_status", ["verified", "unreviewed"])
     // NULL course_type = pre-verifier courses; include them.
-    // Named exclusion list catches the three gated types.
-    .or("course_type.is.null,course_type.not.in.(private,semi_private,resort)")
+    // Named exclusion list catches gated course types.
+    .or("course_type.is.null,course_type.not.in.(private,semi_private,resort,military)")
     .not("source_id", "is", null)
     .order("normalized_quality_score", { ascending: false, nullsFirst: false })
     .limit(20);
@@ -820,7 +834,7 @@ async function findGolfFromDb(
     console.error("DB golf query error:", error);
     return [];
   }
-  return (data ?? []) as DbGolfRow[];
+  return ((data ?? []) as DbGolfRow[]).filter((row) => isLikelyPlayableCourse(row.canonical_name ?? row.name));
 }
 
 function dbMeetsThreshold(rows: DbGolfRow[]): boolean {
@@ -1311,6 +1325,11 @@ Deno.serve(async (req: Request) => {
             console.log(`[TM] skip artist mismatch: artist="${payload.artist}" event="${e.name}"`);
             return false;
           }
+          const ymd = e.dates?.start?.localDate ?? "";
+          if (!isWeekendGetawayYmd(ymd)) {
+            console.log(`[TM] skip weekday: date="${ymd}" event="${e.name}"`);
+            return false;
+          }
           return true;
         });
         events = tmFiltered.map((e) =>
@@ -1364,7 +1383,7 @@ Deno.serve(async (req: Request) => {
     events = events.filter((ev) => {
       const raw = extractIsoDateYmd(ev.date_time);
       if (!raw) return true;
-      return raw >= minConcertYmd;
+      return raw >= minConcertYmd && isWeekendGetawayYmd(raw);
     });
 
     let golfCourses: GolfCourseResult[];
