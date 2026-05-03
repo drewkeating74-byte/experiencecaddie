@@ -107,7 +107,6 @@ export default function ExperienceBuilder() {
   const autoSubmitFiredRef = useRef(false);
   // When true, handleGenerate skips the discover_concerts step (used for featured package cards)
   const skipDiscoveryRef = useRef(false);
-  const seenConcertOptionIdsRef = useRef<Set<string>>(new Set());
   /** From /packages or homepage cards (?event_date= / ?venue=) — locks itinerary to that show. */
   const [urlPackageEventDate, setUrlPackageEventDate] = useState("");
   const [urlPackageVenue, setUrlPackageVenue] = useState("");
@@ -259,10 +258,12 @@ export default function ExperienceBuilder() {
   const sortConcertOptionsByDate = (opts: ConcertOption[]) =>
     [...opts].sort((a, b) => (a.date || "").localeCompare(b.date || ""));
 
-  const rememberConcertOptions = (opts: ConcertOption[]) => {
+  const optionIds = (opts: ConcertOption[]) => {
+    const ids: string[] = [];
     for (const opt of opts) {
-      if (opt.id) seenConcertOptionIdsRef.current.add(opt.id);
+      if (opt.id) ids.push(opt.id);
     }
+    return ids;
   };
 
   const getErrorName = (err: unknown) =>
@@ -327,25 +328,24 @@ export default function ExperienceBuilder() {
     if (!savedParams || refreshingConcerts) return;
     setRefreshingConcerts(true);
     try {
-      const excludeEventIds = Array.from(seenConcertOptionIdsRef.current);
+      const currentIds = new Set(optionIds(concertOptions));
       const nextOptions = await discoverConcertOptions({
         finalCity: savedParams.finalCity,
         finalStart: savedParams.finalStart,
         finalEnd: savedParams.finalEnd,
         eventDetails: savedParams.eventDetails,
         clientTz: getBrowserTimeZone(),
-        excludeEventIds,
+        excludeEventIds: Array.from(currentIds),
       });
       if (!nextOptions.length) {
         toast.error("No different concerts found yet. Try a broader genre or date range.");
         return;
       }
-      const unseenOptions = nextOptions.filter((opt) => opt.id && !seenConcertOptionIdsRef.current.has(opt.id));
-      if (!unseenOptions.length && excludeEventIds.length > 0) {
+      const unseenOptions = nextOptions.filter((opt) => !opt.id || !currentIds.has(opt.id));
+      if (!unseenOptions.length && currentIds.size > 0) {
         toast.error("No new concerts found yet. Try a broader genre or date range.");
         return;
       }
-      rememberConcertOptions(nextOptions);
       setConcertOptions(nextOptions);
       toast.success("Refreshed concert options");
     } catch (err: unknown) {
@@ -538,7 +538,6 @@ export default function ExperienceBuilder() {
 
     if (useDiscoveryFlow && discoveryStep === "form") {
       // Stage 1: discover a short list of verified concerts before building the trip.
-      seenConcertOptionIdsRef.current.clear();
       setDiscoveryStep("discovering");
       try {
         const opts = await discoverConcertOptions({
@@ -553,7 +552,6 @@ export default function ExperienceBuilder() {
           setDiscoveryStep("no_results");
           return;
         }
-        rememberConcertOptions(opts);
         setConcertOptions(opts);
         setSavedParams({ finalCity, finalStart, finalEnd, budget, groupSize, eventDetails });
         setDiscoveryStep("pick");
@@ -777,7 +775,6 @@ export default function ExperienceBuilder() {
             <Button
               variant="ghost"
               onClick={() => {
-                seenConcertOptionIdsRef.current.clear();
                 setDiscoveryStep("form");
                 setConcertOptions([]);
                 setSavedParams(null);

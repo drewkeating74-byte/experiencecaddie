@@ -60,10 +60,7 @@ export default function Index() {
           <p className="mx-auto mt-4 max-w-2xl text-lg text-white/80 opacity-0 animate-fade-in [animation-delay:200ms] md:text-xl">
             Plan less. Experience more.
           </p>
-          <p className="mx-auto mt-2 max-w-xl text-base text-white/70 opacity-0 animate-fade-in [animation-delay:300ms]">
-            Custom golf + concert weekends for group trips, bachelor parties, and milestone birthdays.
-          </p>
-          <div className="mt-8 flex flex-wrap items-center justify-center gap-4 opacity-0 animate-fade-in [animation-delay:450ms]">
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-4 opacity-0 animate-fade-in [animation-delay:300ms]">
             <Button asChild size="lg" className="rounded-full bg-accent px-8 text-accent-foreground hover:bg-accent/90">
               <Link to="/experience">Start Your Weekend Plan</Link>
             </Button>
@@ -71,6 +68,9 @@ export default function Index() {
               <Link to="/packages">Browse Packages</Link>
             </Button>
           </div>
+          <p className="mx-auto mt-5 max-w-xl text-base text-white/75 opacity-0 animate-fade-in [animation-delay:450ms]">
+            Custom golf + concert weekends for group trips, bachelor parties, and milestone birthdays.
+          </p>
         </div>
       </section>
 

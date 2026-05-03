@@ -569,6 +569,12 @@ function eventLooksLikeAddOn(event: TMEvent): boolean {
   );
 }
 
+function addDaysYmd(ymd: string, days: number): string {
+  const d = new Date(`${ymd}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
 function venueTypeScore(name: string | undefined): number {
   const venue = name ?? "";
   if (/stadium|field/i.test(venue)) return 35;
@@ -779,9 +785,19 @@ export async function discoverConcertsFromCatalogMetros(params: {
   const preferred = cands.filter((c) => !excludeIds.has(c.event.id ?? discoverEventDedupeKey(c)));
   let picked = pickBestDiverseConcerts(preferred, maxReturn);
   if (picked.length < maxReturn && excludeIds.size > 0) {
-    const pickedKeys = new Set(picked.map(discoverEventDedupeKey));
-    const fallback = cands.filter((c) => !pickedKeys.has(discoverEventDedupeKey(c)));
-    picked = [...picked, ...pickBestDiverseConcerts(fallback, maxReturn - picked.length)];
+    const pickedIds = new Set(picked.map((c) => c.event.id ?? discoverEventDedupeKey(c)));
+    const overflow = await discoverConcertsFromCatalogMetros({
+      metros,
+      startDate: addDaysYmd(endDate, 1),
+      endDate: addDaysYmd(endDate, 180),
+      artistKeyword,
+      genreTokens,
+      maxReturn: maxReturn - picked.length,
+      excludeEventIds: [...excludeIds, ...pickedIds],
+    });
+    return [...picked.map((c) => tmEventToDiscoverOption(c.event, c.metro)), ...overflow]
+      .sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")))
+      .slice(0, maxReturn);
   }
   return picked
     .map((c) => tmEventToDiscoverOption(c.event, c.metro))
