@@ -252,6 +252,13 @@ serve(async (req) => {
           hasSpecificGenres && specifiedGenres
             ? specifiedGenres.split(",").map((s) => s.trim()).filter(Boolean)
             : [];
+        const excludeEventIds = Array.isArray(p.exclude_event_ids)
+          ? p.exclude_event_ids
+              .filter((id: unknown): id is string => typeof id === "string")
+              .map((id: string) => id.trim())
+              .filter(Boolean)
+              .slice(0, 25)
+          : [];
 
         const targetMetros = resolveDiscoverTargetMetros(cityList);
         const MAX_RETURN = 5;
@@ -268,6 +275,7 @@ serve(async (req) => {
           artistKeyword: artistSearch || undefined,
           genreTokens,
           maxReturn: MAX_RETURN,
+          excludeEventIds,
         });
 
         opts = opts
@@ -275,6 +283,7 @@ serve(async (req) => {
             const d = String(v.date || "").trim().slice(0, 10);
             return /^\d{4}-\d{2}-\d{2}$/.test(d) && d >= minTripYmd && d <= discEnd;
           })
+          .sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")))
           .slice(0, MAX_RETURN);
 
         return new Response(JSON.stringify({ success: true, concert_options: opts }), {

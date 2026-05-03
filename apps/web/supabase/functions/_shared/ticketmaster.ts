@@ -702,6 +702,7 @@ function tmEventToDiscoverOption(event: TMEvent, metro: MetroConfig): Record<str
   const venue = event._embedded?.venues?.[0];
   const artist = event._embedded?.attractions?.[0]?.name ?? res.name;
   return {
+    id: event.id ?? discoverEventDedupeKey({ event, metro, ymd: res.date_time.slice(0, 10) }),
     artist,
     city: res.venue.city,
     venue: venue?.name ?? res.venue.name,
@@ -722,6 +723,7 @@ export async function discoverConcertsFromCatalogMetros(params: {
   artistKeyword?: string;
   genreTokens: string[];
   maxReturn: number;
+  excludeEventIds?: string[];
 }): Promise<Array<Record<string, unknown>>> {
   const apiKey = Deno.env.get("TICKETMASTER_API_KEY") || Deno.env.get("TICKETMASTER_CONSUMER_KEY");
   if (!apiKey) {
@@ -730,6 +732,7 @@ export async function discoverConcertsFromCatalogMetros(params: {
   }
 
   const { metros, startDate, endDate, artistKeyword, genreTokens, maxReturn } = params;
+  const excludeIds = new Set((params.excludeEventIds ?? []).map((id) => id.trim()).filter(Boolean));
 
   const settled = await mapWithConcurrency(
     metros,
@@ -773,8 +776,16 @@ export async function discoverConcertsFromCatalogMetros(params: {
     }
   }
 
-  const picked = pickBestDiverseConcerts(cands, maxReturn);
-  return picked.map((c) => tmEventToDiscoverOption(c.event, c.metro));
+  const preferred = cands.filter((c) => !excludeIds.has(c.event.id ?? discoverEventDedupeKey(c)));
+  let picked = pickBestDiverseConcerts(preferred, maxReturn);
+  if (picked.length < maxReturn && excludeIds.size > 0) {
+    const pickedKeys = new Set(picked.map(discoverEventDedupeKey));
+    const fallback = cands.filter((c) => !pickedKeys.has(discoverEventDedupeKey(c)));
+    picked = [...picked, ...pickBestDiverseConcerts(fallback, maxReturn - picked.length)];
+  }
+  return picked
+    .map((c) => tmEventToDiscoverOption(c.event, c.metro))
+    .sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")));
 }
 
 /** After Perplexity discovery — keep only options that Ticketmaster confirms in-window. */

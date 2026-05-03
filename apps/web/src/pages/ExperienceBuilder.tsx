@@ -45,7 +45,7 @@ const METRO_SUGGESTIONS = [
   { display: "Cleveland, OH", city: "Cleveland" },
 ];
 
-type ConcertOption = { artist: string; city: string; venue: string; date: string; url?: string };
+type ConcertOption = { id?: string; artist: string; city: string; venue: string; date: string; url?: string };
 
 const ENTRY_OPTIONS = [
   {
@@ -96,6 +96,7 @@ export default function ExperienceBuilder() {
   // Two-step flow: discover concerts → user picks → build full itinerary
   const [discoveryStep, setDiscoveryStep] = useState<"form" | "discovering" | "pick" | "building" | "no_results">("form");
   const [concertOptions, setConcertOptions] = useState<ConcertOption[]>([]);
+  const [refreshingConcerts, setRefreshingConcerts] = useState(false);
   const [savedParams, setSavedParams] = useState<{ finalCity: string; finalStart: string; finalEnd: string; budget: BudgetTier; groupSize: number; eventDetails: string } | null>(null);
 
   const { user } = useAuth();
@@ -106,6 +107,7 @@ export default function ExperienceBuilder() {
   const autoSubmitFiredRef = useRef(false);
   // When true, handleGenerate skips the discover_concerts step (used for featured package cards)
   const skipDiscoveryRef = useRef(false);
+  const seenConcertOptionIdsRef = useRef<Set<string>>(new Set());
   /** From /packages or homepage cards (?event_date= / ?venue=) — locks itinerary to that show. */
   const [urlPackageEventDate, setUrlPackageEventDate] = useState("");
   const [urlPackageVenue, setUrlPackageVenue] = useState("");
@@ -254,6 +256,107 @@ export default function ExperienceBuilder() {
     return `surprise me — concert${genreStr}`;
   };
 
+  const sortConcertOptionsByDate = (opts: ConcertOption[]) =>
+    [...opts].sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+
+  const rememberConcertOptions = (opts: ConcertOption[]) => {
+    for (const opt of opts) {
+      if (opt.id) seenConcertOptionIdsRef.current.add(opt.id);
+    }
+  };
+
+  const getErrorName = (err: unknown) =>
+    err && typeof err === "object" && "name" in err ? String((err as { name?: unknown }).name || "") : "";
+
+  const getErrorMessage = (err: unknown, fallback: string) =>
+    err && typeof err === "object" && "message" in err ? String((err as { message?: unknown }).message || fallback) : fallback;
+
+  const discoverConcertOptions = async (params: {
+    finalCity: string;
+    finalStart: string;
+    finalEnd: string;
+    eventDetails: string;
+    clientTz: string;
+    excludeEventIds?: string[];
+  }) => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60000);
+    try {
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+      const discRes = await fetch(`${supabaseUrl}/functions/v1/generate-itinerary`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "apikey": supabaseKey,
+          "Authorization": `Bearer ${supabaseKey}`,
+        },
+        body: JSON.stringify({
+          payload: {
+            discover_concerts: true,
+            start_date: params.finalStart,
+            end_date: params.finalEnd,
+            city: params.finalCity,
+            event_details: params.eventDetails.slice(0, 500),
+            artist_search: selectedEntry === "artist" ? eventInput.trim().slice(0, 200) : null,
+            client_timezone: params.clientTz,
+            exclude_event_ids: params.excludeEventIds ?? [],
+          },
+        }),
+        signal: controller.signal,
+      });
+
+      let discData: Record<string, unknown> = {};
+      try {
+        const text = await discRes.text();
+        discData = text ? JSON.parse(text) : {};
+      } catch {
+        throw new Error(discRes.ok ? "Invalid response" : `Server error (${discRes.status})`);
+      }
+      const errMsg = (discData?.error || discData?.message) as string | undefined;
+      if (!discRes.ok || errMsg) {
+        throw new Error((errMsg as string) || `Concert discovery failed (${discRes.status})`);
+      }
+      return sortConcertOptionsByDate(((discData.concert_options || []) as ConcertOption[]));
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  };
+
+  const handleRefreshConcertOptions = async () => {
+    if (!savedParams || refreshingConcerts) return;
+    setRefreshingConcerts(true);
+    try {
+      const excludeEventIds = Array.from(seenConcertOptionIdsRef.current);
+      const nextOptions = await discoverConcertOptions({
+        finalCity: savedParams.finalCity,
+        finalStart: savedParams.finalStart,
+        finalEnd: savedParams.finalEnd,
+        eventDetails: savedParams.eventDetails,
+        clientTz: getBrowserTimeZone(),
+        excludeEventIds,
+      });
+      if (!nextOptions.length) {
+        toast.error("No different concerts found yet. Try a broader genre or date range.");
+        return;
+      }
+      const unseenOptions = nextOptions.filter((opt) => opt.id && !seenConcertOptionIdsRef.current.has(opt.id));
+      if (!unseenOptions.length && excludeEventIds.length > 0) {
+        toast.error("No new concerts found yet. Try a broader genre or date range.");
+        return;
+      }
+      rememberConcertOptions(nextOptions);
+      setConcertOptions(nextOptions);
+      toast.success("Refreshed concert options");
+    } catch (err: unknown) {
+      const isAbort = getErrorName(err) === "AbortError";
+      const msg = isAbort ? "Request timed out. Keep the tab open and try again." : getErrorMessage(err, "Failed to refresh concerts");
+      toast.error(msg);
+    } finally {
+      setRefreshingConcerts(false);
+    }
+  };
+
   const handleBuildFromConcert = async (concert: ConcertOption) => {
     if (!savedParams) return;
     setDiscoveryStep("building");
@@ -326,10 +429,10 @@ export default function ExperienceBuilder() {
       const slug = genData.share_slug as string;
       if (!slug) throw new Error("Missing share link");
       navigate(`/share/${slug}`);
-    } catch (err: any) {
+    } catch (err: unknown) {
       clearTimeout(timeoutId);
-      const isAbort = err?.name === "AbortError";
-      let msg = err?.message || "Failed to generate";
+      const isAbort = getErrorName(err) === "AbortError";
+      let msg = getErrorMessage(err, "Failed to generate");
       if (isAbort) msg = "Request timed out. Keep the tab open and try again.";
       else if (msg?.includes("Failed to fetch") || msg?.includes("NetworkError")) msg = "Could not reach server. Check your connection.";
       toast.error(msg);
@@ -435,57 +538,28 @@ export default function ExperienceBuilder() {
 
     if (useDiscoveryFlow && discoveryStep === "form") {
       // Stage 1: discover a short list of verified concerts before building the trip.
+      seenConcertOptionIdsRef.current.clear();
       setDiscoveryStep("discovering");
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 60000);
       try {
-        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-        const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-        const discRes = await fetch(`${supabaseUrl}/functions/v1/generate-itinerary`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "apikey": supabaseKey,
-            "Authorization": `Bearer ${supabaseKey}`,
-          },
-          body: JSON.stringify({
-            payload: {
-              discover_concerts: true,
-              start_date: finalStart,
-              end_date: finalEnd,
-              city: finalCity,
-              event_details: typeof eventDetails === "string" ? eventDetails.slice(0, 500) : null,
-              artist_search: selectedEntry === "artist" ? eventInput.trim().slice(0, 200) : null,
-              client_timezone: clientTz,
-            },
-          }),
-          signal: controller.signal,
+        const opts = await discoverConcertOptions({
+          finalCity,
+          finalStart,
+          finalEnd,
+          eventDetails,
+          clientTz,
         });
-        clearTimeout(timeoutId);
-        let discData: Record<string, unknown> = {};
-        try {
-          const text = await discRes.text();
-          discData = text ? JSON.parse(text) : {};
-        } catch {
-          throw new Error(discRes.ok ? "Invalid response" : `Server error (${discRes.status})`);
-        }
-        const errMsg = (discData?.error || discData?.message) as string | undefined;
-        if (!discRes.ok || errMsg) {
-          throw new Error((errMsg as string) || `Concert discovery failed (${discRes.status})`);
-        }
-        const opts = (discData.concert_options || []) as any[];
         if (!opts.length) {
           logEvent({ event_type: "no_results_shown", artist_name: eventInput.trim() || undefined, context: "planner_result" });
           setDiscoveryStep("no_results");
           return;
         }
-        setConcertOptions(opts as any);
+        rememberConcertOptions(opts);
+        setConcertOptions(opts);
         setSavedParams({ finalCity, finalStart, finalEnd, budget, groupSize, eventDetails });
         setDiscoveryStep("pick");
-      } catch (err: any) {
-        clearTimeout(timeoutId);
-        const isAbort = err?.name === "AbortError";
-        const msg = err?.message || "Failed to find concerts";
+      } catch (err: unknown) {
+        const isAbort = getErrorName(err) === "AbortError";
+        const msg = getErrorMessage(err, "Failed to find concerts");
         const isTransient = isAbort || msg?.includes("Failed to fetch") || msg?.includes("NetworkError") || msg?.includes("404");
         if (isTransient) {
           toast.error(isAbort ? "Request timed out. Keep the tab open and try again." : msg);
@@ -606,10 +680,10 @@ export default function ExperienceBuilder() {
       }
 
       navigate(`/share/${genData.share_slug}`);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Generation error:", err);
-      const isAbort = err?.name === "AbortError";
-      toast.error(isAbort ? "Request timed out. Please try again and keep the tab open." : (err.message || "Failed to generate itinerary"));
+      const isAbort = getErrorName(err) === "AbortError";
+      toast.error(isAbort ? "Request timed out. Please try again and keep the tab open." : getErrorMessage(err, "Failed to generate itinerary"));
       setGenerating(false);
     } finally {
       clearTimeout(timeoutId);
@@ -700,11 +774,35 @@ export default function ExperienceBuilder() {
       <div className="container mx-auto max-w-2xl px-4 py-12">
         <div className="space-y-6">
           <div>
-            <Button variant="ghost" onClick={() => { setDiscoveryStep("form"); setConcertOptions([]); setSavedParams(null); }} className="mb-4">
+            <Button
+              variant="ghost"
+              onClick={() => {
+                seenConcertOptionIdsRef.current.clear();
+                setDiscoveryStep("form");
+                setConcertOptions([]);
+                setSavedParams(null);
+              }}
+              className="mb-4"
+            >
               <ArrowLeft className="mr-2 h-4 w-4" /> Back
             </Button>
-            <h2 className="font-serif text-2xl font-bold">Pick your concert</h2>
-            <p className="mt-1 text-muted-foreground">We&apos;ll build golf + hotel around your choice</p>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h2 className="font-serif text-2xl font-bold">Pick your concert</h2>
+                <p className="mt-1 text-muted-foreground">We&apos;ll build golf + hotel around your choice</p>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="shrink-0 rounded-full"
+                onClick={handleRefreshConcertOptions}
+                disabled={refreshingConcerts || generating}
+              >
+                {refreshingConcerts ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                Show different options
+              </Button>
+            </div>
           </div>
           <div className="space-y-3">
             {concertOptions.map((opt, i) => (
