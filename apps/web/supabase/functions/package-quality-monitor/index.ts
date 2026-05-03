@@ -201,6 +201,26 @@ function packageText(pkg: ResultPackage): string {
   }).slice(0, 6000);
 }
 
+const WEEKDAY_GOLF_DAYS = ["monday", "tuesday", "wednesday"];
+
+function itineraryHasWeekdayGolf(pkg: ResultPackage): boolean {
+  if (!Array.isArray(pkg.itinerary)) return false;
+
+  return pkg.itinerary.some((day) => {
+    if (!day || typeof day !== "object") return false;
+    const dayLabel = str(day.day).toLowerCase();
+    const planItems = Array.isArray(day.plan) ? day.plan.map((item) => str(item)) : [str(day.plan)];
+    const dayIsRestricted = WEEKDAY_GOLF_DAYS.some((weekday) => dayLabel.includes(weekday));
+    const golfRegex = /\b(golf|tee time|tee-time|tee off|tee-off|course|round)\b/i;
+    if (dayIsRestricted && planItems.some((item) => golfRegex.test(item))) return true;
+
+    return planItems.some((item) => {
+      const text = item.toLowerCase();
+      return WEEKDAY_GOLF_DAYS.some((weekday) => text.includes(weekday)) && golfRegex.test(item);
+    });
+  });
+}
+
 function isMockGolfName(name: string): boolean {
   return /\b(mock|sample|placeholder|test|demo|fake|lorem|example)\b/i.test(name);
 }
@@ -435,6 +455,9 @@ async function reviewPackage(params: {
     if (isNonCourseGolfExperience(golfName)) rulesFailed.push("golf_is_not_traditional_course");
     else rulesPassed.push("golf_is_traditional_course");
   }
+
+  if (itineraryHasWeekdayGolf(params.pkg)) rulesFailed.push("golf_scheduled_on_monday_tuesday_or_wednesday");
+  else rulesPassed.push("golf_scheduled_on_weekend_window_or_not_dated");
 
   let audit: LlmAudit;
   try {

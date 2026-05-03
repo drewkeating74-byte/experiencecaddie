@@ -921,6 +921,12 @@ For each tier, include:
 - A day-by-day itinerary (covering each day of the trip)
 - Estimated total cost range in USD based on typical prices
 
+WEEKEND GETAWAY RULES (mandatory):
+- Concerts and golf must fit a Thursday, Friday, Saturday, or Sunday getaway.
+- Do NOT schedule a round of golf, tee time, golf warmup, golf lesson, or golf course visit on Monday, Tuesday, or Wednesday.
+- The itinerary "day" value for any golf plan item must be Thursday, Friday, Saturday, or Sunday.
+- If the trip window includes Monday-Wednesday, use those days only for arrival, travel, rest, dining, checkout, or non-golf extras.
+
 LODGING RULES (mandatory):
 - For each lodging, "name" MUST be the real, official property name as it appears on Booking.com or Expedia (e.g. "Hotel Van Zandt", "The Driskill", "W Austin"). Do NOT use vague descriptions or placeholder names.
 - Prefer properties that are likely to have availability: well-known chains (Marriott, Hilton, Hyatt, IHG, etc.) or established names widely listed on Booking.com, and hotels in main tourist or business districts near the venue. Avoid very small boutiques or single-property inns unless they are clearly widely bookable.
@@ -1123,6 +1129,7 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
       const n = (name || "").toLowerCase();
       if (/municipal|muny|public\b|city\b|park\b|recreation|community\b/i.test(n)) return false;
       if (/private club|private\b golf|members[- ]only|members'? club|invitation[- ]only|invite[- ]only|proprietary|exclusive\b.*club/i.test(n)) return true;
+      if (/military|naval|navy|marine corps|air force|army|coast guard|\bbase\b|\bmwr\b|\bdod\b|camp pendleton|miramar|sea 'n air|sea n air/i.test(n)) return true;
       if (/(country club|golf & country|golf and country)\b/i.test(n) && !/resort|lodge|inn|hotel|spa/i.test(n)) return true;
       return false;
     };
