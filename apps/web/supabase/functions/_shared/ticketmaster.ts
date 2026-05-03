@@ -359,13 +359,14 @@ async function fetchTicketmasterEventsPage(params: {
   size: number;
   page: number;
   dmaId?: number | null;
+  classificationName?: string;
 }): Promise<TMEvent[]> {
   const apiKey = Deno.env.get("TICKETMASTER_API_KEY") || Deno.env.get("TICKETMASTER_CONSUMER_KEY");
   if (!apiKey) throw new Error("TICKETMASTER_API_KEY or TICKETMASTER_CONSUMER_KEY not set");
   const url = new URL(`${BASE_URL}/events.json`);
   url.searchParams.set("apikey", apiKey);
   url.searchParams.set("countryCode", "US");
-  url.searchParams.set("classificationName", "Music");
+  url.searchParams.set("classificationName", params.classificationName?.trim() || "Music");
   url.searchParams.set("size", String(params.size));
   url.searchParams.set("page", String(params.page));
   url.searchParams.set("sort", "date,asc");
@@ -587,12 +588,17 @@ async function fetchDiscoveryGenreEvents(params: {
       )
     )
   ).slice(0, 4);
+  const classificationQueries = keywordQueries.slice(0, 3);
   const requests = [
     fetchTicketmasterEventsPage({ ...params, size: 50, page: 0 }),
     fetchTicketmasterEventsPage({ ...params, size: 50, page: 1 }),
     ...keywordQueries.flatMap((artist) => [
       fetchTicketmasterEventsPage({ ...params, artist, size: 50, page: 0 }),
       fetchTicketmasterEventsPage({ ...params, artist, size: 50, page: 1 }),
+    ]),
+    ...classificationQueries.flatMap((classificationName) => [
+      fetchTicketmasterEventsPage({ ...params, classificationName, size: 50, page: 0 }),
+      fetchTicketmasterEventsPage({ ...params, classificationName, size: 50, page: 1 }),
     ]),
   ];
   const pages = await Promise.allSettled(requests);
@@ -702,7 +708,7 @@ export async function discoverConcertsFromCatalogMetros(params: {
     metros,
     5,
     async (metro) => {
-      const useDma = metro.ticketmasterDmaId != null && metro.ticketmasterDmaId > 0;
+      const useDma = Boolean(artistKeyword) && metro.ticketmasterDmaId != null && metro.ticketmasterDmaId > 0;
       const baseParams = {
         artist: artistKeyword,
         startDate,
