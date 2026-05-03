@@ -11,6 +11,7 @@ const VALID_VENDORS = ["ticket", "hotel", "flight", "golf", "experience", "resta
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ALLOWED_URL_PROTOCOLS = ["https:", "http:"];
 const MAX_STRING_LENGTH = 500;
+const UTM_KEYS = ["utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term"] as const;
 
 // Simple in-memory rate limiter
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
@@ -44,24 +45,33 @@ serve(async (req) => {
 
     const body = await req.json();
 
+    const event_type = typeof body?.event_type === "string" ? body.event_type.trim().slice(0, 100) : "affiliate_click";
+    const original_event_type = typeof body?.original_event_type === "string" ? body.original_event_type.trim().slice(0, 100) : null;
     const itinerary_id = typeof body?.itinerary_id === "string" ? body.itinerary_id.trim() : "";
-    const package_tier = typeof body?.package_tier === "string" ? body.package_tier.trim().slice(0, 50) : "";
+    const package_id = typeof body?.package_id === "string" ? body.package_id.trim().slice(0, 120) : null;
+    const package_tier = typeof body?.package_tier === "string" ? body.package_tier.trim().slice(0, 50) : null;
     const vendor = typeof body?.vendor === "string" ? body.vendor.trim() : "";
     const label = typeof body?.label === "string" ? body.label.trim().slice(0, MAX_STRING_LENGTH) : null;
-    const target_url = typeof body?.target_url === "string" ? body.target_url.trim().slice(0, 2048) : "";
+    const target_url = typeof body?.target_url === "string" ? body.target_url.trim().slice(0, 2048) : null;
     const provider = typeof body?.provider === "string" ? body.provider.trim().slice(0, 100) : null;
     const category = typeof body?.category === "string" ? body.category.trim().slice(0, 50) : null;
     const link_type = typeof body?.link_type === "string" ? body.link_type.trim().slice(0, 50) : null;
     const page_context = typeof body?.page_context === "string" ? body.page_context.trim().slice(0, 100) : null;
+    const destination = typeof body?.destination === "string" ? body.destination.trim().slice(0, 250) : null;
+    const metro_slug = typeof body?.metro_slug === "string" ? body.metro_slug.trim().slice(0, 100) : null;
+    const artist_name = typeof body?.artist_name === "string" ? body.artist_name.trim().slice(0, 250) : null;
+    const metadata =
+      body?.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata)
+        ? body.metadata
+        : null;
 
-    // Validate required fields
-    if (!itinerary_id || !UUID_REGEX.test(itinerary_id)) {
+    if (itinerary_id && !UUID_REGEX.test(itinerary_id)) {
       return new Response(JSON.stringify({ error: "Invalid itinerary_id" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-    if (!package_tier) {
-      return new Response(JSON.stringify({ error: "Missing package_tier" }), {
+    if (!itinerary_id && !package_id && !event_type) {
+      return new Response(JSON.stringify({ error: "Missing tracking subject" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -71,19 +81,20 @@ serve(async (req) => {
       });
     }
 
-    // Validate target_url is a safe URL
-    let parsedUrl: URL;
-    try {
-      parsedUrl = new URL(target_url);
-    } catch {
-      return new Response(JSON.stringify({ error: "Invalid target_url" }), {
-        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-    if (!ALLOWED_URL_PROTOCOLS.includes(parsedUrl.protocol)) {
-      return new Response(JSON.stringify({ error: "Invalid URL protocol" }), {
-        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    let parsedUrl: URL | null = null;
+    if (target_url) {
+      try {
+        parsedUrl = new URL(target_url);
+      } catch {
+        return new Response(JSON.stringify({ error: "Invalid target_url" }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      if (!ALLOWED_URL_PROTOCOLS.includes(parsedUrl.protocol)) {
+        return new Response(JSON.stringify({ error: "Invalid URL protocol" }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
     }
 
     const supabase = createClient(
@@ -92,21 +103,34 @@ serve(async (req) => {
     );
 
     const userAgent = req.headers.get("user-agent") || null;
+    const utms: Record<string, string> = {};
+    for (const key of UTM_KEYS) {
+      const value = typeof body?.[key] === "string" ? body[key].trim().slice(0, 200) : "";
+      if (value) utms[key] = value;
+    }
 
     await supabase.from("click_events").insert({
-      itinerary_id,
-      package_tier,
+      event_type,
+      ...(original_event_type && { original_event_type }),
+      ...(itinerary_id && { itinerary_id }),
+      ...(package_id && { package_id }),
+      ...(package_tier && { package_tier }),
       vendor,
       label: label || null,
-      target_url: parsedUrl.href,
+      target_url: parsedUrl?.href ?? null,
       user_agent: typeof userAgent === "string" ? userAgent.slice(0, 512) : null,
       ...(provider && { provider }),
       ...(category && { category }),
       ...(link_type && { link_type }),
       ...(page_context && { page_context }),
+      ...(destination && { destination }),
+      ...(metro_slug && { metro_slug }),
+      ...(artist_name && { artist_name }),
+      ...(metadata && { metadata }),
+      ...utms,
     });
 
-    return new Response(JSON.stringify({ success: true, redirect: parsedUrl.href }), {
+    return new Response(JSON.stringify({ success: true, redirect: parsedUrl?.href ?? null }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e) {

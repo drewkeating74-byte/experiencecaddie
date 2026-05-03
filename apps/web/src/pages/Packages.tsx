@@ -98,6 +98,10 @@ export default function Packages() {
       metro_slug: pkg.destinations?.city?.toLowerCase().replace(/[\s/]+/g, "-") ?? undefined,
       artist_name: pkg.events?.artists?.name ?? pkg.events?.name ?? undefined,
       context: "packages_page",
+      extra: {
+        label: pkg.name,
+        destination: pkg.destinations?.city ?? pkg.destinations?.name ?? undefined,
+      },
     });
     navigate(buildItineraryUrl(pkg));
   }

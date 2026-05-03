@@ -239,6 +239,11 @@ function PackageCard({ pkg }: { pkg: Package }) {
       package_id: pkg.id,
       metro_slug: destination?.city?.toLowerCase().replace(/[\s/]+/g, "-") ?? undefined,
       artist_name: event?.artists?.name ?? event?.name ?? undefined,
+      context: "homepage",
+      extra: {
+        label: pkg.name,
+        destination: destination?.city ?? destination?.name ?? undefined,
+      },
     });
     navigate(buildItineraryUrl());
   }

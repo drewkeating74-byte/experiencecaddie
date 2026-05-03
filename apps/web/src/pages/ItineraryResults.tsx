@@ -266,6 +266,24 @@ export default function ItineraryResults() {
     console.log("[TM_LINK_DEBUG] Full result_json", result);
   }, [itinerary?.id, itinerary?.result_json]);
 
+  useEffect(() => {
+    if (!itinerary?.id) return;
+    logEvent({
+      event_type: "package_viewed",
+      package_id: itinerary.id,
+      artist_name: itinerary.event_details?.trim() || undefined,
+      metro_slug: itinerary.city && itinerary.city !== "flexible"
+        ? itinerary.city.toLowerCase().replace(/[\s,]+/g, "-")
+        : undefined,
+      context: "itinerary",
+      extra: {
+        itinerary_id: itinerary.id,
+        label: "Generated package viewed",
+        destination: itinerary.city,
+      },
+    });
+  }, [itinerary?.id]);
+
   const trackClick = async (
     tier: string,
     vendor: string,
@@ -280,6 +298,7 @@ export default function ItineraryResults() {
       event_date?: string;
     }
   ) => {
+    const itineraryId = itinerary?.id;
     const analyticsType =
       meta?.category === "hotel" ? "hotel_link_clicked" :
       meta?.category === "concert" ? "ticket_link_clicked" :
@@ -293,6 +312,7 @@ export default function ItineraryResults() {
           : (meta?.category as "hotel" | "ticket" | "golf" | undefined);
       logEvent({
         event_type: analyticsType,
+        package_id: itineraryId,
         artist_name: itinerary.event_details?.trim() || undefined,
         metro_slug: city
           ? city.toLowerCase().replace(/[\s,]+/g, "-")
@@ -300,41 +320,19 @@ export default function ItineraryResults() {
         context: "itinerary",
         extra: {
           tier,
+          package_tier: tier,
+          itinerary_id: itineraryId,
           provider: meta?.provider,
           category: catForExtra,
           link_type: meta?.link_type,
           label,
+          target_url: url,
+          destination: meta?.provider,
           city,
           event_date: meta?.event_date,
           hotel_link_source: meta?.hotel_link_source,
         },
       });
-    }
-
-    const itineraryId = itinerary?.id;
-    const canTrack = itineraryId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(itineraryId);
-
-    if (canTrack) {
-      try {
-        const { error } = await supabase.functions.invoke("track-click", {
-          body: {
-            itinerary_id: itineraryId,
-            package_tier: tier,
-            vendor,
-            label,
-            target_url: url,
-            page_context: "itinerary",
-            ...(meta && { provider: meta.provider, category: meta.category, link_type: meta.link_type }),
-          },
-        });
-        if (error && import.meta.env.DEV) {
-          console.warn("[track-click] failed:", error);
-        }
-      } catch (e) {
-        if (import.meta.env.DEV) {
-          console.warn("[track-click] error:", e);
-        }
-      }
     }
 
     window.open(url, "_blank", "noopener,noreferrer");
@@ -413,6 +411,23 @@ export default function ItineraryResults() {
         if (!res.ok) throw new Error("Server error. Please try again.");
       }
       if (!res.ok) throw new Error(data?.error || "Failed to send");
+      if (itinerary?.id) {
+        logEvent({
+          event_type: "package_emailed",
+          package_id: itinerary.id,
+          artist_name: itinerary.event_details?.trim() || undefined,
+          metro_slug: itinerary.city && itinerary.city !== "flexible"
+            ? itinerary.city.toLowerCase().replace(/[\s,]+/g, "-")
+            : undefined,
+          context: "itinerary",
+          extra: {
+            itinerary_id: itinerary.id,
+            label: "Share via email",
+            destination: "email",
+            recipient_count: emails.length,
+          },
+        });
+      }
       toast.success(`Sent to ${emails.length} recipient(s)`);
       setShareEmailOpen(false);
       setShareEmails("");
@@ -688,6 +703,7 @@ export default function ItineraryResults() {
                                 provider: hotelLink.provider,
                                 category: hotelLink.category,
                                 link_type: hotelLink.link_type,
+                                label: cta,
                                 hotel_link_source: hotelLink.hotelLinkSource,
                               })}
                             >
@@ -799,6 +815,7 @@ export default function ItineraryResults() {
                                         provider: concertLink.provider,
                                         category: concertLink.category,
                                         link_type: concertLink.link_type,
+                                        label: ticketCta,
                                         event_date: evDate,
                                       });
                                     }
@@ -864,6 +881,7 @@ export default function ItineraryResults() {
                               provider: golfLink.provider,
                               category: golfLink.category,
                               link_type: golfLink.link_type,
+                              label: golfCta,
                               event_date: tripStart,
                             })}
                           >

@@ -96,6 +96,9 @@ export default function Courses() {
                             extra: {
                               category: "golf",
                               provider: g.provider,
+                              label: getGolfOutboundCtaLabel(g.provider),
+                              target_url: g.url,
+                              destination: g.provider,
                               city: cityStr || undefined,
                             },
                           })

@@ -40,6 +40,21 @@ export default function PackageDetail() {
       });
   }, [id]);
 
+  useEffect(() => {
+    if (!pkg) return;
+    logEvent({
+      event_type: "package_viewed",
+      package_id: pkg.id,
+      artist_name: pkg.events?.artists?.name ?? pkg.events?.name ?? undefined,
+      metro_slug: pkg.destinations?.city?.toLowerCase().replace(/[\s,]+/g, "-") ?? undefined,
+      context: "package_card",
+      extra: {
+        destination: pkg.destinations?.city ?? pkg.destinations?.name ?? undefined,
+        label: pkg.name,
+      },
+    });
+  }, [pkg]);
+
   if (loading) return <div className="container mx-auto px-4 py-16 text-center text-muted-foreground">Loading...</div>;
   if (!pkg) return <div className="container mx-auto px-4 py-16 text-center">Package not found</div>;
 
@@ -157,6 +172,9 @@ export default function PackageDetail() {
                             extra: {
                               category: "ticket",
                               provider: t.provider,
+                              label: getTicketOutboundCtaLabel(t.provider),
+                              target_url: t.url,
+                              destination: t.provider,
                               city: cityLabel || undefined,
                               event_date: event.event_date
                                 ? String(event.event_date).slice(0, 10)
@@ -238,6 +256,9 @@ export default function PackageDetail() {
                             extra: {
                               category: "golf",
                               provider: g.provider,
+                              label: getGolfOutboundCtaLabel(g.provider),
+                              target_url: g.url,
+                              destination: g.provider,
                               city: cityLabel || undefined,
                               event_date: event?.event_date
                                 ? String(event.event_date).slice(0, 10)
@@ -281,6 +302,9 @@ export default function PackageDetail() {
                       extra: {
                         category: "hotel",
                         provider: hotelBuilt.provider,
+                        label: getHotelOutboundCtaLabel(hotelBuilt.hotelLinkSource, cityLabel),
+                        target_url: hotelBuilt.url,
+                        destination: hotelBuilt.provider,
                         city: cityLabel || undefined,
                         event_date: event?.event_date
                           ? String(event.event_date).slice(0, 10)

@@ -459,6 +459,7 @@ export default function ExperienceBuilder() {
       event_type: "package_generate_click",
       metro_slug: selectedCities.length > 0 ? selectedCities[0].trim().toLowerCase().replace(/[\s,]+/g, "-") : "flexible",
       artist_name: selectedEntry === "artist" ? eventInput.trim() || undefined : undefined,
+      context: "planner_result",
       extra: { entry_type: selectedEntry, budget },
     });
 
@@ -850,6 +851,8 @@ export default function ExperienceBuilder() {
                             extra: {
                               category: "ticket",
                               provider: t.provider,
+                              target_url: t.url,
+                              destination: t.provider,
                               city: opt.city,
                               event_date: opt.date,
                               label: getTicketOutboundCtaLabel(t.provider),

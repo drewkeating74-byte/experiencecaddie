@@ -91,6 +91,9 @@ export default function Events() {
                             extra: {
                               category: "ticket",
                               provider: t.provider,
+                              label: getTicketOutboundCtaLabel(t.provider),
+                              target_url: t.url,
+                              destination: t.provider,
                               city: vCity || undefined,
                               event_date: event.event_date
                                 ? String(event.event_date).slice(0, 10)

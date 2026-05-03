@@ -121,6 +121,8 @@ export default function SearchPreview() {
                                 extra: {
                                   category: "ticket",
                                   provider: t.provider,
+                                  target_url: t.url,
+                                  destination: t.provider,
                                   city: city,
                                   label: getTicketOutboundCtaLabel(t.provider),
                                 },
@@ -169,7 +171,25 @@ export default function SearchPreview() {
                       )}
                     </div>
                     <Button asChild size="sm" variant="outline" className="sm:shrink-0 min-h-[44px] sm:min-h-0">
-                      <a href={link.url} target="_blank" rel="noreferrer">
+                      <a
+                        href={link.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        onClick={() =>
+                          logEvent({
+                            event_type: "golf_link_clicked",
+                            context: "planner_result",
+                            extra: {
+                              category: "golf",
+                              provider: link.provider,
+                              target_url: link.url,
+                              destination: link.provider,
+                              city,
+                              label: getOutboundLinkDisplayLabel(link),
+                            },
+                          })
+                        }
+                      >
                         {getOutboundLinkDisplayLabel(link)}
                       </a>
                     </Button>
@@ -235,6 +255,8 @@ export default function SearchPreview() {
                             extra: {
                               category: "hotel",
                               provider: h.provider,
+                              target_url: h.url,
+                              destination: h.provider,
                               city,
                               hotel_link_source: h.hotelLinkSource ?? "override",
                               label: cta,
