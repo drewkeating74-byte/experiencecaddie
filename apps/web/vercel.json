@@ -1,4 +1,11 @@
 {
+  "redirects": [
+    {
+      "source": "/instagram",
+      "destination": "https://www.experiencecaddie.com?utm_source=instagram&utm_medium=bio&utm_campaign=always-on",
+      "permanent": true
+    }
+  ],
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
   ]
