@@ -4,6 +4,7 @@ import { reportError } from "../_shared/monitoring.ts";
 import {
   buildGoogleTicketsSearchUrl,
   discoverConcertsFromCatalogMetros,
+  isWeekendGetawayYmd,
   parseFlexibleDateToYmd,
   resolveConcertFromTicketmaster,
 } from "../_shared/ticketmaster.ts";
@@ -27,6 +28,84 @@ function resolveDiscoverTargetMetros(cityList: string[]): MetroConfig[] {
     return Array.from(bySlug.values());
   }
   return [...METROS];
+}
+
+function concertOptionKey(option: Record<string, unknown>): string {
+  return [
+    String(option.artist || "").toLowerCase().trim(),
+    String(option.city || "").toLowerCase().trim(),
+    String(option.date || "").slice(0, 10),
+  ].join("|");
+}
+
+async function topUpConcertOptionsFromPackages(
+  supabase: any,
+  currentOptions: Array<Record<string, unknown>>,
+  minTripYmd: string,
+  maxDiscoveryEnd: string,
+  maxReturn: number
+): Promise<Array<Record<string, unknown>>> {
+  if (currentOptions.length >= maxReturn) return currentOptions;
+  const nowIso = new Date().toISOString();
+  const { data, error } = await supabase
+    .from("packages")
+    .select("id,name,event_name,event_date,artist_name,city,verification_evidence_url,events(name,event_date,ticket_url,artists(name),venues(name,city))")
+    .eq("active", true)
+    .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
+    .limit(100);
+
+  if (error || !Array.isArray(data)) {
+    if (error) console.warn("[DISCOVER_TM] package top-up failed:", error.message);
+    return currentOptions;
+  }
+
+  const seen = new Set(currentOptions.map(concertOptionKey));
+  const toppedUp = [...currentOptions];
+  const packageOptions = data
+    .map((row: any) => {
+      const event = Array.isArray(row.events) ? row.events[0] : row.events;
+      const eventDate = String(row.event_date || event?.event_date || "").slice(0, 10);
+      const artist = String(row.artist_name || event?.artists?.name || row.event_name || event?.name || "").trim();
+      const eventName = String(row.event_name || event?.name || artist || row.name || "").trim();
+      const city = String(row.city || event?.venues?.city || "").trim();
+      const venue = String(event?.venues?.name || "Concert Venue").trim();
+      const url = String(event?.ticket_url || row.verification_evidence_url || "").trim();
+      return { id: `package:${row.id}`, artist, city, venue, date: eventDate, url, eventName };
+    })
+    .filter((option: Record<string, unknown>) => {
+      const date = String(option.date || "").slice(0, 10);
+      const eventName = String(option.eventName || option.artist || "");
+      return (
+        /^\d{4}-\d{2}-\d{2}$/.test(date) &&
+        date >= minTripYmd &&
+        date <= maxDiscoveryEnd &&
+        isWeekendGetawayYmd(date) &&
+        String(option.artist || "").trim().length > 0 &&
+        String(option.city || "").trim().length > 0 &&
+        !/\b(nutcracker|ballet|orchestra|symphony|opera)\b/i.test(eventName)
+      );
+    })
+    .sort((a: Record<string, unknown>, b: Record<string, unknown>) => String(a.date || "").localeCompare(String(b.date || "")));
+
+  for (const option of packageOptions) {
+    if (toppedUp.length >= maxReturn) break;
+    const key = concertOptionKey(option);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    toppedUp.push({
+      id: option.id,
+      artist: option.artist,
+      city: option.city,
+      venue: option.venue,
+      date: option.date,
+      url: option.url,
+      _verified_package: true,
+    });
+  }
+
+  return toppedUp
+    .sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")))
+    .slice(0, maxReturn);
 }
 
 const corsHeaders = {
@@ -263,7 +342,8 @@ serve(async (req) => {
 
         const targetMetros = resolveDiscoverTargetMetros(cityList);
         const MAX_RETURN = 5;
-        const allowExtendedDiscovery = p.allow_extended_discovery === true;
+        const isSurpriseDiscovery = String(p.event_details || "").trim().toLowerCase().startsWith("surprise me");
+        const allowExtendedDiscovery = p.allow_extended_discovery === true || isSurpriseDiscovery;
         const maxDiscoveryEnd = allowExtendedDiscovery ? addCalendarDaysToYmd(discEnd, 180) : discEnd;
 
         console.log(
@@ -288,6 +368,10 @@ serve(async (req) => {
           })
           .sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")))
           .slice(0, MAX_RETURN);
+
+        if (allowExtendedDiscovery && opts.length < MAX_RETURN) {
+          opts = await topUpConcertOptionsFromPackages(supabase, opts, minTripYmd, maxDiscoveryEnd, MAX_RETURN);
+        }
 
         return new Response(JSON.stringify({ success: true, concert_options: opts }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },

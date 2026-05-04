@@ -556,6 +556,8 @@ const DISCOVERY_WARM_WEATHER_METROS = new Set([
   "houston",
 ]);
 
+const DEFAULT_SURPRISE_GENRES = ["Country", "Rock", "Pop", "Hip-Hop"];
+
 function eventMonth(ymd: string): number {
   return Number(ymd.slice(5, 7));
 }
@@ -749,7 +751,11 @@ export async function discoverConcertsFromCatalogMetros(params: {
     return [];
   }
 
-  const { metros, startDate, endDate, artistKeyword, genreTokens, maxReturn } = params;
+  const { metros, startDate, endDate, artistKeyword, maxReturn } = params;
+  const isDefaultSurpriseSearch = !artistKeyword && params.genreTokens.length === 0;
+  const genreTokens = isDefaultSurpriseSearch
+    ? DEFAULT_SURPRISE_GENRES
+    : params.genreTokens;
   const excludeIds = new Set((params.excludeEventIds ?? []).map((id) => id.trim()).filter(Boolean));
   const searchDepth = params.searchDepth ?? 0;
 
@@ -765,9 +771,23 @@ export async function discoverConcertsFromCatalogMetros(params: {
         dmaId: useDma ? metro.ticketmasterDmaId : null,
         ...(!useDma ? { city: metro.cities[0], state: metro.state } : {}),
       };
-      const events = artistKeyword
+      let events = artistKeyword
         ? await fetchTicketmasterEvents({ ...baseParams, size: 30 })
         : await fetchDiscoveryGenreEvents({ ...baseParams, genreTokens });
+      if (isDefaultSurpriseSearch && metro.ticketmasterDmaId != null && metro.ticketmasterDmaId > 0) {
+        const dmaEvents = await fetchDiscoveryGenreEvents({
+          artist: artistKeyword,
+          startDate,
+          endDate,
+          dmaId: metro.ticketmasterDmaId,
+          genreTokens,
+        });
+        const byId = new Map<string, TMEvent>();
+        for (const event of [...events, ...dmaEvents]) {
+          byId.set(event.id ?? `${event.name}|${event.dates?.start?.localDate}`, event);
+        }
+        events = [...byId.values()];
+      }
       return { metro, events };
     }
   );
