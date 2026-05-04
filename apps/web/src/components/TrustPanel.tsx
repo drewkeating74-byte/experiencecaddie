@@ -119,7 +119,7 @@ export function GolfTrustPanel({
           {distance_miles != null && (
             <span className="inline-flex items-center gap-1" title="Distance from venue area">
               <MapPin className="h-3.5 w-3 shrink-0" />
-              ~{distance_miles} mi away
+              ~{Number(distance_miles).toFixed(1)} mi away
             </span>
           )}
           {public_access_confidence && (
