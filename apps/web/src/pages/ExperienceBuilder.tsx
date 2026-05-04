@@ -97,7 +97,15 @@ export default function ExperienceBuilder() {
   const [discoveryStep, setDiscoveryStep] = useState<"form" | "discovering" | "pick" | "building" | "no_results">("form");
   const [concertOptions, setConcertOptions] = useState<ConcertOption[]>([]);
   const [refreshingConcerts, setRefreshingConcerts] = useState(false);
-  const [savedParams, setSavedParams] = useState<{ finalCity: string; finalStart: string; finalEnd: string; budget: BudgetTier; groupSize: number; eventDetails: string } | null>(null);
+  const [savedParams, setSavedParams] = useState<{
+    finalCity: string;
+    finalStart: string;
+    finalEnd: string;
+    budget: BudgetTier;
+    groupSize: number;
+    eventDetails: string;
+    allowExtendedDiscovery: boolean;
+  } | null>(null);
 
   const { user } = useAuth();
   const location = useLocation();
@@ -278,6 +286,7 @@ export default function ExperienceBuilder() {
     finalEnd: string;
     eventDetails: string;
     clientTz: string;
+    allowExtendedDiscovery?: boolean;
     excludeEventIds?: string[];
   }) => {
     const controller = new AbortController();
@@ -301,6 +310,7 @@ export default function ExperienceBuilder() {
             event_details: params.eventDetails.slice(0, 500),
             artist_search: selectedEntry === "artist" ? eventInput.trim().slice(0, 200) : null,
             client_timezone: params.clientTz,
+            allow_extended_discovery: params.allowExtendedDiscovery ?? false,
             exclude_event_ids: params.excludeEventIds ?? [],
           },
         }),
@@ -335,6 +345,7 @@ export default function ExperienceBuilder() {
         finalEnd: savedParams.finalEnd,
         eventDetails: savedParams.eventDetails,
         clientTz: getBrowserTimeZone(),
+        allowExtendedDiscovery: savedParams.allowExtendedDiscovery,
         excludeEventIds: Array.from(currentIds),
       });
       if (!nextOptions.length) {
@@ -547,6 +558,7 @@ export default function ExperienceBuilder() {
           finalEnd,
           eventDetails,
           clientTz,
+          allowExtendedDiscovery: flexibleDates,
         });
         if (!opts.length) {
           logEvent({ event_type: "no_results_shown", artist_name: eventInput.trim() || undefined, context: "planner_result" });
@@ -554,7 +566,7 @@ export default function ExperienceBuilder() {
           return;
         }
         setConcertOptions(opts);
-        setSavedParams({ finalCity, finalStart, finalEnd, budget, groupSize, eventDetails });
+        setSavedParams({ finalCity, finalStart, finalEnd, budget, groupSize, eventDetails, allowExtendedDiscovery: flexibleDates });
         setDiscoveryStep("pick");
       } catch (err: unknown) {
         const isAbort = getErrorName(err) === "AbortError";

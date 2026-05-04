@@ -9,6 +9,7 @@ import {
 } from "../_shared/ticketmaster.ts";
 import { METROS, getMetroByCity, type MetroConfig } from "../_shared/golfCities.ts";
 import {
+  addCalendarDaysToYmd,
   addMonthsToYmd,
   extractIsoDateYmd,
   minTripStartYmdForTimezone,
@@ -262,6 +263,8 @@ serve(async (req) => {
 
         const targetMetros = resolveDiscoverTargetMetros(cityList);
         const MAX_RETURN = 5;
+        const allowExtendedDiscovery = p.allow_extended_discovery === true;
+        const maxDiscoveryEnd = allowExtendedDiscovery ? addCalendarDaysToYmd(discEnd, 180) : discEnd;
 
         console.log(
           `[DISCOVER_TM] metros=${targetMetros.length} slug=${targetMetros.map((m) => m.slug).join(",")} ` +
@@ -281,7 +284,7 @@ serve(async (req) => {
         opts = opts
           .filter((v) => {
             const d = String(v.date || "").trim().slice(0, 10);
-            return /^\d{4}-\d{2}-\d{2}$/.test(d) && d >= minTripYmd && d <= discEnd;
+            return /^\d{4}-\d{2}-\d{2}$/.test(d) && d >= minTripYmd && d <= maxDiscoveryEnd;
           })
           .sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")))
           .slice(0, MAX_RETURN);

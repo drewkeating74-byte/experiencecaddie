@@ -741,6 +741,7 @@ export async function discoverConcertsFromCatalogMetros(params: {
   genreTokens: string[];
   maxReturn: number;
   excludeEventIds?: string[];
+  searchDepth?: number;
 }): Promise<Array<Record<string, unknown>>> {
   const apiKey = Deno.env.get("TICKETMASTER_API_KEY") || Deno.env.get("TICKETMASTER_CONSUMER_KEY");
   if (!apiKey) {
@@ -750,6 +751,7 @@ export async function discoverConcertsFromCatalogMetros(params: {
 
   const { metros, startDate, endDate, artistKeyword, genreTokens, maxReturn } = params;
   const excludeIds = new Set((params.excludeEventIds ?? []).map((id) => id.trim()).filter(Boolean));
+  const searchDepth = params.searchDepth ?? 0;
 
   const settled = await mapWithConcurrency(
     metros,
@@ -796,7 +798,7 @@ export async function discoverConcertsFromCatalogMetros(params: {
 
   const preferred = cands.filter((c) => !excludeIds.has(c.event.id ?? discoverEventDedupeKey(c)));
   let picked = pickBestDiverseConcerts(preferred, maxReturn);
-  if (picked.length < maxReturn && excludeIds.size > 0) {
+  if (picked.length < maxReturn && searchDepth < 1) {
     const pickedIds = new Set(picked.map((c) => c.event.id ?? discoverEventDedupeKey(c)));
     const overflow = await discoverConcertsFromCatalogMetros({
       metros,
@@ -806,6 +808,7 @@ export async function discoverConcertsFromCatalogMetros(params: {
       genreTokens,
       maxReturn: maxReturn - picked.length,
       excludeEventIds: [...excludeIds, ...pickedIds],
+      searchDepth: searchDepth + 1,
     });
     return [...picked.map((c) => tmEventToDiscoverOption(c.event, c.metro)), ...overflow]
       .sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")))
