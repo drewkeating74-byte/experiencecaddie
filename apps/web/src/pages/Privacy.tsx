@@ -6,16 +6,6 @@ const LAST_UPDATED = "April 2026";
 export default function Privacy() {
   return (
     <div className="container mx-auto max-w-3xl px-4 py-12">
-      {/* Draft notice */}
-      <div className="mb-8 rounded-lg border border-amber-400 bg-amber-50 px-5 py-4 text-sm text-amber-900">
-        <p className="font-semibold">⚠ DRAFT — PENDING LEGAL REVIEW</p>
-        <p className="mt-1">
-          This document has not been reviewed or approved by legal counsel. It is published as a
-          working draft only and should not be relied upon as a final, legally binding privacy
-          policy. A reviewed version will replace this draft before full public launch.
-        </p>
-      </div>
-
       <h1 className="font-serif text-3xl font-bold text-primary">Privacy Policy</h1>
       <p className="mt-2 text-sm text-muted-foreground">Last updated: {LAST_UPDATED}</p>
 
@@ -190,14 +180,6 @@ export default function Privacy() {
             .
           </p>
         </section>
-      </div>
-
-      <div className="mt-12 rounded-lg border border-amber-400 bg-amber-50 px-5 py-4 text-sm text-amber-900">
-        <p className="font-semibold">⚠ DRAFT — PENDING LEGAL REVIEW</p>
-        <p className="mt-1">
-          This document requires review by qualified legal counsel before it is treated as a
-          finalised privacy policy.
-        </p>
       </div>
     </div>
   );
