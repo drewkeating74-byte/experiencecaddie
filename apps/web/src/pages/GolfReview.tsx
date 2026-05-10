@@ -291,6 +291,46 @@ export default function GolfReview() {
     setExcludeTarget(null);
   };
 
+  const clearManualReview = async (courseId: string) => {
+    setUpdating(courseId);
+    const previous = courses.find((c) => c.id === courseId);
+    const payload: Record<string, unknown> = {
+      manual_review_needed: false,
+      last_verified_at: new Date().toISOString(),
+      verification_method: "manual_ui",
+      last_verified_by: user?.id ? `admin:${user.id}` : "admin",
+    };
+
+    const { error } = await supabase
+      .from("golf_courses")
+      .update(payload)
+      .eq("id", courseId);
+
+    if (error) {
+      toast.error("Clear review failed: " + error.message);
+    } else {
+      await supabase
+        .from("golf_course_verification_events")
+        .insert({
+          golf_course_id: courseId,
+          actor: user?.id ? `admin:${user.id}` : "admin",
+          method: "manual_ui",
+          previous_status: previous?.verification_status ?? null,
+          new_status: previous?.verification_status ?? null,
+          previous_course_type: previous?.course_type ?? null,
+          new_course_type: previous?.course_type ?? null,
+          evidence_summary: "Admin cleared manual review flag",
+          raw_inputs: { source: "GolfReview", action: "clear_manual_review" },
+          raw_outputs: payload,
+        });
+      toast.success("Manual review cleared");
+      setCourses((prev) =>
+        prev.map((c) => (c.id === courseId ? { ...c, ...payload } : c))
+      );
+    }
+    setUpdating(null);
+  };
+
   // ── Filtering ────────────────────────────────────────────────────────────────
 
   const filtered = courses.filter((c) => {
@@ -561,6 +601,15 @@ export default function GolfReview() {
                             className="rounded border border-red-300 bg-red-50 px-2 py-0.5 text-xs text-red-800 hover:bg-red-100 disabled:opacity-50"
                           >
                             {isBusy ? "…" : "Exclude"}
+                          </button>
+                        )}
+                        {course.manual_review_needed && (
+                          <button
+                            disabled={isBusy}
+                            onClick={() => clearManualReview(course.id)}
+                            className="rounded border border-slate-300 bg-slate-50 px-2 py-0.5 text-xs text-slate-800 hover:bg-slate-100 disabled:opacity-50"
+                          >
+                            {isBusy ? "…" : "Clear Review"}
                           </button>
                         )}
                       </div>
