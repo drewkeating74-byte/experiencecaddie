@@ -56,7 +56,7 @@
  *   Requires Authorization: Bearer <SUPABASE_SERVICE_ROLE_KEY>
  */
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -143,7 +143,7 @@ Return ONLY valid JSON — no markdown, no explanation, no other text:
 {
   "verification_status": "verified" | "needs_review" | "excluded",
   "access_type": "public" | "municipal" | "resort" | "semi_private" |
-                 "private" | "unknown",
+                 "private" | "military" | "unknown",
   "confidence": "high" | "medium" | "low",
   "evidence": "<1–2 sentences: what signals you found and why you chose this status>",
   "excluded_reason": null | "private_club" | "members_only" | "no_public_access" | "invitation_only"
@@ -194,6 +194,14 @@ type CourseUpdate = {
   last_agent_review_at: string;
   verification_evidence_summary?: string;
   last_verified_at: string;
+};
+
+type VerificationEvent = {
+  raw_inputs?: Record<string, unknown> | null;
+  raw_outputs?: Record<string, unknown> | null;
+  external_refs?: Record<string, unknown> | null;
+  confidence?: string | null;
+  evidence_summary?: string | null;
 };
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -300,7 +308,7 @@ function ruleBasedDecision(
  * golf_courses.course_type constraint.
  */
 function sanitiseAccessType(raw: string | undefined): string {
-  const allowed = ["public", "semi_private", "resort", "municipal", "private", "unknown"];
+  const allowed = ["public", "semi_private", "resort", "municipal", "private", "military", "unknown"];
   const v = (raw ?? "").toLowerCase().replace(/-/g, "_");
   return allowed.includes(v) ? v : "unknown";
 }
@@ -320,20 +328,41 @@ function extractJson(raw: string): string {
 
 // ── Supabase DB update helper ──────────────────────────────────────────────────
 
-// deno-lint-ignore no-explicit-any
-type SupabaseClient = any;
-
 async function updateCourse(
   supabase: SupabaseClient,
-  id: string,
-  update: CourseUpdate
+  row: GolfCourseRow,
+  update: CourseUpdate,
+  event: VerificationEvent = {}
 ): Promise<void> {
   const { error } = await supabase
     .from("golf_courses")
     .update(update)
-    .eq("id", id);
+    .eq("id", row.id);
   if (error) {
-    console.error(`[VERIFY] DB update failed for ${id}:`, error.message);
+    console.error(`[VERIFY] DB update failed for ${row.id}:`, error.message);
+    return;
+  }
+
+  const { error: eventError } = await supabase
+    .from("golf_course_verification_events")
+    .insert({
+      golf_course_id: row.id,
+      actor: update.last_verified_by,
+      method: update.verification_method,
+      previous_status: row.verification_status,
+      new_status: update.verification_status,
+      previous_course_type: row.course_type,
+      new_course_type: update.course_type ?? row.course_type,
+      confidence: event.confidence ?? null,
+      excluded_reason: update.excluded_reason ?? null,
+      evidence_summary: event.evidence_summary ?? update.verification_evidence_summary ?? null,
+      raw_inputs: event.raw_inputs ?? null,
+      raw_outputs: event.raw_outputs ?? null,
+      external_refs: event.external_refs ?? null,
+    });
+
+  if (eventError) {
+    console.error(`[VERIFY] Event insert failed for ${row.id}:`, eventError.message);
   }
 }
 
@@ -420,7 +449,23 @@ Deno.serve(async (req: Request) => {
           runStats.pass1_escalated++;
         }
 
-        await updateCourse(supabase, row.id, update);
+        await updateCourse(supabase, row, update, {
+          evidence_summary: evidence,
+          raw_inputs: {
+            public_access_confidence: row.public_access_confidence,
+            places_data: details
+              ? {
+                  reservable: details.reservable ?? null,
+                  editorialSummary: details.editorialSummary?.text ?? null,
+                  priceLevel: details.priceLevel ?? null,
+                  businessStatus: details.businessStatus ?? null,
+                  websiteUri: details.websiteUri ?? null,
+                }
+              : null,
+          },
+          raw_outputs: { status, evidence },
+          external_refs: { place_id: placeId },
+        });
         console.log(`[VERIFY] Pass1 ${status.toUpperCase().padEnd(12)} ${row.name} (${row.city}) — ${evidence.slice(0, 100)}`);
       }
     }
@@ -520,14 +565,24 @@ Deno.serve(async (req: Request) => {
       console.error(`[VERIFY] Pass2 LLM error for ${row.name}:`, msg);
       runStats.pass2_errors.push(`${row.name}: ${msg}`);
       // Stamp last_agent_review_at so we don't immediately retry on next run
-      await updateCourse(supabase, row.id, {
-        verification_status: "needs_review",
-        verification_method: "llm_perplexity",
-        last_verified_by: VERIFIER_VERSION,
-        last_agent_review_at: now,
-        last_verified_at: now,
-        verification_evidence_summary: `LLM call failed: ${msg.slice(0, 200)}`,
-      });
+      await updateCourse(
+        supabase,
+        row,
+        {
+          verification_status: "needs_review",
+          verification_method: "llm_perplexity",
+          last_verified_by: VERIFIER_VERSION,
+          last_agent_review_at: now,
+          last_verified_at: now,
+          verification_evidence_summary: `LLM call failed: ${msg.slice(0, 200)}`,
+        },
+        {
+          evidence_summary: `LLM call failed: ${msg.slice(0, 200)}`,
+          raw_inputs: { prompt: userMessage },
+          raw_outputs: { error: msg.slice(0, 500) },
+          external_refs: { place_id: placeId },
+        },
+      );
       continue;
     }
 
@@ -551,7 +606,13 @@ Deno.serve(async (req: Request) => {
       update.public_access_confidence = "likely_public";
     }
 
-    await updateCourse(supabase, row.id, update);
+    await updateCourse(supabase, row, update, {
+      confidence: llmResult.confidence,
+      evidence_summary: llmResult.evidence,
+      raw_inputs: { prompt: userMessage },
+      raw_outputs: llmResult as unknown as Record<string, unknown>,
+      external_refs: { place_id: placeId },
+    });
 
     if (status === "verified") runStats.pass2_verified++;
     else if (status === "excluded") runStats.pass2_excluded++;

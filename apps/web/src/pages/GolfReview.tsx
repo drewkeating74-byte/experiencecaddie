@@ -36,6 +36,9 @@ interface GolfCourseRow {
   verification_status: string | null;
   course_type: string | null;
   public_access_confidence: string | null;
+  manual_review_needed: boolean | null;
+  verification_method: string | null;
+  last_verified_by: string | null;
   last_verified_at: string | null;
   excluded_reason: string | null;
   active: boolean | null;
@@ -133,6 +136,8 @@ const STATUS_TABS = [
   { value: "excluded",       label: "Excluded" },
 ];
 
+const PAGE_SIZE = 1000;
+
 /** Canonical status string (null DB → treated as unreviewed for workflows). */
 function effectiveStatus(raw: string | null): string {
   return canonStatus(raw) ?? "unreviewed";
@@ -141,6 +146,17 @@ function effectiveStatus(raw: string | null): string {
 function isInReviewQueue(raw: string | null): boolean {
   const s = effectiveStatus(raw);
   return s === "unreviewed" || s === "needs_review";
+}
+
+function isReviewQueueCourse(row: GolfCourseRow): boolean {
+  return (
+    isInReviewQueue(row.verification_status) ||
+    (
+      row.manual_review_needed === true &&
+      row.verification_method === "agent_web_review" &&
+      row.last_verified_by === "cowork_agent"
+    )
+  );
 }
 
 /** Normalize DB status for filtering (handles stray spaces / casing). */
@@ -176,20 +192,30 @@ export default function GolfReview() {
   const loadCourses = async () => {
     setLoading(true);
     const cols =
-      "id,name,city,state,metro,verification_status,course_type,public_access_confidence,last_verified_at,excluded_reason,active,created_at";
-    const { data, error } = await (supabase as any)
-      .from("golf_courses")
-      .select(cols)
-      .limit(10000);
+      "id,name,city,state,metro,verification_status,course_type,public_access_confidence,manual_review_needed,verification_method,last_verified_by,last_verified_at,excluded_reason,active,created_at";
 
-    if (error) {
-      toast.error("Failed to load courses: " + error.message);
-      setCourses([]);
-      setLoading(false);
-      return;
+    const allRows: GolfCourseRow[] = [];
+    for (let from = 0; ; from += PAGE_SIZE) {
+      const to = from + PAGE_SIZE - 1;
+      const { data, error } = await supabase
+        .from("golf_courses")
+        .select(cols)
+        .order("created_at", { ascending: false })
+        .range(from, to);
+
+      if (error) {
+        toast.error("Failed to load courses: " + error.message);
+        setCourses([]);
+        setLoading(false);
+        return;
+      }
+
+      const batch = (data ?? []) as GolfCourseRow[];
+      allRows.push(...batch);
+      if (batch.length < PAGE_SIZE) break;
     }
 
-    const rows = ((data ?? []) as GolfCourseRow[]).map((r) => ({
+    const rows = allRows.map((r) => ({
       ...r,
       verification_status: canonStatus(r.verification_status),
     }));
@@ -212,7 +238,6 @@ export default function GolfReview() {
 
   useEffect(() => {
     if (isAdmin) loadCourses();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin]);
 
   const updateStatus = async (
@@ -221,9 +246,12 @@ export default function GolfReview() {
     excluded_reason?: string | null,
   ) => {
     setUpdating(courseId);
+    const previous = courses.find((c) => c.id === courseId);
     const payload: Record<string, unknown> = {
       verification_status: status,
       last_verified_at: new Date().toISOString(),
+      verification_method: "manual_ui",
+      last_verified_by: user?.id ? `admin:${user.id}` : "admin",
     };
     if (status === "excluded") {
       payload.excluded_reason = excluded_reason ?? "no_public_access";
@@ -231,7 +259,7 @@ export default function GolfReview() {
       payload.excluded_reason = null;
     }
 
-    const { error } = await (supabase as any)
+    const { error } = await supabase
       .from("golf_courses")
       .update(payload)
       .eq("id", courseId);
@@ -239,6 +267,21 @@ export default function GolfReview() {
     if (error) {
       toast.error("Update failed: " + error.message);
     } else {
+      await supabase
+        .from("golf_course_verification_events")
+        .insert({
+          golf_course_id: courseId,
+          actor: user?.id ? `admin:${user.id}` : "admin",
+          method: "manual_ui",
+          previous_status: previous?.verification_status ?? null,
+          new_status: status,
+          previous_course_type: previous?.course_type ?? null,
+          new_course_type: previous?.course_type ?? null,
+          excluded_reason: status === "excluded" ? excluded_reason ?? "no_public_access" : null,
+          evidence_summary: `Admin marked course ${status}`,
+          raw_inputs: { source: "GolfReview" },
+          raw_outputs: payload,
+        });
       toast.success(`Course marked ${status}`);
       setCourses((prev) =>
         prev.map((c) => (c.id === courseId ? { ...c, ...payload } : c))
@@ -255,7 +298,7 @@ export default function GolfReview() {
     if (statusFilter === "all") {
       /* keep row */
     } else if (statusFilter === "review_queue") {
-      if (!isInReviewQueue(c.verification_status)) return false;
+      if (!isReviewQueueCourse(c)) return false;
     } else if (eff !== statusFilter) {
       return false;
     }
@@ -278,7 +321,7 @@ export default function GolfReview() {
   const counts = STATUS_TABS.reduce<Record<string, number>>((acc, t) => {
     if (t.value === "all") acc[t.value] = courses.length;
     else if (t.value === "review_queue") {
-      acc[t.value] = courses.filter((c) => isInReviewQueue(c.verification_status)).length;
+      acc[t.value] = courses.filter(isReviewQueueCourse).length;
     } else {
       acc[t.value] = courses.filter((c) => effectiveStatus(c.verification_status) === t.value).length;
     }

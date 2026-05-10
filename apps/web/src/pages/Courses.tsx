@@ -24,7 +24,7 @@ export default function Courses() {
       .eq("active", true)
       .in("verification_status", ["verified", "unreviewed"])
       .in("public_access_confidence", ["likely_public", "unknown"])
-      .or("course_type.is.null,course_type.not.in.(private,semi_private,resort)")
+      .or("course_type.is.null,course_type.not.in.(private,semi_private,resort,military)")
       .order("name")
       .then(({ data }) => {
         if (data) setCourses(data as unknown as GolfCourse[]);
@@ -68,7 +68,7 @@ export default function Courses() {
                 <div className="mt-2 flex flex-wrap gap-2">
                   {course.holes && <Badge variant="secondary">{course.holes} holes</Badge>}
                   {course.rating && <Badge variant="outline">Rating: {course.rating}</Badge>}
-                  {course.slope && <Badge variant="outline">Slope: {course.slope}</Badge>}
+                  {course.user_rating_count && <Badge variant="outline">{course.user_rating_count} reviews</Badge>}
                 </div>
                 {(course.green_fee_min || course.green_fee_max) && (
                   <p className="mt-2 font-semibold">${course.green_fee_min}{course.green_fee_max ? ` – $${course.green_fee_max}` : ""}</p>

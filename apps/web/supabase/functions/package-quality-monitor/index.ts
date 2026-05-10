@@ -255,9 +255,10 @@ function golfAccessFails(course: GolfCourseRow | null, golfName: string): string
   if (isPrivateGolfByName(golfName)) failed.push("golf_name_private_or_restricted");
   if (!course) return failed;
   if (course.verification_status === "excluded" || course.excluded_reason) failed.push("golf_verification_excluded");
+  if (course.verification_status === "needs_review") failed.push("golf_verification_needs_review");
   if (course.public_access === false) failed.push("golf_public_access_false");
   if (course.public_access_confidence === "likely_private") failed.push("golf_likely_private");
-  if (["private", "military"].includes(course.course_type ?? "")) failed.push("golf_course_type_restricted");
+  if (["private", "semi_private", "resort", "military"].includes(course.course_type ?? "")) failed.push("golf_course_type_restricted");
   return [...new Set(failed)];
 }
 

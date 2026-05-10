@@ -21,6 +21,31 @@ WHERE  id IN (
   'f2ec0001-0000-0000-0000-000000000006'   -- Jason Isbell   May  1
 );
 
+-- ── 1b. DESTINATIONS REQUIRED BY NEW PACKAGES ────────────────────────────────
+-- Some remote databases have this migration pending even though the earlier
+-- featured seed was already marked applied or manually altered. Keep this
+-- migration self-contained so package FK inserts do not depend on old seed rows.
+
+INSERT INTO public.destinations (id, name, city, state, country, lat, lng, image_url, description)
+VALUES
+  ('d1ec0001-0000-0000-0000-000000000001',
+   'Austin, TX', 'Austin', 'TX', 'US', 30.2672, -97.7431,
+   'https://images.unsplash.com/photo-1531218150217-54595bc2b934?w=800&fit=crop',
+   'Live music capital of the world with world-class public golf'),
+  ('d1ec0001-0000-0000-0000-000000000002',
+   'Nashville, TN', 'Nashville', 'TN', 'US', 36.1627, -86.7816,
+   'https://images.unsplash.com/photo-1545310143-3b4e5c96d6e9?w=800&fit=crop',
+   'Country music capital paired with championship resort courses'),
+  ('d1ec0001-0000-0000-0000-000000000003',
+   'Las Vegas, NV', 'Las Vegas', 'NV', 'US', 36.1699, -115.1398,
+   'https://images.unsplash.com/photo-1581351721010-8cf859cb14a4?w=800&fit=crop',
+   'World-class entertainment and premier desert resort golf'),
+  ('d1ec0001-0000-0000-0000-000000000004',
+   'Phoenix, AZ', 'Phoenix', 'AZ', 'US', 33.4484, -112.0740,
+   'https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?w=800&fit=crop',
+   'Warm-weather desert golf paired with major arena concerts')
+ON CONFLICT (id) DO NOTHING;
+
 -- ── 2. NEW ARTISTS ────────────────────────────────────────────────────────────
 INSERT INTO public.artists (id, name, genre, subgenre, description) VALUES
   ('a3ec0001-0000-0000-0000-000000000001',

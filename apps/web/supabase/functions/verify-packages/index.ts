@@ -178,6 +178,8 @@ type BackfillGolfCourse = {
   public_access?: boolean | null;
   public_access_confidence?: string | null;
   course_type?: string | null;
+  verification_status?: string | null;
+  excluded_reason?: string | null;
   normalized_quality_score?: number | null;
   rating?: number | null;
   user_rating_count?: number | null;
@@ -542,12 +544,14 @@ function isUsableGolfCourse(course: BackfillGolfCourse): boolean {
   if (!course.id || !course.name?.trim()) return false;
   if (/topgolf|mini|putt|disc|simulator|driving range/i.test(course.name)) return false;
   if (/military|naval|navy|marine corps|air force|army|coast guard|\bbase\b|\bmwr\b|\bdod\b|camp pendleton|miramar|sea 'n air|sea n air/i.test(course.name)) return false;
-  if (course.course_type === "military") return false;
+  if (course.excluded_reason) return false;
+  if (!["verified", "unreviewed"].includes(course.verification_status ?? "unreviewed")) return false;
+  if (course.public_access_confidence === "likely_private") return false;
+  if (["private", "semi_private", "resort", "military"].includes(course.course_type ?? "")) return false;
   return (
     course.public_access === true ||
     course.course_type === "public" ||
-    course.course_type === "resort" ||
-    course.course_type === "semi_private" ||
+    course.course_type === "municipal" ||
     course.public_access_confidence === "likely_public"
   );
 }
@@ -557,7 +561,7 @@ async function bestGolfCourseForMetro(
   metroSlug: string
 ): Promise<BackfillGolfCourse | null> {
   const selectFull =
-    "id, name, city, state, source_id, public_access, public_access_confidence, course_type, normalized_quality_score, rating, user_rating_count";
+    "id, name, city, state, source_id, public_access, public_access_confidence, course_type, verification_status, excluded_reason, normalized_quality_score, rating, user_rating_count";
   const selectFallback = "id, name, city, state, source_id";
 
   let { data, error } = await sb
@@ -565,6 +569,9 @@ async function bestGolfCourseForMetro(
     .select(selectFull)
     .eq("active", true)
     .eq("metro", metroSlug)
+    .in("verification_status", ["verified", "unreviewed"])
+    .in("public_access_confidence", ["likely_public", "unknown"])
+    .or("course_type.is.null,course_type.not.in.(private,semi_private,resort,military)")
     .limit(30);
 
   if (error) {

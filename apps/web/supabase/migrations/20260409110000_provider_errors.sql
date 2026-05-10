@@ -32,6 +32,8 @@ COMMENT ON COLUMN public.provider_errors.function_name IS 'Which Supabase edge f
 -- Authenticated users (admins) can read; no public read.
 ALTER TABLE public.provider_errors ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Admin read provider_errors" ON public.provider_errors;
+
 CREATE POLICY "Admin read provider_errors"
   ON public.provider_errors FOR SELECT TO authenticated
   USING (public.has_role(auth.uid(), 'admin'));
