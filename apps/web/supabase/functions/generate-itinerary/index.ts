@@ -17,7 +17,7 @@ import {
   normalizeClientTimeZone,
 } from "../_shared/tripWindow.ts";
 
-/** Cities user selected must all map to catalog metros, or we fan out to all 29. */
+/** Cities user selected must all map to catalog metros, or we fan out to all 40. */
 function resolveDiscoverTargetMetros(cityList: string[]): MetroConfig[] {
   if (cityList.length === 0) return [...METROS];
   const allSupported = cityList.every((c) => getMetroByCity(c) !== null);
@@ -43,7 +43,8 @@ async function topUpConcertOptionsFromPackages(
   currentOptions: Array<Record<string, unknown>>,
   minTripYmd: string,
   maxDiscoveryEnd: string,
-  maxReturn: number
+  maxReturn: number,
+  targetMetros: MetroConfig[]
 ): Promise<Array<Record<string, unknown>>> {
   if (currentOptions.length >= maxReturn) return currentOptions;
   const nowIso = new Date().toISOString();
@@ -58,6 +59,13 @@ async function topUpConcertOptionsFromPackages(
     if (error) console.warn("[DISCOVER_TM] package top-up failed:", error.message);
     return currentOptions;
   }
+
+  // Build a set of valid metro slugs so packages are geo-scoped to the user's chosen city.
+  // When all metros are targeted (fully flexible), skip the city filter entirely.
+  const allMetrosTargeted = targetMetros.length === METROS.length;
+  const allowedSlugs = allMetrosTargeted
+    ? null
+    : new Set(targetMetros.map((m) => m.slug));
 
   const seen = new Set(currentOptions.map(concertOptionKey));
   const toppedUp = [...currentOptions];
@@ -75,15 +83,21 @@ async function topUpConcertOptionsFromPackages(
     .filter((option: Record<string, unknown>) => {
       const date = String(option.date || "").slice(0, 10);
       const eventName = String(option.eventName || option.artist || "");
-      return (
-        /^\d{4}-\d{2}-\d{2}$/.test(date) &&
-        date >= minTripYmd &&
-        date <= maxDiscoveryEnd &&
-        isWeekendGetawayYmd(date) &&
-        String(option.artist || "").trim().length > 0 &&
-        String(option.city || "").trim().length > 0 &&
-        !/\b(nutcracker|ballet|orchestra|symphony|opera)\b/i.test(eventName)
-      );
+      if (
+        !/^\d{4}-\d{2}-\d{2}$/.test(date) ||
+        date < minTripYmd ||
+        date > maxDiscoveryEnd ||
+        !isWeekendGetawayYmd(date) ||
+        String(option.artist || "").trim().length === 0 ||
+        String(option.city || "").trim().length === 0 ||
+        /\b(nutcracker|ballet|orchestra|symphony|opera)\b/i.test(eventName)
+      ) return false;
+      // Geo-scope: only include packages whose city resolves to one of the target metros.
+      if (allowedSlugs !== null) {
+        const packageMetro = getMetroByCity(String(option.city));
+        if (!packageMetro || !allowedSlugs.has(packageMetro.slug)) return false;
+      }
+      return true;
     })
     .sort((a: Record<string, unknown>, b: Record<string, unknown>) => String(a.date || "").localeCompare(String(b.date || "")));
 
@@ -370,7 +384,7 @@ serve(async (req) => {
           .slice(0, MAX_RETURN);
 
         if (allowExtendedDiscovery && opts.length < MAX_RETURN) {
-          opts = await topUpConcertOptionsFromPackages(supabase, opts, minTripYmd, maxDiscoveryEnd, MAX_RETURN);
+          opts = await topUpConcertOptionsFromPackages(supabase, opts, minTripYmd, maxDiscoveryEnd, MAX_RETURN, targetMetros);
         }
 
         return new Response(JSON.stringify({ success: true, concert_options: opts }), {
