@@ -36,7 +36,7 @@ const FAILURE_THRESHOLD = 2;
 const PERPLEXITY_MODEL = "sonar-pro";
 const BACKFILL_TARGET_ACTIVE_CURATED = 25;
 const BACKFILL_MAX_CANDIDATES_PER_METRO = 40;
-const BACKFILL_GENRES = ["country", "rock", "hip-hop", "rap", "pop"];
+const BACKFILL_GENRES = ["country", "rock", "classic rock", "pop", "americana"];
 const BACKFILL_EXCLUDED_METROS = new Set(["san-antonio"]);
 const WARM_WEATHER_METROS = new Set([
   "las-vegas",
