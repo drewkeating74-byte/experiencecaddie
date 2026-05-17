@@ -6,7 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Music, Search, Sparkles, ArrowRight, ArrowLeft, Loader2, MapPin, Calendar, X } from "lucide-react";
+import { Music, Search, Sparkles, ArrowRight, ArrowLeft, Loader2, MapPin, Calendar, X, ChevronsUpDown, Check } from "lucide-react";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { fetchSearch, buildFallbackSearchResponse } from "@/lib/api/search";
@@ -20,50 +22,71 @@ import { formatUsDate } from "@/lib/dateFormat";
 type EntryOption = "artist" | "find_concert" | "surprise";
 type BudgetTier = "low" | "mid" | "high";
 
-// Supported metro cities — used for city autocomplete suggestions.
-// Sorted alphabetically by display label; city value maps to the metro's
-// primary city so METRO_BY_CITY lookup succeeds in the edge functions.
-const METRO_SUGGESTIONS = [
-  { display: "Atlanta, GA", city: "Atlanta" },
-  { display: "Austin, TX", city: "Austin" },
-  { display: "Birmingham, AL", city: "Birmingham" },
-  { display: "Boston, MA", city: "Boston" },
-  { display: "Charlotte, NC", city: "Charlotte" },
-  { display: "Chicago, IL", city: "Chicago" },
-  { display: "Cleveland, OH", city: "Cleveland" },
-  { display: "Dallas–Fort Worth, TX", city: "Dallas" },
-  { display: "Denver, CO", city: "Denver" },
-  { display: "Detroit, MI", city: "Detroit" },
-  { display: "Greater Palm Springs, CA", city: "Palm Springs" },
-  { display: "Greensboro / Winston-Salem, NC", city: "Greensboro" },
-  { display: "Houston, TX", city: "Houston" },
-  { display: "Jacksonville, FL", city: "Jacksonville" },
-  { display: "Kansas City, MO/KS", city: "Kansas City" },
-  { display: "Las Vegas, NV", city: "Las Vegas" },
-  { display: "Los Angeles, CA", city: "Los Angeles" },
-  { display: "Memphis, TN", city: "Memphis" },
-  { display: "Miami / Fort Lauderdale, FL", city: "Miami" },
-  { display: "Milwaukee, WI", city: "Milwaukee" },
-  { display: "Myrtle Beach, SC", city: "Myrtle Beach" },
-  { display: "Nashville, TN", city: "Nashville" },
-  { display: "New Orleans, LA", city: "New Orleans" },
-  { display: "New York City, NY", city: "New York" },
-  { display: "Orange County, CA", city: "Orange County" },
-  { display: "Orlando, FL", city: "Orlando" },
-  { display: "Philadelphia, PA", city: "Philadelphia" },
-  { display: "Phoenix / Scottsdale, AZ", city: "Phoenix" },
-  { display: "Portland, OR", city: "Portland" },
-  { display: "Raleigh-Durham, NC", city: "Raleigh" },
-  { display: "Richmond, VA", city: "Richmond" },
-  { display: "San Antonio, TX", city: "San Antonio" },
-  { display: "San Diego, CA", city: "San Diego" },
-  { display: "San Francisco Bay Area, CA", city: "San Francisco" },
-  { display: "Savannah / Hilton Head, GA/SC", city: "Savannah" },
-  { display: "Seattle, WA", city: "Seattle" },
-  { display: "Tampa / St. Petersburg, FL", city: "Tampa" },
-  { display: "Virginia Beach / Norfolk, VA", city: "Virginia Beach" },
-  { display: "Washington D.C. / Northern Virginia", city: "Washington" },
-];
+// Supported metros grouped by region — drives the searchable city combobox.
+// Each city value maps to the metro's primary city name so the
+// METRO_BY_CITY lookup in the edge functions succeeds.
+const METRO_SUGGESTIONS_BY_REGION = [
+  {
+    region: "South",
+    cities: [
+      { display: "Atlanta, GA", city: "Atlanta" },
+      { display: "Austin, TX", city: "Austin" },
+      { display: "Birmingham, AL", city: "Birmingham" },
+      { display: "Charlotte, NC", city: "Charlotte" },
+      { display: "Dallas–Fort Worth, TX", city: "Dallas" },
+      { display: "Greensboro / Winston-Salem, NC", city: "Greensboro" },
+      { display: "Houston, TX", city: "Houston" },
+      { display: "Jacksonville, FL", city: "Jacksonville" },
+      { display: "Knoxville, TN", city: "Knoxville" },
+      { display: "Memphis, TN", city: "Memphis" },
+      { display: "Miami / Fort Lauderdale, FL", city: "Miami" },
+      { display: "Myrtle Beach, SC", city: "Myrtle Beach" },
+      { display: "Nashville, TN", city: "Nashville" },
+      { display: "New Orleans, LA", city: "New Orleans" },
+      { display: "Orlando, FL", city: "Orlando" },
+      { display: "Raleigh-Durham, NC", city: "Raleigh" },
+      { display: "Richmond, VA", city: "Richmond" },
+      { display: "San Antonio, TX", city: "San Antonio" },
+      { display: "Savannah / Hilton Head, GA/SC", city: "Savannah" },
+      { display: "Tampa / St. Petersburg, FL", city: "Tampa" },
+      { display: "Virginia Beach / Norfolk, VA", city: "Virginia Beach" },
+    ],
+  },
+  {
+    region: "West",
+    cities: [
+      { display: "Denver, CO", city: "Denver" },
+      { display: "Greater Palm Springs, CA", city: "Palm Springs" },
+      { display: "Las Vegas, NV", city: "Las Vegas" },
+      { display: "Los Angeles, CA", city: "Los Angeles" },
+      { display: "Orange County, CA", city: "Orange County" },
+      { display: "Phoenix / Scottsdale, AZ", city: "Phoenix" },
+      { display: "Portland, OR", city: "Portland" },
+      { display: "San Diego, CA", city: "San Diego" },
+      { display: "San Francisco Bay Area, CA", city: "San Francisco" },
+      { display: "Seattle, WA", city: "Seattle" },
+    ],
+  },
+  {
+    region: "Midwest",
+    cities: [
+      { display: "Chicago, IL", city: "Chicago" },
+      { display: "Cleveland, OH", city: "Cleveland" },
+      { display: "Detroit, MI", city: "Detroit" },
+      { display: "Kansas City, MO/KS", city: "Kansas City" },
+      { display: "Milwaukee, WI", city: "Milwaukee" },
+    ],
+  },
+  {
+    region: "Northeast",
+    cities: [
+      { display: "Boston, MA", city: "Boston" },
+      { display: "New York City, NY", city: "New York" },
+      { display: "Philadelphia, PA", city: "Philadelphia" },
+      { display: "Washington D.C. / Northern Virginia", city: "Washington" },
+    ],
+  },
+] as const;
 
 type ConcertOption = { id?: string; artist: string; city: string; venue: string; date: string; url?: string };
 
@@ -101,7 +124,7 @@ export default function ExperienceBuilder() {
   // Details
   const [flexibleLocation, setFlexibleLocation] = useState(true);
   const [selectedCities, setSelectedCities] = useState<string[]>([]);
-  const [cityInput, setCityInput] = useState("");
+  const [cityComboOpen, setCityComboOpen] = useState(false);
   const [flexibleDates, setFlexibleDates] = useState(true);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -1094,9 +1117,6 @@ export default function ExperienceBuilder() {
             <div className="flex items-center gap-2">
               <MapPin className="h-4 w-4 text-muted-foreground" />
               <Label className="text-base font-medium">Destination city</Label>
-              {selectedCities.length > 0 && (
-                <span className="ml-auto text-xs text-muted-foreground">{selectedCities.length} selected</span>
-              )}
             </div>
             {flexibleLocation ? (
               <div className="rounded-lg border border-dashed border-border/70 bg-muted/30 px-4 py-3 flex items-center justify-between">
@@ -1106,20 +1126,20 @@ export default function ExperienceBuilder() {
                   onClick={() => setFlexibleLocation(false)}
                   className="text-sm font-medium text-primary hover:text-primary/80 transition-colors shrink-0 ml-4"
                 >
-                  Pick cities
+                  Pick a city
                 </button>
               </div>
             ) : (
-              <div className="space-y-3 animate-fade-in">
-                {/* Selected city chips */}
+              <div className="space-y-2 animate-fade-in">
+                {/* Selected city chip */}
                 {selectedCities.length > 0 && (
                   <div className="flex flex-wrap gap-1.5">
                     {selectedCities.map((c) => (
                       <span
                         key={c}
-                        className="inline-flex items-center gap-1 rounded-full border border-primary bg-primary/10 px-3 py-1 text-xs font-medium text-foreground"
+                        className="inline-flex items-center gap-1 rounded-full border border-primary bg-primary/10 px-3 py-1 text-sm font-medium text-foreground"
                       >
-                        {c}
+                        {METRO_SUGGESTIONS_BY_REGION.flatMap((g) => g.cities).find((m) => m.city === c)?.display ?? c}
                         <button
                           type="button"
                           onClick={() => setSelectedCities((prev) => prev.filter((x) => x !== c))}
@@ -1132,65 +1152,63 @@ export default function ExperienceBuilder() {
                     ))}
                   </div>
                 )}
-                {/* Quick-tap metro chips */}
-                <div className="flex flex-wrap gap-1.5">
-                  {METRO_SUGGESTIONS.map((m) => {
-                    const active = selectedCities.includes(m.city);
-                    return (
-                      <button
-                        key={m.city}
-                        type="button"
-                        onClick={() =>
-                          setSelectedCities((prev) =>
-                            active ? prev.filter((x) => x !== m.city) : [...prev, m.city]
-                          )
-                        }
-                        className={`rounded-full border px-3 py-1 text-xs transition-all ${
-                          active
-                            ? "border-primary bg-primary/10 text-foreground font-medium"
-                            : "border-border text-muted-foreground hover:border-primary/30 hover:text-foreground"
-                        }`}
-                      >
-                        {m.city}
-                      </button>
-                    );
-                  })}
-                </div>
-                {/* Free-text input for cities not in the list */}
-                <div className="relative">
-                  <Input
-                    list="metro-cities-datalist"
-                    placeholder="Or type any city and press Enter…"
-                    value={cityInput}
-                    onChange={(e) => setCityInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        const val = cityInput.trim();
-                        if (val && !selectedCities.includes(val)) {
-                          setSelectedCities((prev) => [...prev, val]);
-                        }
-                        setCityInput("");
-                      }
-                    }}
-                    onBlur={() => {
-                      const val = cityInput.trim();
-                      if (val && !selectedCities.includes(val)) {
-                        setSelectedCities((prev) => [...prev, val]);
-                      }
-                      setCityInput("");
-                    }}
-                    className="pr-8"
-                  />
-                  <datalist id="metro-cities-datalist">
-                    {METRO_SUGGESTIONS.filter((m) => !selectedCities.includes(m.city)).map((m) => (
-                      <option key={m.city} value={m.city} label={m.display} />
-                    ))}
-                  </datalist>
-                </div>
+
+                {/* Searchable city combobox */}
+                <Popover open={cityComboOpen} onOpenChange={setCityComboOpen}>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      role="combobox"
+                      aria-expanded={cityComboOpen}
+                      className="w-full flex items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm text-left hover:bg-accent/30 transition-colors"
+                    >
+                      <span className="text-muted-foreground">
+                        {selectedCities.length > 0 ? "Change city…" : "Search 40 supported cities…"}
+                      </span>
+                      <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start" sideOffset={4}>
+                    <Command>
+                      <CommandInput placeholder="Type a city name…" autoFocus />
+                      <CommandList className="max-h-72 overflow-y-auto">
+                        <CommandEmpty>
+                          <div className="py-5 text-center">
+                            <p className="text-sm font-medium text-foreground">City not in our catalog yet</p>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              Try a nearby supported city, or choose "I'm flexible" below.
+                            </p>
+                          </div>
+                        </CommandEmpty>
+                        {METRO_SUGGESTIONS_BY_REGION.map((group) => (
+                          <CommandGroup key={group.region} heading={group.region}>
+                            {group.cities.map((m) => (
+                              <CommandItem
+                                key={m.city}
+                                value={m.display}
+                                onSelect={() => {
+                                  setSelectedCities([m.city]);
+                                  setCityComboOpen(false);
+                                }}
+                              >
+                                <Check
+                                  className={`mr-2 h-4 w-4 shrink-0 ${
+                                    selectedCities.includes(m.city) ? "opacity-100" : "opacity-0"
+                                  }`}
+                                />
+                                {m.display}
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        ))}
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+
                 <button
                   type="button"
-                  onClick={() => { setFlexibleLocation(true); setSelectedCities([]); setCityInput(""); }}
+                  onClick={() => { setFlexibleLocation(true); setSelectedCities([]); setCityComboOpen(false); }}
                   className="text-xs text-muted-foreground hover:text-primary transition-colors"
                 >
                   ← I'm flexible, show me anywhere

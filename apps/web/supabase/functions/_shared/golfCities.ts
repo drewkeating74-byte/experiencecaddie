@@ -1,5 +1,5 @@
 /**
- * golfCities.ts — Experience Caddie: 39-Metro Catalog Config
+ * golfCities.ts — Experience Caddie: 40-Metro Catalog Config
  *
  * This is the single source of truth for which cities Experience Caddie
  * actively supports with an internal catalog of golf courses and venues.
@@ -79,16 +79,16 @@ export interface MetroConfig {
 }
 
 // ---------------------------------------------------------------------------
-// The 39 Metros
+// The 40 Metros
 //
 // Sequence:
 //   1–20 — original catalog (launched Mar 2026)
 //   21–29 — pilot expansion (added Apr 2026)
-//   30–39 — southern + West Coast expansion (added May 2026):
+//   30–40 — southern + West Coast expansion (added May 2026):
 //            Orange County CA, Raleigh-Durham NC, Myrtle Beach SC,
 //            Jacksonville FL, Richmond VA, Savannah/Hilton Head GA/SC,
 //            Memphis TN, Greensboro/Triad NC, Virginia Beach/Norfolk VA,
-//            Birmingham AL
+//            Birmingham AL, Knoxville TN
 //
 // Multi-state metros declare a `states` array so golf catalog queries span
 // all relevant states (e.g. Savannah GA + Hilton Head SC in one metro).
@@ -457,7 +457,7 @@ export const METROS: MetroConfig[] = [
     timezone: "America/Chicago",
   },
   // -------------------------------------------------------------------------
-  // May 2026 southern + West Coast expansion — 10 new metros
+  // May 2026 southern + West Coast expansion — 11 new metros (30–40)
   // -------------------------------------------------------------------------
   {
     slug: "orange-county",
@@ -595,6 +595,21 @@ export const METROS: MetroConfig[] = [
     ticketmasterDmaId: 630,
     timezone: "America/Chicago",
   },
+  {
+    // Knoxville anchors East Tennessee golf — numerous daily-fee courses in the
+    // Ridge and Valley terrain. Thompson-Boling Arena at UT (21,678) is the
+    // primary concert venue; Tennessee Theatre handles smaller shows.
+    slug: "knoxville",
+    label: "Knoxville, TN",
+    state: "TN",
+    region: "South",
+    cities: ["Knoxville", "Maryville", "Oak Ridge", "Farragut", "Alcoa", "Lenoir City", "Sevierville", "Morristown", "Clinton", "Powell"],
+    center: { lat: 35.9606, lng: -83.9207 },
+    searchRadiusMiles: 30,
+    ticketmasterMarket: "Knoxville",
+    ticketmasterDmaId: 557,
+    timezone: "America/New_York",
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -619,7 +634,7 @@ export const METRO_BY_SLUG: Record<string, MetroConfig> = Object.fromEntries(
 
 /**
  * Returns the MetroConfig for a given city name, or null if the city
- * is not in any of the 39 supported metros.
+ * is not in any of the 40 supported metros.
  *
  * Usage in the itinerary builder:
  *   const metro = getMetroByCity(payload.city);
@@ -640,7 +655,7 @@ export function getMetroBySlug(slug: string | undefined | null): MetroConfig | n
 }
 
 /**
- * Returns true if the given city name is covered by the 39-metro catalog.
+ * Returns true if the given city name is covered by the 40-metro catalog.
  * Used as a quick feature-flag check before attempting DB queries.
  */
 export function isMetroSupported(city: string | undefined | null): boolean {
