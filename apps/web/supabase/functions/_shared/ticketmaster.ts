@@ -27,7 +27,11 @@ export type TMEvent = {
   }>;
   _embedded?: {
     venues?: TMVenue[];
-    attractions?: Array<{ name?: string }>;
+    attractions?: Array<{
+      name?: string;
+      /** Number of future events the artist/attraction has scheduled on TM — proxy for touring popularity. */
+      upcomingEvents?: { _total?: number };
+    }>;
   };
 };
 
@@ -556,7 +560,9 @@ const DISCOVERY_WARM_WEATHER_METROS = new Set([
   "houston",
 ]);
 
-const DEFAULT_SURPRISE_GENRES = ["Country", "Rock", "Pop", "Hip-Hop"];
+// Golf-weekend target audience skews toward Country, Rock, and Classic Rock.
+// Hip-Hop removed; Classic Rock added to surface Springsteen, Eagles, Stones-era acts.
+const DEFAULT_SURPRISE_GENRES = ["Country", "Rock", "Classic Rock", "Pop"];
 
 function eventMonth(ymd: string): number {
   return Number(ymd.slice(5, 7));
@@ -592,8 +598,25 @@ function venueTypeScore(name: string | undefined): number {
   const venue = name ?? "";
   if (/stadium|field/i.test(venue)) return 35;
   if (/arena|center|centre|garden|forum|sphere/i.test(venue)) return 30;
-  if (/amphitheat(er|re)|outdoors|fairgrounds/i.test(venue)) return 25;
+  // Amphitheaters, pavilions, and outdoor venues score above arenas for the golf audience —
+  // outdoor settings align naturally with the lifestyle and tend to draw top touring acts.
+  if (/amphitheat(er|re)|pavilion|outdoors|fairgrounds|lawn|park/i.test(venue)) return 38;
   if (/theatre|theater|hall|ballroom|club/i.test(venue)) return 10;
+  return 0;
+}
+
+/**
+ * Maps the headliner's `upcomingEvents._total` (returned by TM Discovery API) to a
+ * popularity bonus. An artist with 100+ future tour dates is on a major national tour;
+ * one with fewer than 10 is likely regional. This rewards bigger-name acts without
+ * requiring a separate TM Attractions API call.
+ */
+function attractionPopularityScore(event: TMEvent): number {
+  const total = event._embedded?.attractions?.[0]?.upcomingEvents?._total ?? 0;
+  if (total >= 100) return 30; // major national/world tour (Zach Bryan, Morgan Wallen tier)
+  if (total >= 50)  return 20; // active national tour
+  if (total >= 20)  return 12; // moderate touring schedule
+  if (total >= 10)  return 6;  // some touring
   return 0;
 }
 
@@ -607,6 +630,7 @@ function scoreDiscoveryConcert(event: TMEvent, metro: MetroConfig, ymd: string, 
   if (event._embedded?.attractions?.[0]?.name) score += 25;
   if (res.price_min != null || res.price_max != null) score += 15;
   score += venueTypeScore(venue?.name ?? res.venue.name);
+  score += attractionPopularityScore(event);
   if (genreConfidence === "classification") score += 35;
   if (genreConfidence === "title") score += 10;
   if (DISCOVERY_WARM_WEATHER_METROS.has(metro.slug) && eventMonth(ymd) >= 10) score += 12;
@@ -716,7 +740,7 @@ function pickBestDiverseConcerts(cands: DiscoveryCandidate[], maxReturn: number)
   return picked;
 }
 
-function tmEventToDiscoverOption(event: TMEvent, metro: MetroConfig): Record<string, unknown> {
+function tmEventToDiscoverOption(event: TMEvent, metro: MetroConfig, score = 0): Record<string, unknown> {
   const res = mapTmEventToResult(event, metro.cities[0], metro.state);
   const venue = event._embedded?.venues?.[0];
   const artist = event._embedded?.attractions?.[0]?.name ?? res.name;
@@ -727,6 +751,7 @@ function tmEventToDiscoverOption(event: TMEvent, metro: MetroConfig): Record<str
     venue: venue?.name ?? res.venue.name,
     date: res.date_time.slice(0, 10),
     url: res.book_url,
+    _score: score,
     _verified_ticketmaster: true,
   };
 }
@@ -830,13 +855,13 @@ export async function discoverConcertsFromCatalogMetros(params: {
       excludeEventIds: [...excludeIds, ...pickedIds],
       searchDepth: searchDepth + 1,
     });
-    return [...picked.map((c) => tmEventToDiscoverOption(c.event, c.metro)), ...overflow]
-      .sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")))
+    return [...picked.map((c) => tmEventToDiscoverOption(c.event, c.metro, c.score)), ...overflow]
+      .sort((a, b) => (Number(b._score ?? 0) - Number(a._score ?? 0)) || String(a.date || "").localeCompare(String(b.date || "")))
       .slice(0, maxReturn);
   }
   return picked
-    .map((c) => tmEventToDiscoverOption(c.event, c.metro))
-    .sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")));
+    .map((c) => tmEventToDiscoverOption(c.event, c.metro, c.score))
+    .sort((a, b) => (Number(b._score ?? 0) - Number(a._score ?? 0)) || String(a.date || "").localeCompare(String(b.date || "")));
 }
 
 /** After Perplexity discovery — keep only options that Ticketmaster confirms in-window. */

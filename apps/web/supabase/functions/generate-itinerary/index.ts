@@ -380,7 +380,10 @@ serve(async (req) => {
             const d = String(v.date || "").trim().slice(0, 10);
             return /^\d{4}-\d{2}-\d{2}$/.test(d) && d >= minTripYmd && d <= maxDiscoveryEnd;
           })
-          .sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")))
+          // Best concert first (highest score), tie-break by date ascending.
+          // _score is set by the TM discovery path; packages default to 0 but are only
+          // used as fill-ins, so they naturally rank below scored TM results.
+          .sort((a, b) => (Number(b._score ?? 0) - Number(a._score ?? 0)) || String(a.date || "").localeCompare(String(b.date || "")))
           .slice(0, MAX_RETURN);
 
         if (allowExtendedDiscovery && opts.length < MAX_RETURN) {

@@ -88,7 +88,7 @@ const METRO_SUGGESTIONS_BY_REGION = [
   },
 ] as const;
 
-type ConcertOption = { id?: string; artist: string; city: string; venue: string; date: string; url?: string };
+type ConcertOption = { id?: string; artist: string; city: string; venue: string; date: string; url?: string; _score?: number };
 
 const ENTRY_OPTIONS = [
   {
@@ -307,7 +307,9 @@ export default function ExperienceBuilder() {
   };
 
   const sortConcertOptionsByDate = (opts: ConcertOption[]) =>
-    [...opts].sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+    [...opts].sort((a, b) =>
+      ((b._score ?? 0) - (a._score ?? 0)) || (a.date || "").localeCompare(b.date || "")
+    );
 
   const optionIds = (opts: ConcertOption[]) => {
     const ids: string[] = [];
