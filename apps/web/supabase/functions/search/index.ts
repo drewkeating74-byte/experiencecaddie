@@ -758,6 +758,11 @@ const CITY_TO_METRO_SLUG = new Map<string, string>(
 const METRO_SLUG_TO_STATE = new Map<string, string>(
   METROS.map((m) => [m.slug, m.state])
 );
+// Multi-state metros: maps slug → all state codes for golf catalog queries.
+// Falls back to the single primary state when `states` is not specified.
+const METRO_SLUG_TO_STATES = new Map<string, string[]>(
+  METROS.map((m) => [m.slug, (m.states ?? [m.state]).map((s) => s.toUpperCase().slice(0, 2))])
+);
 
 const MIN_DB_COURSES = 8;
 const MIN_DB_TIERS = 2;
@@ -814,13 +819,13 @@ type DbGolfRow = {
 async function findGolfFromDb(
   supabase: ReturnType<typeof createClient>,
   metro: string,
-  state: string
+  states: string[]
 ): Promise<DbGolfRow[]> {
   const { data, error } = await supabase
     .from("golf_courses")
     .select("id,name,city,state,lat,lng,source_id,place_id,metro,canonical_name,public_access_confidence,normalized_quality_score,tier_hint,editorial_boost,verification_status,last_verified_at,last_refreshed_at")
     .eq("metro", metro)
-    .eq("state", state.toUpperCase().slice(0, 2))
+    .in("state", states)
     .eq("active", true)
     .in("public_access_confidence", ["likely_public", "unknown"])
     .in("verification_status", ["verified", "unreviewed"])
@@ -1443,9 +1448,10 @@ Deno.serve(async (req: Request) => {
 
               // Fetch catalog_enabled flag, golf rows, and venue rows in parallel
               // to minimise latency — we need all three regardless of the result.
+              const metroStates = METRO_SLUG_TO_STATES.get(metroSlug) ?? [stateCode];
               const [isEnabled, dbRows, venueRows] = await Promise.all([
                 getCatalogEnabled(supabase, metroSlug),
-                findGolfFromDb(supabase, metroSlug, stateCode),
+                findGolfFromDb(supabase, metroSlug, metroStates),
                 findVenuesFromDb(supabase, metroSlug),
               ]);
               catalogEnabled = isEnabled;

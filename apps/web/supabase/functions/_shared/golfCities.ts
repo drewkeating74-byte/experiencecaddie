@@ -1,5 +1,5 @@
 /**
- * golfCities.ts — Experience Caddie: 29-Metro Catalog Config
+ * golfCities.ts — Experience Caddie: 39-Metro Catalog Config
  *
  * This is the single source of truth for which cities Experience Caddie
  * actively supports with an internal catalog of golf courses and venues.
@@ -29,6 +29,13 @@ export interface MetroConfig {
 
   /** Primary state abbreviation, e.g. "AZ" */
   state: string;
+
+  /**
+   * Additional state codes for multi-state metros (e.g. Savannah/Hilton Head spans GA + SC).
+   * When set, golf catalog queries include ALL listed states instead of just the primary.
+   * Omit for single-state metros — the search function falls back to `state` automatically.
+   */
+  states?: string[];
 
   /** Broad US region for display grouping */
   region: UsTerritoryRegion;
@@ -72,18 +79,20 @@ export interface MetroConfig {
 }
 
 // ---------------------------------------------------------------------------
-// The 29 Metros
+// The 39 Metros
 //
 // Sequence:
 //   1–20 — original catalog (launched Mar 2026)
-//   21–29 — pilot expansion (added Apr 2026 for the pre-launch catalog flood:
-//           NYC, Palm Springs, Orlando, Houston, San Antonio, Milwaukee,
-//           Portland, Washington DC/NoVA, Kansas City)
+//   21–29 — pilot expansion (added Apr 2026)
+//   30–39 — southern + West Coast expansion (added May 2026):
+//            Orange County CA, Raleigh-Durham NC, Myrtle Beach SC,
+//            Jacksonville FL, Richmond VA, Savannah/Hilton Head GA/SC,
+//            Memphis TN, Greensboro/Triad NC, Virginia Beach/Norfolk VA,
+//            Birmingham AL
 //
-// Caveat: search/index.ts filters golf_courses by state, so multi-state
-// metros (DC, KC, Philly, NYC) will currently only surface courses matching
-// the metro's primary `state` field. That's a known limitation; expand it
-// later by dropping the state filter or making it accept an array.
+// Multi-state metros declare a `states` array so golf catalog queries span
+// all relevant states (e.g. Savannah GA + Hilton Head SC in one metro).
+// The search function uses `.in("state", states)` when `states` is present.
 // ---------------------------------------------------------------------------
 
 export const METROS: MetroConfig[] = [
@@ -295,6 +304,7 @@ export const METROS: MetroConfig[] = [
     slug: "philadelphia",
     label: "Philadelphia, PA",
     state: "PA",
+    states: ["PA", "NJ", "DE"],
     region: "Northeast",
     cities: ["Philadelphia", "Camden", "Wilmington", "Cherry Hill", "King of Prussia", "Conshohocken", "Media", "Norristown"],
     center: { lat: 39.9526, lng: -75.1652 },
@@ -334,6 +344,7 @@ export const METROS: MetroConfig[] = [
     slug: "new-york-city",
     label: "New York City, NY",
     state: "NY",
+    states: ["NY", "NJ", "CT"],
     region: "Northeast",
     cities: ["New York", "Manhattan", "Brooklyn", "Queens", "Bronx", "Staten Island", "Jersey City", "Newark", "Hoboken", "Long Island", "White Plains", "Yonkers", "Stamford"],
     center: { lat: 40.7128, lng: -74.0060 },
@@ -415,15 +426,13 @@ export const METROS: MetroConfig[] = [
     timezone: "America/Los_Angeles",
   },
   {
-    // DC metro spans DC + NoVA + suburban MD. Using 'VA' as the primary
-    // state because Northern Virginia has the bulk of the public / daily-fee
-    // catalog (TPC Potomac, RTJ Golf Club at Lansdowne, 1757 Golf Club, etc.).
-    // Until we multi-state the state filter in search/index.ts, MD courses
-    // (Congressional, Avenel, Renditions) will sit in the DB but not render
-    // for DC metro searches.
+    // DC metro spans VA + DC + MD. 'VA' is the primary state (TPC Potomac,
+    // RTJ Golf Club at Lansdowne, 1757 Golf Club, etc.). The `states` array
+    // ensures MD courses (Congressional, Renditions) are included in catalog queries.
     slug: "washington-dc",
     label: "Washington D.C. / Northern Virginia",
     state: "VA",
+    states: ["VA", "DC", "MD"],
     region: "Northeast",
     cities: ["Washington", "Arlington", "Alexandria", "Bethesda", "Rockville", "Silver Spring", "Fairfax", "Reston", "Tysons", "McLean", "Chevy Chase", "Leesburg", "Ashburn"],
     center: { lat: 38.9072, lng: -77.0369 },
@@ -433,18 +442,157 @@ export const METROS: MetroConfig[] = [
     timezone: "America/New_York",
   },
   {
-    // KC metro is bi-state (MO + KS). Using 'MO' as primary to match the
-    // existing pattern for multi-state metros. Overland Park / Olathe courses
-    // will be limited until the search state filter is multi-state-aware.
+    // KC metro is bi-state (MO + KS). 'MO' is the primary state.
+    // The `states` array ensures Overland Park / Olathe KS courses are included.
     slug: "kansas-city",
     label: "Kansas City, MO/KS",
     state: "MO",
+    states: ["MO", "KS"],
     region: "Midwest",
     cities: ["Kansas City", "Overland Park", "Olathe", "Lee's Summit", "Independence", "Shawnee", "Lenexa", "Blue Springs", "Leawood", "Prairie Village"],
     center: { lat: 39.0997, lng: -94.5786 },
     searchRadiusMiles: 30,
     ticketmasterMarket: "Kansas City",
     ticketmasterDmaId: 616,
+    timezone: "America/Chicago",
+  },
+  // -------------------------------------------------------------------------
+  // May 2026 southern + West Coast expansion — 10 new metros
+  // -------------------------------------------------------------------------
+  {
+    slug: "orange-county",
+    label: "Orange County, CA",
+    state: "CA",
+    region: "West",
+    cities: ["Orange County", "Irvine", "Anaheim", "Santa Ana", "Huntington Beach", "Newport Beach", "Costa Mesa", "Garden Grove", "Laguna Niguel", "Mission Viejo", "Lake Forest", "Fullerton", "Orange", "Tustin"],
+    center: { lat: 33.7175, lng: -117.8311 },
+    searchRadiusMiles: 25,
+    ticketmasterMarket: "Los Angeles",
+    ticketmasterDmaId: 803,
+    timezone: "America/Los_Angeles",
+  },
+  {
+    slug: "raleigh-durham",
+    label: "Raleigh-Durham, NC",
+    state: "NC",
+    region: "South",
+    cities: ["Raleigh", "Durham", "Chapel Hill", "Cary", "Apex", "Wake Forest", "Garner", "Holly Springs", "Morrisville", "Fuquay-Varina", "Clayton", "Pittsboro"],
+    center: { lat: 35.9132, lng: -78.9469 },
+    searchRadiusMiles: 35,
+    ticketmasterMarket: "Raleigh",
+    ticketmasterDmaId: 560,
+    timezone: "America/New_York",
+  },
+  {
+    // Myrtle Beach qualifies on venue capacity: Myrtle Beach Convention Center
+    // (8,000), Carolina Country Music Festival Grounds (30,000+). Concert scene
+    // is festival-heavy; the search function falls back to live Ticketmaster when
+    // the catalog has no seeded events for a specific artist.
+    slug: "myrtle-beach",
+    label: "Myrtle Beach, SC",
+    state: "SC",
+    region: "South",
+    cities: ["Myrtle Beach", "North Myrtle Beach", "Surfside Beach", "Conway", "Pawleys Island", "Murrells Inlet", "Little River", "Loris", "Socastee"],
+    center: { lat: 33.6891, lng: -78.8867 },
+    searchRadiusMiles: 35,
+    ticketmasterMarket: "Myrtle Beach",
+    ticketmasterDmaId: 570,
+    timezone: "America/New_York",
+  },
+  {
+    slug: "jacksonville",
+    label: "Jacksonville, FL",
+    state: "FL",
+    region: "South",
+    cities: ["Jacksonville", "Orange Park", "Ponte Vedra Beach", "Fernandina Beach", "Neptune Beach", "Atlantic Beach", "Jacksonville Beach", "Fleming Island", "Yulee", "St. Augustine"],
+    center: { lat: 30.3322, lng: -81.6557 },
+    searchRadiusMiles: 35,
+    ticketmasterMarket: "Jacksonville",
+    ticketmasterDmaId: 561,
+    timezone: "America/New_York",
+  },
+  {
+    slug: "richmond",
+    label: "Richmond, VA",
+    state: "VA",
+    region: "South",
+    cities: ["Richmond", "Henrico", "Chesterfield", "Midlothian", "Chester", "Colonial Heights", "Mechanicsville", "Glen Allen", "Short Pump", "Ashland", "Hopewell"],
+    center: { lat: 37.5407, lng: -77.4360 },
+    searchRadiusMiles: 30,
+    ticketmasterMarket: "Richmond",
+    ticketmasterDmaId: 556,
+    timezone: "America/New_York",
+  },
+  {
+    // Savannah/Hilton Head spans GA (Savannah concerts: Enmarket Arena 9,500)
+    // and SC (Hilton Head Island resort golf). The `states` array includes both
+    // so the golf catalog query returns courses from either state.
+    slug: "savannah-hilton-head",
+    label: "Savannah / Hilton Head, GA/SC",
+    state: "GA",
+    states: ["GA", "SC"],
+    region: "South",
+    cities: ["Savannah", "Hilton Head Island", "Bluffton", "Pooler", "Rincon", "Richmond Hill", "Garden City", "Tybee Island", "Beaufort", "Port Wentworth"],
+    center: { lat: 32.1499, lng: -80.9262 },
+    searchRadiusMiles: 35,
+    ticketmasterMarket: "Savannah",
+    ticketmasterDmaId: 507,
+    timezone: "America/New_York",
+  },
+  {
+    slug: "memphis",
+    label: "Memphis, TN",
+    state: "TN",
+    region: "South",
+    cities: ["Memphis", "Germantown", "Collierville", "Bartlett", "Cordova", "Lakeland", "Arlington", "Millington", "Munford"],
+    center: { lat: 35.1495, lng: -90.0490 },
+    searchRadiusMiles: 30,
+    ticketmasterMarket: "Memphis",
+    ticketmasterDmaId: 640,
+    timezone: "America/Chicago",
+  },
+  {
+    // Greensboro/Winston-Salem/High Point form the NC Triad. Greensboro Coliseum
+    // (23,500) is the anchor venue. Dense public golf market between the three cities.
+    slug: "greensboro",
+    label: "Greensboro / Winston-Salem, NC",
+    state: "NC",
+    region: "South",
+    cities: ["Greensboro", "Winston-Salem", "High Point", "Burlington", "Kernersville", "Asheboro", "Archdale", "Thomasville", "Jamestown", "Summerfield"],
+    center: { lat: 36.0726, lng: -79.7920 },
+    searchRadiusMiles: 30,
+    ticketmasterMarket: "Greensboro",
+    ticketmasterDmaId: 518,
+    timezone: "America/New_York",
+  },
+  {
+    // Hampton Roads metro. Veterans United Home Loans Amphitheater (20,000) is
+    // the primary concert anchor. Coastal golf scene — Kingsmill, Williamsburg
+    // National, and several daily-fee courses in the area.
+    slug: "virginia-beach",
+    label: "Virginia Beach / Norfolk, VA",
+    state: "VA",
+    region: "South",
+    cities: ["Virginia Beach", "Norfolk", "Chesapeake", "Portsmouth", "Hampton", "Newport News", "Suffolk", "Williamsburg", "James City County"],
+    center: { lat: 36.8529, lng: -75.9780 },
+    searchRadiusMiles: 30,
+    ticketmasterMarket: "Norfolk",
+    ticketmasterDmaId: 544,
+    timezone: "America/New_York",
+  },
+  {
+    // Birmingham is the entry point to the Robert Trent Jones Golf Trail —
+    // arguably the best collection of public-access courses in the South.
+    // Legacy Arena (17,500) and Protective Stadium (47,000) anchor the concert market.
+    slug: "birmingham",
+    label: "Birmingham, AL",
+    state: "AL",
+    region: "South",
+    cities: ["Birmingham", "Hoover", "Vestavia Hills", "Mountain Brook", "Homewood", "Alabaster", "Pelham", "Trussville", "Helena", "Bessemer", "Gardendale"],
+    center: { lat: 33.5186, lng: -86.8104 },
+    searchRadiusMiles: 35,
+    ticketmasterMarket: "Birmingham",
+    ticketmasterDmaId: 630,
     timezone: "America/Chicago",
   },
 ];
@@ -471,7 +619,7 @@ export const METRO_BY_SLUG: Record<string, MetroConfig> = Object.fromEntries(
 
 /**
  * Returns the MetroConfig for a given city name, or null if the city
- * is not in any of the 20 supported metros.
+ * is not in any of the 39 supported metros.
  *
  * Usage in the itinerary builder:
  *   const metro = getMetroByCity(payload.city);
@@ -492,7 +640,7 @@ export function getMetroBySlug(slug: string | undefined | null): MetroConfig | n
 }
 
 /**
- * Returns true if the given city name is covered by the 20-metro catalog.
+ * Returns true if the given city name is covered by the 39-metro catalog.
  * Used as a quick feature-flag check before attempting DB queries.
  */
 export function isMetroSupported(city: string | undefined | null): boolean {

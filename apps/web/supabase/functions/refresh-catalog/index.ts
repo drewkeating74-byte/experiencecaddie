@@ -606,16 +606,42 @@ async function updateMetroStats(
   golfCount: number,
   venueCount: number
 ) {
-  const update: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  const metro = getMetroBySlug(metroSlug);
+  const now = new Date().toISOString();
+
+  // Step 1: Ensure the metro_areas row exists. Uses ignoreDuplicates: true so
+  // an existing row is left untouched (preserves catalog_enabled and other
+  // manually-set fields). New metros get their row created automatically the
+  // first time refresh-catalog runs — no manual SQL INSERT needed.
+  if (metro) {
+    const identityRow = {
+      slug: metroSlug,
+      label: metro.label,
+      state: metro.state,
+      region: metro.region,
+      center_lat: metro.center.lat,
+      center_lng: metro.center.lng,
+      search_radius_miles: metro.searchRadiusMiles,
+      cities: metro.cities,
+      catalog_enabled: false,
+      updated_at: now,
+    };
+    await supabase
+      .from("metro_areas")
+      .upsert(identityRow, { onConflict: "slug", ignoreDuplicates: true });
+  }
+
+  // Step 2: Update only the stats columns so catalog_enabled is never overwritten.
+  const statsUpdate: Record<string, unknown> = { updated_at: now };
   if (mode === "golf" || mode === "all") {
-    update.last_golf_refresh_at = new Date().toISOString();
-    update.golf_count = golfCount;
+    statsUpdate.last_golf_refresh_at = now;
+    statsUpdate.golf_count = golfCount;
   }
   if (mode === "venues" || mode === "all") {
-    update.last_venue_refresh_at = new Date().toISOString();
-    update.venue_count = venueCount;
+    statsUpdate.last_venue_refresh_at = now;
+    statsUpdate.venue_count = venueCount;
   }
-  await supabase.from("metro_areas").update(update).eq("slug", metroSlug);
+  await supabase.from("metro_areas").update(statsUpdate).eq("slug", metroSlug);
 }
 
 // ---------------------------------------------------------------------------
