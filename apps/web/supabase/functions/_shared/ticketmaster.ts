@@ -146,7 +146,9 @@ function genreMatchNeedles(raw: string): string[] {
     "r&b": ["soul"],
     blues: ["jazz"],
     jazz: ["blues"],
-    latin: ["reggaeton", "regional mexican", "tropical"],
+    latin: ["reggaeton", "regional mexican", "tropical", "latin pop"],
+    americana: ["alt-country", "americana", "folk", "roots", "outlaw country"],
+    alternative: ["alt rock", "indie rock", "modern rock"],
   };
   for (const n of [...needles]) {
     for (const x of alias[n] ?? []) needles.add(x);
