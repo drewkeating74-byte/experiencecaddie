@@ -17,6 +17,7 @@ import { normalizeOutboundLink } from "@/types/outbound-link";
 import { buildTicketUrl, getTicketOutboundCtaLabel } from "@/lib/outboundLinks";
 import { formatUsDate } from "@/lib/dateFormat";
 import WeekendIdeasSignup from "@/components/WeekendIdeasSignup";
+import { CONCERT_GENRES } from "@/config/concertGenres";
 
 
 
@@ -110,10 +111,6 @@ const ENTRY_OPTIONS = [
     label: "I'm flexible — show me something great",
     description: "We'll build a strong weekend based on timing, travel flow, and course quality",
   },
-];
-
-const GENRES = [
-  "Country", "Rock", "Hip-Hop / Rap", "Pop", "R&B / Soul", "EDM", "Latin", "Jazz / Blues",
 ];
 
 export default function ExperienceBuilder() {
@@ -1045,7 +1042,7 @@ export default function ExperienceBuilder() {
             <div className="space-y-3 animate-fade-in">
               <Label>What kind of music are you into?</Label>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                {GENRES.map((genre) => {
+                {CONCERT_GENRES.map((genre) => {
                   const active = selectedGenres.includes(genre);
                   return (
                     <button
