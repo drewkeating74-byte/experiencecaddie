@@ -40,7 +40,8 @@ export type AnalyticsEventType =
   | "ticket_link_clicked"
   | "golf_link_clicked"
   | "browse_current_packages_clicked"
-  | "alternative_search_clicked";
+  | "alternative_search_clicked"
+  | "weekend_ideas_signup";
 
 /** Optional jsonb payload; merge with context for outbound clicks. */
 export type AnalyticsExtra = Record<string, unknown> & {

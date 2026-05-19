@@ -12,6 +12,9 @@ verify_jwt = false
 [functions.send-share-email]
 verify_jwt = false
 
+[functions.subscribe-weekend-ideas]
+verify_jwt = false
+
 [functions.refresh-catalog]
 verify_jwt = true
 

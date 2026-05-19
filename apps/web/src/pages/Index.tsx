@@ -11,6 +11,7 @@ import { DEFAULT_PACKAGE_IMAGE } from "@/lib/constants";
 import { logEvent } from "@/lib/analytics";
 import { comparePublicFeaturedThenEvent, getPackageInventoryStatus, daysUntilExpiration } from "@/lib/packageFreshness";
 import { formatUsDate } from "@/lib/dateFormat";
+import WeekendIdeasSignup from "@/components/WeekendIdeasSignup";
 
 const categories = [
   { icon: Music, label: "Golf + Concert", description: "Build a weekend around a show", link: "/experience" },
@@ -176,6 +177,11 @@ export default function Index() {
             </div>
           )}
         </div>
+      </section>
+
+      {/* Weekend ideas signup */}
+      <section className="container mx-auto max-w-lg px-4 py-12">
+        <WeekendIdeasSignup variant="homepage" />
       </section>
 
       {/* CTA */}

@@ -16,6 +16,7 @@ import { addMonthsToYmd, getBrowserTimeZone, minTripStartYmdForTimezone } from "
 import { normalizeOutboundLink } from "@/types/outbound-link";
 import { buildTicketUrl, getTicketOutboundCtaLabel } from "@/lib/outboundLinks";
 import { formatUsDate } from "@/lib/dateFormat";
+import WeekendIdeasSignup from "@/components/WeekendIdeasSignup";
 
 
 
@@ -125,6 +126,7 @@ export default function ExperienceBuilder() {
   const [flexibleLocation, setFlexibleLocation] = useState(true);
   const [selectedCities, setSelectedCities] = useState<string[]>([]);
   const [cityComboOpen, setCityComboOpen] = useState(false);
+  const [citySearchQuery, setCitySearchQuery] = useState("");
   const [flexibleDates, setFlexibleDates] = useState(true);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -808,6 +810,22 @@ export default function ExperienceBuilder() {
           <p className="text-xs text-muted-foreground max-w-xs">
             New packages are added as confirmed tour dates are announced. We never show speculative or unconfirmed availability.
           </p>
+
+          <WeekendIdeasSignup
+            variant="no_results"
+            defaultCity={
+              !flexibleLocation && selectedCities.length > 0 ? selectedCities.join(", ") : ""
+            }
+            defaultInterests={
+              selectedEntry === "artist"
+                ? eventInput.trim()
+                : selectedGenres.length > 0
+                  ? selectedGenres.join(", ")
+                  : ""
+            }
+            userId={user?.id}
+            className="w-full max-w-md text-left"
+          />
         </div>
       </div>
     );
@@ -1172,13 +1190,30 @@ export default function ExperienceBuilder() {
                   </PopoverTrigger>
                   <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start" sideOffset={4}>
                     <Command>
-                      <CommandInput placeholder="Type a city name…" autoFocus />
+                      <CommandInput
+                        placeholder="Type a city name…"
+                        autoFocus
+                        value={citySearchQuery}
+                        onValueChange={setCitySearchQuery}
+                      />
                       <CommandList className="max-h-72 overflow-y-auto">
                         <CommandEmpty>
-                          <div className="py-5 text-center">
-                            <p className="text-sm font-medium text-foreground">City not in our catalog yet</p>
-                            <p className="mt-1 text-xs text-muted-foreground">
-                              Try a nearby supported city, or choose "I'm flexible" below.
+                          <div className="px-2 pb-2 pt-1">
+                            <WeekendIdeasSignup
+                              variant="unsupported_city"
+                              requestedCity={citySearchQuery}
+                              defaultInterests={
+                                selectedEntry === "artist"
+                                  ? eventInput.trim()
+                                  : selectedGenres.length > 0
+                                    ? selectedGenres.join(", ")
+                                    : ""
+                              }
+                              userId={user?.id}
+                              compact
+                            />
+                            <p className="mt-3 text-center text-xs text-muted-foreground">
+                              Or try a nearby supported city, or choose &quot;I&apos;m flexible&quot; below.
                             </p>
                           </div>
                         </CommandEmpty>

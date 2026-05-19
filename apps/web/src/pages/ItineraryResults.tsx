@@ -33,6 +33,7 @@ import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { Tables } from "@/integrations/supabase/types";
+import WeekendIdeasSignup from "@/components/WeekendIdeasSignup";
 
 // ---------------------------------------------------------------------------
 // Types for the AI-generated result_json blob stored in the itineraries table.
@@ -991,6 +992,16 @@ export default function ItineraryResults() {
           );
         })}
       </Tabs>
+
+      <div className="mx-auto mt-12 max-w-lg">
+        <WeekendIdeasSignup
+          variant="itinerary_results"
+          defaultCity={itinerary.city ?? ""}
+          defaultInterests={itinerary.event_details ?? ""}
+          itineraryId={itinerary.id}
+          userId={user?.id}
+        />
+      </div>
     </div>
   );
 }

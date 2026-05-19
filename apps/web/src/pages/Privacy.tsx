@@ -61,6 +61,19 @@ export default function Privacy() {
             directly — authentication is handled via Google OAuth or email magic link.
           </p>
 
+          <h3 className="mb-2 mt-4 font-semibold">Weekend ideas email list</h3>
+          <p>
+            If you subscribe to weekly golf + concert weekend ideas, we store your email address
+            and any optional preferences you provide (such as favorite city or artists/genres).
+            We use this to send occasional curated trip ideas and to prioritize new cities we add
+            to the product. You can unsubscribe anytime using the link in any email we send, or by
+            contacting us at{" "}
+            <a href={`mailto:${CONTACT_EMAIL}`} className="text-primary underline">
+              {CONTACT_EMAIL}
+            </a>
+            .
+          </p>
+
           <h3 className="mb-2 mt-4 font-semibold">Performance and error monitoring</h3>
           <p>
             We use Vercel Speed Insights to measure page performance (load times, layout stability,
