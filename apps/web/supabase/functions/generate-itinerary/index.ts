@@ -386,7 +386,10 @@ serve(async (req) => {
           .sort((a, b) => (Number(b._score ?? 0) - Number(a._score ?? 0)) || String(a.date || "").localeCompare(String(b.date || "")))
           .slice(0, MAX_RETURN);
 
-        if (allowExtendedDiscovery && opts.length < MAX_RETURN) {
+        // Only top-up with catalog packages when no specific artist was requested.
+        // For a named artist, padding with unrelated concerts is misleading and hides
+        // the "no results" UX the user should see instead.
+        if (allowExtendedDiscovery && opts.length < MAX_RETURN && !artistSearch) {
           opts = await topUpConcertOptionsFromPackages(supabase, opts, minTripYmd, maxDiscoveryEnd, MAX_RETURN, targetMetros);
         }
 

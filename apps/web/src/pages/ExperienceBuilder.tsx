@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Music, Search, Sparkles, ArrowRight, ArrowLeft, Loader2, MapPin, Calendar, X, ChevronsUpDown, Check } from "lucide-react";
+import { Music, Search, Sparkles, ArrowRight, ArrowLeft, Loader2, MapPin, Calendar, X, ChevronsUpDown, Check, ExternalLink } from "lucide-react";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { toast } from "sonner";
@@ -790,6 +790,22 @@ export default function ExperienceBuilder() {
             >
               <Search className="mr-2 h-4 w-4" /> Try a different artist
             </Button>
+            {artistName && (
+              <Button
+                variant="outline"
+                className="w-full rounded-full h-11"
+                asChild
+              >
+                <a
+                  href={`https://www.ticketmaster.com/search?q=${encodeURIComponent(artistName)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => logEvent({ event_type: "ticketmaster_search_clicked", artist_name: artistName, context: "planner_result" })}
+                >
+                  <ExternalLink className="mr-2 h-4 w-4" /> Search {artistName} on Ticketmaster
+                </a>
+              </Button>
+            )}
             <Button
               variant="secondary"
               className="w-full rounded-full h-11"
