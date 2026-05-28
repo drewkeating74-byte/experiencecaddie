@@ -138,6 +138,7 @@ export default function ExperienceBuilder() {
   // Two-step flow: discover concerts → user picks → build full itinerary
   const [discoveryStep, setDiscoveryStep] = useState<"form" | "discovering" | "pick" | "building" | "no_results">("form");
   const [concertOptions, setConcertOptions] = useState<ConcertOption[]>([]);
+  const [discoveryHint, setDiscoveryHint] = useState<string | null>(null);
   const [refreshingConcerts, setRefreshingConcerts] = useState(false);
   const [savedParams, setSavedParams] = useState<{
     finalCity: string;
@@ -372,7 +373,10 @@ export default function ExperienceBuilder() {
       if (!discRes.ok || errMsg) {
         throw new Error((errMsg as string) || `Concert discovery failed (${discRes.status})`);
       }
-      return sortConcertOptionsByDate(((discData.concert_options || []) as ConcertOption[]));
+      return {
+        options: sortConcertOptionsByDate(((discData.concert_options || []) as ConcertOption[])),
+        hint: (discData.discovery_hint as string | undefined) ?? null,
+      };
     } finally {
       clearTimeout(timeoutId);
     }
@@ -596,7 +600,7 @@ export default function ExperienceBuilder() {
       // Stage 1: discover a short list of verified concerts before building the trip.
       setDiscoveryStep("discovering");
       try {
-        const opts = await discoverConcertOptions({
+        const { options: opts, hint } = await discoverConcertOptions({
           finalCity,
           finalStart,
           finalEnd,
@@ -605,10 +609,12 @@ export default function ExperienceBuilder() {
           allowExtendedDiscovery: flexibleDates,
         });
         if (!opts.length) {
-          logEvent({ event_type: "no_results_shown", artist_name: eventInput.trim() || undefined, context: "planner_result" });
+          setDiscoveryHint(hint);
+          logEvent({ event_type: "no_results_shown", artist_name: eventInput.trim() || undefined, context: "planner_result", extra: { hint: hint ?? undefined } });
           setDiscoveryStep("no_results");
           return;
         }
+        setDiscoveryHint(null);
         setConcertOptions(opts);
         setSavedParams({ finalCity, finalStart, finalEnd, budget, groupSize, eventDetails, allowExtendedDiscovery: flexibleDates });
         setDiscoveryStep("pick");
@@ -760,10 +766,11 @@ export default function ExperienceBuilder() {
                 : "No verified packages found"}
             </h2>
             <p className="text-muted-foreground max-w-md">
-              We only list shows we can match in Ticketmaster across our supported golf metros, 14+ days out.{" "}
-              {artistName
-                ? `${artistName} may have no upcoming stop in those cities in this window, or shows may not be listed yet.`
-                : "Try different genres, dates, or cities — or pick a specific artist and city you know is on sale."}
+              {artistName && discoveryHint === "weekday_shows_exist"
+                ? `We found ${artistName} shows in our supported cities, but they fall on weekdays (Mon–Wed). Our getaways are built around Thu–Sun concerts. Check Ticketmaster to see exact dates and book directly.`
+                : artistName
+                  ? `We search Ticketmaster for ${artistName} across our supported cities, looking for Thu–Sun shows at least 14 days out. If their shows fall on other days or in cities we don't cover yet, they won't appear here.`
+                  : "We search for Thu–Sun shows across our supported golf cities, at least 14 days out. Try different genres, dates, or cities — or pick a specific artist and city you know is on sale."}
             </p>
           </div>
 

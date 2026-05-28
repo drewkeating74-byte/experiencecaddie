@@ -771,6 +771,8 @@ export async function discoverConcertsFromCatalogMetros(params: {
   maxReturn: number;
   excludeEventIds?: string[];
   searchDepth?: number;
+  /** Internal: accumulate weekday-dropped artist shows across depth levels */
+  _weekdayDropRef?: { count: number };
 }): Promise<Array<Record<string, unknown>>> {
   const apiKey = Deno.env.get("TICKETMASTER_API_KEY") || Deno.env.get("TICKETMASTER_CONSUMER_KEY");
   if (!apiKey) {
@@ -820,27 +822,50 @@ export async function discoverConcertsFromCatalogMetros(params: {
   );
 
   const cands: DiscoveryCandidate[] = [];
+  let tmTotalHits = 0;
+  let droppedByVenue = 0;
+  let droppedByArtistMatch = 0;
+  let droppedByWeekend = 0;
+  let droppedBySeasonal = 0;
+  let droppedByAddOn = 0;
+
   for (const s of settled) {
     if (s.status !== "fulfilled") {
       console.log("[DISCOVER_TM] metro fetch rejected:", s.reason);
       continue;
     }
     const { metro, events } = s.value;
+    tmTotalHits += events.length;
     for (const e of events) {
       const v = e._embedded?.venues?.[0];
-      if (!eventVenueBelongsToMetro(v, metro)) continue;
-      if (artistKeyword && !tmEventMatchesArtistQuery(e, artistKeyword)) continue;
-      if (!artistKeyword && genreTokens.length > 0 && !tmEventMatchesGenreTokens(e, genreTokens)) continue;
+      if (!eventVenueBelongsToMetro(v, metro)) { droppedByVenue++; continue; }
+      if (artistKeyword && !tmEventMatchesArtistQuery(e, artistKeyword)) { droppedByArtistMatch++; continue; }
+      if (!artistKeyword && genreTokens.length > 0 && !tmEventMatchesGenreTokens(e, genreTokens)) { droppedByArtistMatch++; continue; }
       const ymd = e.dates?.start?.localDate ?? "";
       if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) continue;
-      if (!isWeekendGetawayYmd(ymd)) continue;
-      if (!eventIsSeasonallyPlayable(metro, ymd)) continue;
-      if (eventLooksLikeAddOn(e)) continue;
+      if (!isWeekendGetawayYmd(ymd)) { droppedByWeekend++; continue; }
+      if (!eventIsSeasonallyPlayable(metro, ymd)) { droppedBySeasonal++; continue; }
+      if (eventLooksLikeAddOn(e)) { droppedByAddOn++; continue; }
       const score = scoreDiscoveryConcert(e, metro, ymd, genreTokens);
       const artist = e._embedded?.attractions?.[0]?.name ?? e.name ?? "";
       const city = v?.city?.name ?? metro.cities[0];
       cands.push({ metro, event: e, ymd, score, artist, city });
     }
+  }
+
+  // Log filter breakdown so Edge Function logs can diagnose zero-result artist searches.
+  if (artistKeyword || tmTotalHits > 0) {
+    console.log(
+      `[DISCOVER_TM] artist="${artistKeyword ?? "(genre)"}" depth=${params.searchDepth ?? 0}` +
+      ` tmHits=${tmTotalHits} passed=${cands.length}` +
+      ` dropped: venue=${droppedByVenue} artistMatch=${droppedByArtistMatch}` +
+      ` weekend=${droppedByWeekend} seasonal=${droppedBySeasonal} addOn=${droppedByAddOn}`
+    );
+  }
+
+  // Accumulate weekday drops so the caller can surface a helpful hint when 0 results.
+  if (params._weekdayDropRef && droppedByWeekend > 0) {
+    params._weekdayDropRef.count += droppedByWeekend;
   }
 
   const preferred = cands.filter((c) => !excludeIds.has(c.event.id ?? discoverEventDedupeKey(c)));
@@ -856,6 +881,7 @@ export async function discoverConcertsFromCatalogMetros(params: {
       maxReturn: maxReturn - picked.length,
       excludeEventIds: [...excludeIds, ...pickedIds],
       searchDepth: searchDepth + 1,
+      _weekdayDropRef: params._weekdayDropRef,
     });
     return [...picked.map((c) => tmEventToDiscoverOption(c.event, c.metro, c.score)), ...overflow]
       .sort((a, b) => (Number(b._score ?? 0) - Number(a._score ?? 0)) || String(a.date || "").localeCompare(String(b.date || "")))

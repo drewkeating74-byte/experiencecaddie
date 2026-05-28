@@ -365,6 +365,11 @@ serve(async (req) => {
             `artist=${artistSearch || "(genre)"} genres=${genreTokens.join("|") || "any"} window=${discStart}..${discEnd}`
         );
 
+        // Track shows dropped only by the weekend filter for named-artist searches.
+        // When 0 options result but weekdayDropRef.count > 0, the artist has shows in
+        // our cities but they fall outside the Thu–Sun window — surface a specific hint.
+        const weekdayDropRef = artistSearch ? { count: 0 } : undefined;
+
         let opts = await discoverConcertsFromCatalogMetros({
           metros: targetMetros,
           startDate: discStart,
@@ -373,6 +378,7 @@ serve(async (req) => {
           genreTokens,
           maxReturn: MAX_RETURN,
           excludeEventIds,
+          _weekdayDropRef: weekdayDropRef,
         });
 
         opts = opts
@@ -393,7 +399,14 @@ serve(async (req) => {
           opts = await topUpConcertOptionsFromPackages(supabase, opts, minTripYmd, maxDiscoveryEnd, MAX_RETURN, targetMetros);
         }
 
-        return new Response(JSON.stringify({ success: true, concert_options: opts }), {
+        // If a named artist had 0 weekend-eligible shows but some were dropped only by
+        // the day-of-week filter, tell the frontend so it can show a specific message.
+        const discoveryHint =
+          artistSearch && opts.length === 0 && (weekdayDropRef?.count ?? 0) > 0
+            ? "weekday_shows_exist"
+            : undefined;
+
+        return new Response(JSON.stringify({ success: true, concert_options: opts, discovery_hint: discoveryHint }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
