@@ -781,12 +781,86 @@ export async function discoverConcertsFromCatalogMetros(params: {
   }
 
   const { metros, startDate, endDate, artistKeyword, maxReturn } = params;
-  const isDefaultSurpriseSearch = !artistKeyword && params.genreTokens.length === 0;
+  const excludeIds = new Set((params.excludeEventIds ?? []).map((id) => id.trim()).filter(Boolean));
+  const searchDepth = params.searchDepth ?? 0;
+
+  // ── Artist fast path ────────────────────────────────────────────────────────
+  // For a named artist we make ONE nationwide TM call (countryCode=US, no DMA/city)
+  // then filter results to our catalog metros client-side.  The previous approach
+  // (concurrency-5 fan-out across 40+ metros) hit TM's 5 req/sec spike-arrest limit
+  // and silently dropped ~35 of 40 metro fetches with HTTP 429 errors.
+  if (artistKeyword) {
+    let events: TMEvent[] = [];
+    try {
+      events = await fetchTicketmasterEvents({
+        artist: artistKeyword,
+        startDate,
+        endDate,
+        size: 200, // no geo filter → countryCode=US only
+      });
+      console.log(`[DISCOVER_TM] nationwide artist="${artistKeyword}" depth=${searchDepth} tmHits=${events.length}`);
+    } catch (err) {
+      console.warn("[DISCOVER_TM] nationwide artist fetch failed:", err instanceof Error ? err.message : String(err));
+    }
+
+    const cands: DiscoveryCandidate[] = [];
+    let droppedByVenue = 0, droppedByArtistMatch = 0, droppedByWeekend = 0, droppedBySeasonal = 0, droppedByAddOn = 0;
+
+    for (const e of events) {
+      const v = e._embedded?.venues?.[0];
+      // Find which of our target metros this venue belongs to (if any).
+      const metro = metros.find((m) => eventVenueBelongsToMetro(v, m));
+      if (!metro) { droppedByVenue++; continue; }
+      if (!tmEventMatchesArtistQuery(e, artistKeyword)) { droppedByArtistMatch++; continue; }
+      const ymd = e.dates?.start?.localDate ?? "";
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) continue;
+      if (!isWeekendGetawayYmd(ymd)) { droppedByWeekend++; continue; }
+      if (!eventIsSeasonallyPlayable(metro, ymd)) { droppedBySeasonal++; continue; }
+      if (eventLooksLikeAddOn(e)) { droppedByAddOn++; continue; }
+      const score = scoreDiscoveryConcert(e, metro, ymd, []);
+      const artist = e._embedded?.attractions?.[0]?.name ?? e.name ?? "";
+      const city = v?.city?.name ?? metro.cities[0];
+      cands.push({ metro, event: e, ymd, score, artist, city });
+    }
+
+    console.log(
+      `[DISCOVER_TM] artist="${artistKeyword}" depth=${searchDepth} passed=${cands.length}` +
+      ` dropped: venue=${droppedByVenue} artistMatch=${droppedByArtistMatch}` +
+      ` weekend=${droppedByWeekend} seasonal=${droppedBySeasonal} addOn=${droppedByAddOn}`
+    );
+    if (params._weekdayDropRef && droppedByWeekend > 0) {
+      params._weekdayDropRef.count += droppedByWeekend;
+    }
+
+    const preferred = cands.filter((c) => !excludeIds.has(c.event.id ?? discoverEventDedupeKey(c)));
+    let picked = pickBestDiverseConcerts(preferred, maxReturn);
+    if (picked.length < maxReturn && searchDepth < 1) {
+      const pickedIds = new Set(picked.map((c) => c.event.id ?? discoverEventDedupeKey(c)));
+      const overflow = await discoverConcertsFromCatalogMetros({
+        metros,
+        startDate: addDaysYmd(endDate, 1),
+        endDate: addDaysYmd(endDate, 180),
+        artistKeyword,
+        genreTokens: [],
+        maxReturn: maxReturn - picked.length,
+        excludeEventIds: [...excludeIds, ...pickedIds],
+        searchDepth: searchDepth + 1,
+        _weekdayDropRef: params._weekdayDropRef,
+      });
+      return [...picked.map((c) => tmEventToDiscoverOption(c.event, c.metro, c.score)), ...overflow]
+        .sort((a, b) => (Number(b._score ?? 0) - Number(a._score ?? 0)) || String(a.date || "").localeCompare(String(b.date || "")))
+        .slice(0, maxReturn);
+    }
+    return picked
+      .map((c) => tmEventToDiscoverOption(c.event, c.metro, c.score))
+      .sort((a, b) => (Number(b._score ?? 0) - Number(a._score ?? 0)) || String(a.date || "").localeCompare(String(b.date || "")));
+  }
+  // ── End artist fast path ─────────────────────────────────────────────────────
+
+  const isDefaultSurpriseSearch = params.genreTokens.length === 0;
   const genreTokens = isDefaultSurpriseSearch
     ? DEFAULT_SURPRISE_GENRES
     : params.genreTokens;
-  const excludeIds = new Set((params.excludeEventIds ?? []).map((id) => id.trim()).filter(Boolean));
-  const searchDepth = params.searchDepth ?? 0;
 
   const settled = await mapWithConcurrency(
     metros,
