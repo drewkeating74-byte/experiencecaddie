@@ -43,7 +43,8 @@
  * dashboard but may 546 when APIs are slow.
  *
  * SCHEDULE (see verify-golf-courses.yml)
- *   4× daily UTC — each tick is two HTTP calls (rule, then LLM).
+ *   Monthly (1st of month, 06:00 UTC) — each run is two HTTP calls (rule, then LLM).
+ *   Dispatch manually several times in a row to burn down a large backlog.
  *
  * DB FIELDS UPDATED
  *   verification_status, course_type, excluded_reason, public_access,
@@ -52,7 +53,7 @@
  *   verification_evidence_summary, last_verified_at
  *
  * SCHEDULING
- *   4× daily at 03:00 / 09:00 / 15:00 / 21:00 UTC via verify-golf-courses.yml
+ *   Monthly at 06:00 UTC on the 1st via verify-golf-courses.yml
  *   Requires Authorization: Bearer <SUPABASE_SERVICE_ROLE_KEY>
  */
 

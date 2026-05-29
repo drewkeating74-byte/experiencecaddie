@@ -1,10 +1,10 @@
 name: Golf Course Verification
 
-# Scheduled runs are disabled: new / unreviewed courses are handled in the
-# admin Golf Course Review screen. Re-enable a `schedule:` block here if you
-# want the automated two-pass verifier (Places + optional Perplexity) again.
+# Automated two-pass verifier (Google Places + optional Perplexity). Runs monthly
+# to catch new / unreviewed courses added by catalog refreshes; anything the verifier
+# can't confidently classify lands in `needs_review` for the admin Golf Course Review screen.
 #
-# Each manual run invokes verify-golf-courses TWICE in sequence:
+# Each run invokes verify-golf-courses TWICE in sequence:
 #   1) {"skip_llm": true}     — Pass 1 only (Google Places, cheap)
 #   2) {"skip_pass1": true}   — Pass 2 only (Perplexity)
 # A single combined run can exceed Supabase's Edge wall-clock and return
@@ -14,14 +14,14 @@ name: Golf Course Verification
 # Manual dispatch:
 #   - skip_llm=true  → one call, rule-based only (no Perplexity cost).
 #   - skip_llm=false → same two-step sequence as above.
+# To burn down a large backlog quickly, dispatch this workflow manually several
+# times in a row (each run clears up to 50 unreviewed + 50 needs_review).
 
 on:
-  # Weekly automated run — Sunday 06:00 UTC.
+  # Monthly automated run — 1st of the month, 06:00 UTC.
   # Processes up to 50 unreviewed (Pass 1) then up to 50 needs_review (Pass 2) per run.
-  # Once the unreviewed count drops below ~20 you can safely switch this to monthly:
-  #   - cron: '0 6 1 * *'
   schedule:
-    - cron: '0 6 * * 0'
+    - cron: '0 6 1 * *'
 
   workflow_dispatch:
     inputs:
