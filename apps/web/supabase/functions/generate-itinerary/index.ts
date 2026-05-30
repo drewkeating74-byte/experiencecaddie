@@ -358,6 +358,15 @@ serve(async (req) => {
         if (discEnd <= discStart) discEnd = maxEnd;
         if (discEnd > maxEnd) discEnd = maxEnd;
 
+        // Genre / "best upcoming shows" / surprise (no named artist): always scan a
+        // wide ~6-month horizon — independent of the user's chosen weekend — so the
+        // live candidate pool is deep enough to rotate through on "Show different
+        // options" instead of bottoming out into the small package catalog.
+        if (!artistSearch) {
+          const wideEnd = addMonthsToYmd(minTripYmd, 6);
+          if (discEnd < wideEnd) discEnd = wideEnd;
+        }
+
         const rawCityInput = p.city && p.city !== "flexible" ? String(p.city).trim() : "";
         const cityList = rawCityInput
           ? rawCityInput.split(",").map((s: string) => s.trim()).filter(Boolean)
@@ -375,7 +384,7 @@ serve(async (req) => {
               .filter((id: unknown): id is string => typeof id === "string")
               .map((id: string) => id.trim())
               .filter(Boolean)
-              .slice(0, 25)
+              .slice(0, 100)
           : [];
 
         const targetMetros = resolveDiscoverTargetMetros(cityList);
