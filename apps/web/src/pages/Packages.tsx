@@ -15,6 +15,8 @@ import {
   comparePublicSoonestEventFirst,
   getPackageInventoryStatus,
   daysUntilExpiration,
+  selectTopPackages,
+  TOP_PACKAGES_CAP,
 } from "@/lib/packageFreshness";
 
 // Promoted packages carry denormalized fields instead of FK-joined relations.
@@ -30,14 +32,6 @@ function pkgCity(pkg: Package): string | null {
 }
 function pkgGolfName(pkg: Package): string | null {
   return (pkg as any).golf_course_name ?? pkg.golf_courses?.name ?? null;
-}
-
-/** Local calendar YYYY-MM-DD (matches how we interpret event_date + "T12:00:00"). */
-function formatLocalYmd(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
 }
 
 function getIncludes(pkg: Package): string[] {
@@ -141,41 +135,42 @@ export default function Packages() {
   const destinations = [...new Set(packages.map(p => p.destinations?.name).filter(Boolean))] as string[];
 
   const now = new Date();
-  const tomorrowLocal = new Date(now);
-  tomorrowLocal.setDate(tomorrowLocal.getDate() + 1);
-  const tomorrowStr = formatLocalYmd(tomorrowLocal);
   const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
   const in60Days = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000);
 
-  const filtered = packages
-    .filter((p) => {
-      // Always hide packages whose event date has already passed or is today
-      const evDate = pkgEventDate(p);
-      if (evDate && evDate.slice(0, 10) < tomorrowStr) return false;
+  // Apply user-facing filters (search, destination, quick date chips) first.
+  // The hard date window (hide next 2 weeks + beyond 6 months) and the
+  // top-artist popularity ranking/cap are applied afterwards by
+  // selectTopPackages so the page only ever shows top, in-window shows.
+  const matchingFilters = packages.filter((p) => {
+    if (search) {
+      const s = search.toLowerCase();
+      if (!(
+        p.name.toLowerCase().includes(s) ||
+        p.events?.artists?.name?.toLowerCase().includes(s) ||
+        p.destinations?.name?.toLowerCase().includes(s) ||
+        p.golf_courses?.name?.toLowerCase().includes(s)
+      )) return false;
+    }
+    if (destination !== "all" && p.destinations?.name !== destination) return false;
 
-      if (search) {
-        const s = search.toLowerCase();
-        if (!(
-          p.name.toLowerCase().includes(s) ||
-          p.events?.artists?.name?.toLowerCase().includes(s) ||
-          p.destinations?.name?.toLowerCase().includes(s) ||
-          p.golf_courses?.name?.toLowerCase().includes(s)
-        )) return false;
+    if (windowFilter !== "all") {
+      const evd = pkgEventDate(p);
+      if (evd) {
+        const d = new Date(evd + "T12:00:00");
+        if (windowFilter === "this-month" && d > endOfMonth) return false;
+        if (windowFilter === "60-days" && d > in60Days) return false;
       }
-      if (destination !== "all" && p.destinations?.name !== destination) return false;
+      // null event_date = evergreen/curated package — always passes time-window filter
+    }
 
-      if (windowFilter !== "all") {
-        const evd = pkgEventDate(p);
-        if (evd) {
-          const d = new Date(evd + "T12:00:00");
-          if (windowFilter === "this-month" && d > endOfMonth) return false;
-          if (windowFilter === "60-days" && d > in60Days) return false;
-        }
-        // null event_date = evergreen/curated package — always passes time-window filter
-      }
+    return true;
+  });
 
-      return true;
-    })
+  // Hard window (>= today+14 days, <= today+6 months), rank by Spotify artist
+  // popularity (unknown last), cap at TOP_PACKAGES_CAP. Then re-order the
+  // surviving set by the user's chosen sort for display.
+  const filtered = selectTopPackages(matchingFilters, TOP_PACKAGES_CAP, now)
     .sort((a, b) => {
       if (sort === "price-low") return a.price - b.price;
       if (sort === "price-high") return b.price - a.price;
@@ -190,8 +185,8 @@ export default function Packages() {
         <div>
           <h1 className="font-serif text-3xl font-bold">Current Packages</h1>
           <p className="mt-1 text-muted-foreground">
-            {packages.length > 0
-              ? `${packages.length} verified package${packages.length !== 1 ? "s" : ""} — bookable now`
+            {filtered.length > 0
+              ? `${filtered.length} verified package${filtered.length !== 1 ? "s" : ""} — bookable now`
               : "Verified golf + concert weekends"}
           </p>
         </div>

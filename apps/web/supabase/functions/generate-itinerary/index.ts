@@ -392,11 +392,19 @@ serve(async (req) => {
           .sort((a, b) => (Number(b._score ?? 0) - Number(a._score ?? 0)) || String(a.date || "").localeCompare(String(b.date || "")))
           .slice(0, MAX_RETURN);
 
-        // Only top-up with catalog packages when no specific artist was requested.
+        // Top-up with curated catalog packages when no specific artist was requested.
         // For a named artist, padding with unrelated concerts is misleading and hides
-        // the "no results" UX the user should see instead.
-        if (allowExtendedDiscovery && opts.length < MAX_RETURN && !artistSearch) {
-          opts = await topUpConcertOptionsFromPackages(supabase, opts, minTripYmd, maxDiscoveryEnd, MAX_RETURN, targetMetros);
+        // the "no results" UX the user should see instead. For genre / "best upcoming
+        // shows" / surprise discovery we ALWAYS fill in from the verified catalog so the
+        // user sees compelling, bookable ideas rather than a dead "no results" screen —
+        // even when their literal date window has no live Ticketmaster matches.
+        if (opts.length < MAX_RETURN && !artistSearch) {
+          // Generous 6-month horizon for the package fill-ins, independent of the user's
+          // chosen dates, so inspiration results are never empty when the catalog has
+          // upcoming shows.
+          const packageWindowEnd = addMonthsToYmd(minTripYmd, 6);
+          const topUpEnd = packageWindowEnd > maxDiscoveryEnd ? packageWindowEnd : maxDiscoveryEnd;
+          opts = await topUpConcertOptionsFromPackages(supabase, opts, minTripYmd, topUpEnd, MAX_RETURN, targetMetros);
         }
 
         // If a named artist had 0 weekend-eligible shows but some were dropped only by

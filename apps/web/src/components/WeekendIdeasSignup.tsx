@@ -56,6 +56,17 @@ function getCopy(variant: WeekendIdeasSignupVariant, requestedCity?: string) {
   }
 }
 
+// Compact, low-friction genre picker (replaces free-text "favorite artists or
+// genres"). Aligned with the catalog's primary genre buckets.
+const GENRE_OPTIONS = ["Country", "Pop", "Rock", "Hip-Hop", "R&B", "Latin", "EDM", "Classic Rock"];
+
+/** Preselect any known genres mentioned in a free-text seed (back-compat with
+ *  callers that still pass defaultInterests like "Country, Luke Combs"). */
+function matchGenres(seed: string): string[] {
+  const s = (seed || "").toLowerCase();
+  return GENRE_OPTIONS.filter((g) => s.includes(g.toLowerCase()));
+}
+
 export default function WeekendIdeasSignup({
   variant,
   defaultCity = "",
@@ -69,12 +80,18 @@ export default function WeekendIdeasSignup({
   const copy = getCopy(variant, requestedCity ?? defaultCity);
   const [email, setEmail] = useState("");
   const [city, setCity] = useState(defaultCity);
-  const [interests, setInterests] = useState(defaultInterests);
+  const [genres, setGenres] = useState<string[]>(() => matchGenres(defaultInterests));
   const [honeypot, setHoneypot] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
 
-  const showCityField = variant !== "unsupported_city" || !requestedCity?.trim();
+  // City only matters for the "which city should we add next?" prompt. The
+  // standard signup stays low-friction: just email + an optional genre picker.
+  const showCityField = variant === "unsupported_city" && !requestedCity?.trim();
+
+  function toggleGenre(g: string) {
+    setGenres((prev) => (prev.includes(g) ? prev.filter((x) => x !== g) : [...prev, g]));
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -91,8 +108,8 @@ export default function WeekendIdeasSignup({
       {
         email: trimmedEmail,
         source: variant,
-        favorite_city: city.trim() || undefined,
-        favorite_interests: interests.trim() || undefined,
+        favorite_city: showCityField ? city.trim() || undefined : undefined,
+        favorite_interests: genres.join(", ") || undefined,
         requested_city:
           variant === "unsupported_city"
             ? (requestedCity?.trim() || city.trim() || undefined)
@@ -203,17 +220,30 @@ export default function WeekendIdeasSignup({
           )}
 
           <div className="space-y-1.5">
-            <Label htmlFor={`wi-interests-${variant}`} className="text-xs">
-              Favorite artists or genres <span className="text-muted-foreground">(optional)</span>
+            <Label className="text-xs">
+              Favorite genres <span className="text-muted-foreground">(optional)</span>
             </Label>
-            <Input
-              id={`wi-interests-${variant}`}
-              type="text"
-              placeholder="e.g. Country, Luke Combs"
-              value={interests}
-              onChange={(e) => setInterests(e.target.value)}
-              className={compact ? "h-9" : undefined}
-            />
+            <div className="flex flex-wrap gap-2">
+              {GENRE_OPTIONS.map((g) => {
+                const active = genres.includes(g);
+                return (
+                  <button
+                    key={g}
+                    type="button"
+                    onClick={() => toggleGenre(g)}
+                    aria-pressed={active}
+                    className={cn(
+                      "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+                      active
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-border bg-background text-foreground hover:bg-muted",
+                    )}
+                  >
+                    {g}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           <Button

@@ -128,6 +128,87 @@ export function comparePublicSoonestEventFirst<T extends PackageFreshnessInput &
   return cb - ca;
 }
 
+// ── Top-artist / high-demand selection ─────────────────────────────────────
+//
+// Single source of truth for "which packages should surface as top, in-window
+// shows" — used by the public Packages page and reusable by the marketing
+// agent. Rules:
+//   - Window: event date is at least TOP_WINDOW_MIN_DAYS out (hides the next
+//     two weeks) and no more than TOP_WINDOW_MAX_MONTHS out (hides far-future).
+//     Null/evergreen dates always pass the window.
+//   - Rank: highest artist demand score first; unknown demand ranks last.
+//     Demand is a Ticketmaster-derived proxy (tour breadth + venue size +
+//     price) stored on artists.ticketmaster_demand_score, because Spotify
+//     popularity is not available to our API app. Ties break to soonest date.
+//   - Cap: at most TOP_PACKAGES_CAP rows.
+
+export const TOP_WINDOW_MIN_DAYS = 14;
+export const TOP_WINDOW_MAX_MONTHS = 6;
+export const TOP_PACKAGES_CAP = 25;
+
+/** Minimal shape needed to rank/window a package, satisfied by Package rows
+ *  (FK-joined) and promoted rows (denormalized event_date). */
+export interface TopPackageInput {
+  /** Denormalized date on promoted packages. */
+  event_date?: string | null;
+  events?: {
+    event_date?: string | null;
+    artists?: { ticketmaster_demand_score?: number | null } | null;
+  } | null;
+}
+
+/** Event date (YYYY-MM-DD) from FK join or denormalized column; null if none. */
+export function resolveEventYmd(pkg: TopPackageInput): string | null {
+  const raw = pkg.event_date ?? pkg.events?.event_date ?? null;
+  return raw ? String(raw).slice(0, 10) : null;
+}
+
+/** Artist demand score (0-100) for the package's artist, or null if unknown. */
+export function resolveArtistDemand(pkg: TopPackageInput): number | null {
+  const d = pkg.events?.artists?.ticketmaster_demand_score;
+  return typeof d === "number" ? d : null;
+}
+
+/** True when a package's event falls inside the [+MIN_DAYS, +MAX_MONTHS]
+ *  window. Null/evergreen dates always pass. */
+export function isWithinTopWindow(pkg: TopPackageInput, now: Date = new Date()): boolean {
+  const ymd = resolveEventYmd(pkg);
+  if (!ymd) return true;
+  const d = parseYmd(ymd);
+  if (!d) return true;
+
+  const floor = new Date(now);
+  floor.setHours(0, 0, 0, 0);
+  floor.setDate(floor.getDate() + TOP_WINDOW_MIN_DAYS);
+
+  const ceiling = new Date(now);
+  ceiling.setHours(23, 59, 59, 999);
+  ceiling.setMonth(ceiling.getMonth() + TOP_WINDOW_MAX_MONTHS);
+
+  return d.getTime() >= floor.getTime() && d.getTime() <= ceiling.getTime();
+}
+
+/** Demand desc (unknown last), then soonest event date. */
+export function compareTopPackages(a: TopPackageInput, b: TopPackageInput): number {
+  const da = resolveArtistDemand(a) ?? -1;
+  const db = resolveArtistDemand(b) ?? -1;
+  if (da !== db) return db - da;
+  return eventTime(resolveEventYmd(a)) - eventTime(resolveEventYmd(b));
+}
+
+/** Window-filter, rank by popularity, and cap — the definition of "top,
+ *  in-window shows". Returns a new array. */
+export function selectTopPackages<T extends TopPackageInput>(
+  pkgs: T[],
+  cap: number = TOP_PACKAGES_CAP,
+  now: Date = new Date()
+): T[] {
+  return pkgs
+    .filter((p) => isWithinTopWindow(p, now))
+    .sort(compareTopPackages)
+    .slice(0, cap);
+}
+
 /** Parse YYYY-MM-DD for comparisons (local noon to avoid TZ drift). */
 export function parseYmd(ymd: string | null | undefined): Date | null {
   if (!ymd || !/^\d{4}-\d{2}-\d{2}$/.test(ymd.trim())) return null;

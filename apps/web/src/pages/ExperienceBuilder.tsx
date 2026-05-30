@@ -387,7 +387,7 @@ export default function ExperienceBuilder() {
     setRefreshingConcerts(true);
     try {
       const currentIds = new Set(optionIds(concertOptions));
-      const nextOptions = await discoverConcertOptions({
+      const { options: nextOptions } = await discoverConcertOptions({
         finalCity: savedParams.finalCity,
         finalStart: savedParams.finalStart,
         finalEnd: savedParams.finalEnd,

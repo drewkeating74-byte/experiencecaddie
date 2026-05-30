@@ -23,6 +23,12 @@ export interface Artist {
   image_url: string | null;
   description: string | null;
   demographic_fit_score: number | null;
+  spotify_id: string | null;
+  spotify_popularity: number | null;
+  spotify_followers: number | null;
+  spotify_synced_at: string | null;
+  ticketmaster_demand_score: number | null;
+  demand_synced_at: string | null;
   created_at: string;
   updated_at: string;
 }

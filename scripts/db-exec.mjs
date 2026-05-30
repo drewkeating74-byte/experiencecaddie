@@ -230,6 +230,28 @@ const SQL = {
       AND e.source_name IS DISTINCT FROM 'ticketmaster'
     ORDER BY e.event_date;
   `,
+  pkg_snapshot: `
+    SELECT
+      source,
+      active,
+      count(*) AS rows,
+      count(*) FILTER (WHERE packages.event_date IS NOT NULL OR events.event_date IS NOT NULL) AS with_date,
+      count(*) FILTER (
+        WHERE COALESCE(packages.event_date, events.event_date) >= current_date
+          AND COALESCE(packages.event_date, events.event_date) < current_date + interval '14 days'
+      ) AS within_14_days,
+      count(*) FILTER (
+        WHERE COALESCE(packages.event_date, events.event_date) >= current_date + interval '14 days'
+          AND COALESCE(packages.event_date, events.event_date) < current_date + interval '6 months'
+      ) AS in_14d_to_6mo,
+      count(*) FILTER (
+        WHERE COALESCE(packages.event_date, events.event_date) >= current_date + interval '6 months'
+      ) AS beyond_6mo
+    FROM public.packages
+    LEFT JOIN public.events ON events.id = packages.event_id
+    GROUP BY source, active
+    ORDER BY source, active DESC;
+  `,
   dup_keys: `
     SELECT lower(e.name) AS name,
            count(*) AS rows,
@@ -292,6 +314,84 @@ const SQL = {
            count(place_id)  AS with_place_id
     FROM public.golf_courses
     GROUP BY source ORDER BY n DESC;
+  `,
+  migrate_spotify: `
+    ALTER TABLE public.artists
+      ADD COLUMN IF NOT EXISTS spotify_id text NULL,
+      ADD COLUMN IF NOT EXISTS spotify_popularity integer NULL,
+      ADD COLUMN IF NOT EXISTS spotify_followers bigint NULL,
+      ADD COLUMN IF NOT EXISTS spotify_synced_at timestamptz NULL;
+  `,
+  migrate_demand: `
+    ALTER TABLE public.artists
+      ADD COLUMN IF NOT EXISTS ticketmaster_demand_score integer NULL,
+      ADD COLUMN IF NOT EXISTS demand_synced_at timestamptz NULL;
+  `,
+  demand_post: `
+    SELECT
+      count(*)                                       AS total_artists,
+      count(ticketmaster_demand_score)               AS scored,
+      count(*) FILTER (WHERE ticketmaster_demand_score IS NULL) AS unscored,
+      min(ticketmaster_demand_score)                 AS min_score,
+      round(avg(ticketmaster_demand_score))          AS avg_score,
+      max(ticketmaster_demand_score)                 AS max_score
+    FROM public.artists;
+  `,
+  demand_top: `
+    SELECT DISTINCT name, ticketmaster_demand_score
+    FROM public.artists
+    WHERE ticketmaster_demand_score IS NOT NULL
+    ORDER BY ticketmaster_demand_score DESC NULLS LAST
+    LIMIT 20;
+  `,
+  spotify_scope: `
+    SELECT
+      count(*)                                AS total_artists,
+      count(spotify_id)                       AS already_synced,
+      count(*) - count(spotify_id)            AS needs_sync,
+      count(DISTINCT lower(name))             AS distinct_names
+    FROM public.artists;
+  `,
+  spotify_post: `
+    SELECT
+      count(*)                                AS total_artists,
+      count(spotify_id)                       AS matched,
+      count(*) FILTER (WHERE spotify_id IS NULL) AS unmatched,
+      min(spotify_popularity)                 AS min_pop,
+      round(avg(spotify_popularity))          AS avg_pop,
+      max(spotify_popularity)                 AS max_pop
+    FROM public.artists;
+  `,
+  demand_signals: `
+    SELECT
+      a.name,
+      count(e.id)                              AS events_in_catalog,
+      count(e.min_price)                       AS have_min_price,
+      count(e.max_price)                       AS have_max_price,
+      max(e.max_price)                         AS max_price_seen,
+      count(v.id)                              AS have_venue,
+      count(v.capacity)                        AS have_capacity,
+      max(v.capacity)                          AS max_capacity_seen,
+      string_agg(DISTINCT v.venue_type, ',')   AS venue_types
+    FROM public.artists a
+    LEFT JOIN public.events e ON e.artist_id = a.id
+    LEFT JOIN public.venues v ON v.id = e.venue_id
+    GROUP BY a.name
+    ORDER BY events_in_catalog DESC
+    LIMIT 15;
+  `,
+  venues_columns: `
+    SELECT column_name, data_type
+    FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'venues'
+    ORDER BY ordinal_position;
+  `,
+  spotify_top: `
+    SELECT name, spotify_popularity, spotify_followers
+    FROM public.artists
+    WHERE spotify_popularity IS NOT NULL
+    ORDER BY spotify_popularity DESC NULLS LAST
+    LIMIT 15;
   `,
 };
 
