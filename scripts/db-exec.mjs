@@ -18,6 +18,49 @@ const SQL = {
       ADD COLUMN IF NOT EXISTS image_url_2 text NULL,
       ADD COLUMN IF NOT EXISTS image_url_3 text NULL;
   `,
+  create_discovery_shows: `
+    CREATE TABLE IF NOT EXISTS public.discovery_shows (
+      id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      tm_event_id  text NOT NULL UNIQUE,
+      artist       text NOT NULL,
+      event_name   text,
+      metro_slug   text NOT NULL,
+      city         text NOT NULL,
+      venue        text,
+      event_date   date NOT NULL,
+      genre        text,
+      ticket_url   text,
+      image_url    text,
+      min_price    numeric,
+      max_price    numeric,
+      score        integer NOT NULL DEFAULT 0,
+      active       boolean NOT NULL DEFAULT true,
+      refreshed_at timestamptz NOT NULL DEFAULT now(),
+      created_at   timestamptz NOT NULL DEFAULT now(),
+      updated_at   timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_discovery_shows_date   ON public.discovery_shows (event_date);
+    CREATE INDEX IF NOT EXISTS idx_discovery_shows_metro  ON public.discovery_shows (metro_slug);
+    CREATE INDEX IF NOT EXISTS idx_discovery_shows_active ON public.discovery_shows (active);
+    CREATE INDEX IF NOT EXISTS idx_discovery_shows_score  ON public.discovery_shows (score DESC);
+    ALTER TABLE public.discovery_shows ENABLE ROW LEVEL SECURITY;
+  `,
+  discovery_columns: `
+    SELECT column_name, data_type, is_nullable
+    FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'discovery_shows'
+    ORDER BY ordinal_position;
+  `,
+  discovery_count: `
+    SELECT
+      count(*)                                  AS total,
+      count(*) FILTER (WHERE active)            AS active_rows,
+      count(DISTINCT metro_slug)                AS metros,
+      count(DISTINCT genre)                     AS genres,
+      min(event_date)                           AS earliest,
+      max(event_date)                           AS latest
+    FROM public.discovery_shows;
+  `,
   scope: `
     SELECT
       count(*)                                    AS total,

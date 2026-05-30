@@ -347,6 +347,40 @@ export function mapTmEventToResult(
   };
 }
 
+// ── Ticketmaster rate limiting ──────────────────────────────────────────────
+// TM's spike-arrest policy is 5 req/sec with burst=1 — i.e. requests must be
+// evenly spaced (~200ms apart). ANY concurrency triggers HTTP 429, which is why
+// the per-metro fan-out (and a naive concurrent nationwide fetch) silently
+// returned zero events. We serialize every TM events call through evenly-spaced
+// slots, with a 429 backoff retry, so multi-call discovery paths don't starve.
+const TM_MIN_INTERVAL_MS = 230;
+let tmNextSlot = 0;
+async function tmAcquireSlot(): Promise<void> {
+  const now = Date.now();
+  const slot = Math.max(now, tmNextSlot);
+  tmNextSlot = slot + TM_MIN_INTERVAL_MS;
+  const wait = slot - now;
+  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+}
+
+/** Fetch TM events.json with rate-limit spacing + 429 backoff; returns events. */
+async function tmFetchEvents(url: string, attempt = 0): Promise<TMEvent[]> {
+  await tmAcquireSlot();
+  const res = await fetch(url, { signal: AbortSignal.timeout(12000) });
+  if (!res.ok) {
+    const text = await res.text();
+    // Retry only the transient per-second spike-arrest. Daily quota exhaustion
+    // ("QuotaViolation") cannot recover within a request, so fail fast.
+    if (res.status === 429 && /spike arrest/i.test(text) && attempt < 2) {
+      await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+      return tmFetchEvents(url, attempt + 1);
+    }
+    throw new Error(`Ticketmaster API error ${res.status}: ${text.slice(0, 200)}`);
+  }
+  const data = (await res.json()) as TMResponse;
+  return data._embedded?.events ?? [];
+}
+
 export async function fetchTicketmasterEvents(params: {
   artist?: string;
   city?: string;
@@ -374,13 +408,7 @@ export async function fetchTicketmasterEvents(params: {
   }
   url.searchParams.set("startDateTime", `${params.startDate}T00:00:00Z`);
   url.searchParams.set("endDateTime", `${params.endDate}T23:59:59Z`);
-  const res = await fetch(url.toString(), { signal: AbortSignal.timeout(12000) });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Ticketmaster API error ${res.status}: ${text.slice(0, 200)}`);
-  }
-  const data = (await res.json()) as TMResponse;
-  return data._embedded?.events ?? [];
+  return tmFetchEvents(url.toString());
 }
 
 async function fetchTicketmasterEventsPage(params: {
@@ -412,13 +440,7 @@ async function fetchTicketmasterEventsPage(params: {
   }
   url.searchParams.set("startDateTime", `${params.startDate}T00:00:00Z`);
   url.searchParams.set("endDateTime", `${params.endDate}T23:59:59Z`);
-  const res = await fetch(url.toString(), { signal: AbortSignal.timeout(12000) });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Ticketmaster API error ${res.status}: ${text.slice(0, 200)}`);
-  }
-  const data = (await res.json()) as TMResponse;
-  return data._embedded?.events ?? [];
+  return tmFetchEvents(url.toString());
 }
 
 function daysBetween(aYmd: string, bYmd: string): number {
@@ -765,6 +787,92 @@ function tmEventToDiscoverOption(event: TMEvent, metro: MetroConfig, score = 0):
   };
 }
 
+export type DiscoveryShowRow = {
+  tm_event_id: string;
+  artist: string;
+  event_name: string;
+  metro_slug: string;
+  city: string;
+  venue: string;
+  event_date: string;
+  genre: string | null;
+  ticket_url: string | null;
+  image_url: string | null;
+  min_price: number | null;
+  max_price: number | null;
+  score: number;
+};
+
+/**
+ * Gather upcoming weekend concerts across catalog metros via a few paginated
+ * NATIONWIDE Ticketmaster calls per genre (filtered to metros client-side).
+ * Rate-limited and quota-friendly (~tens of calls). Used by the scheduled
+ * refresh-discovery job to populate the discovery_shows cache so user-facing
+ * discovery never hits Ticketmaster live.
+ */
+export async function fetchNationwideDiscoveryShows(params: {
+  metros: MetroConfig[];
+  startDate: string;
+  endDate: string;
+  genreTokens: string[];
+  pagesPerGenre?: number;
+}): Promise<DiscoveryShowRow[]> {
+  const { metros, startDate, endDate, genreTokens } = params;
+  const pagesPerGenre = params.pagesPerGenre ?? 4;
+  const genreList = (genreTokens.length > 0 ? genreTokens : ["Music"]).slice(0, 12);
+  const reqs: Array<{ classificationName: string; page: number }> = [];
+  for (const g of genreList) for (let page = 0; page < pagesPerGenre; page++) reqs.push({ classificationName: g, page });
+
+  const pages = await mapWithConcurrency(reqs, 3, (r) =>
+    fetchTicketmasterEventsPage({
+      classificationName: r.classificationName,
+      startDate,
+      endDate,
+      size: 199,
+      page: r.page,
+    })
+  );
+
+  const byId = new Map<string, TMEvent>();
+  for (const p of pages) {
+    if (p.status !== "fulfilled") continue;
+    for (const e of p.value) byId.set(e.id ?? `${e.name}|${e.dates?.start?.localDate}`, e);
+  }
+
+  const rows: DiscoveryShowRow[] = [];
+  for (const e of byId.values()) {
+    const id = e.id?.trim();
+    if (!id) continue;
+    const v = e._embedded?.venues?.[0];
+    const metro = metros.find((m) => eventVenueBelongsToMetro(v, m));
+    if (!metro) continue;
+    const ymd = e.dates?.start?.localDate ?? "";
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) continue;
+    if (!isWeekendGetawayYmd(ymd)) continue;
+    if (!eventIsSeasonallyPlayable(metro, ymd)) continue;
+    if (eventLooksLikeAddOn(e)) continue;
+    const score = scoreDiscoveryConcert(e, metro, ymd, genreList);
+    const mapped = mapTmEventToResult(e, metro.cities[0], metro.state);
+    const genre = e.classifications?.[0]?.genre?.name ?? e.classifications?.[0]?.segment?.name ?? null;
+    rows.push({
+      tm_event_id: id,
+      artist: e._embedded?.attractions?.[0]?.name ?? e.name ?? "",
+      event_name: e.name ?? "",
+      metro_slug: metro.slug,
+      city: v?.city?.name ?? metro.cities[0],
+      venue: v?.name ?? mapped.venue.name ?? "",
+      event_date: ymd,
+      genre,
+      ticket_url: mapped.book_url ?? null,
+      image_url: mapped.image_url ?? null,
+      min_price: mapped.price_min ?? null,
+      max_price: mapped.price_max ?? null,
+      score: Math.round(score),
+    });
+  }
+  return rows;
+}
+
 /**
  * Discovery picker: real Ticketmaster events only, scoped to catalog golf metros.
  * Genre / artist filtering is best-effort against TM classifications + titles.
@@ -869,39 +977,6 @@ export async function discoverConcertsFromCatalogMetros(params: {
     ? DEFAULT_SURPRISE_GENRES
     : params.genreTokens;
 
-  const settled = await mapWithConcurrency(
-    metros,
-    5,
-    async (metro) => {
-      const useDma = Boolean(artistKeyword) && metro.ticketmasterDmaId != null && metro.ticketmasterDmaId > 0;
-      const baseParams = {
-        artist: artistKeyword,
-        startDate,
-        endDate,
-        dmaId: useDma ? metro.ticketmasterDmaId : null,
-        ...(!useDma ? { city: metro.cities[0], state: metro.state } : {}),
-      };
-      let events = artistKeyword
-        ? await fetchTicketmasterEvents({ ...baseParams, size: 30 })
-        : await fetchDiscoveryGenreEvents({ ...baseParams, genreTokens });
-      if (isDefaultSurpriseSearch && metro.ticketmasterDmaId != null && metro.ticketmasterDmaId > 0) {
-        const dmaEvents = await fetchDiscoveryGenreEvents({
-          artist: artistKeyword,
-          startDate,
-          endDate,
-          dmaId: metro.ticketmasterDmaId,
-          genreTokens,
-        });
-        const byId = new Map<string, TMEvent>();
-        for (const event of [...events, ...dmaEvents]) {
-          byId.set(event.id ?? `${event.name}|${event.dates?.start?.localDate}`, event);
-        }
-        events = [...byId.values()];
-      }
-      return { metro, events };
-    }
-  );
-
   const cands: DiscoveryCandidate[] = [];
   let tmTotalHits = 0;
   let droppedByVenue = 0;
@@ -910,18 +985,14 @@ export async function discoverConcertsFromCatalogMetros(params: {
   let droppedBySeasonal = 0;
   let droppedByAddOn = 0;
 
-  for (const s of settled) {
-    if (s.status !== "fulfilled") {
-      console.log("[DISCOVER_TM] metro fetch rejected:", s.reason);
-      continue;
-    }
-    const { metro, events } = s.value;
-    tmTotalHits += events.length;
+  // Shared candidate filter. metroHint is set for per-metro (city-scoped) fetches;
+  // for nationwide results we resolve the venue's metro client-side.
+  const ingest = (events: TMEvent[], metroHint: MetroConfig | null) => {
     for (const e of events) {
       const v = e._embedded?.venues?.[0];
-      if (!eventVenueBelongsToMetro(v, metro)) { droppedByVenue++; continue; }
-      if (artistKeyword && !tmEventMatchesArtistQuery(e, artistKeyword)) { droppedByArtistMatch++; continue; }
-      if (!artistKeyword && genreTokens.length > 0 && !tmEventMatchesGenreTokens(e, genreTokens)) { droppedByArtistMatch++; continue; }
+      const metro = metroHint ?? metros.find((m) => eventVenueBelongsToMetro(v, m)) ?? null;
+      if (!metro || !eventVenueBelongsToMetro(v, metro)) { droppedByVenue++; continue; }
+      if (genreTokens.length > 0 && !tmEventMatchesGenreTokens(e, genreTokens)) { droppedByArtistMatch++; continue; }
       const ymd = e.dates?.start?.localDate ?? "";
       if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) continue;
       if (!isWeekendGetawayYmd(ymd)) { droppedByWeekend++; continue; }
@@ -931,6 +1002,55 @@ export async function discoverConcertsFromCatalogMetros(params: {
       const artist = e._embedded?.attractions?.[0]?.name ?? e.name ?? "";
       const city = v?.city?.name ?? metro.cities[0];
       cands.push({ metro, event: e, ymd, score, artist, city });
+    }
+  };
+
+  if (metros.length > 6) {
+    // Nationwide genre fast path (no specific city). A few paginated nationwide
+    // calls per genre, filtered to catalog metros client-side — mirrors the artist
+    // fast path. The previous per-metro fan-out fired ~16–32 TM calls per metro
+    // across 40+ metros, tripping TM's 5 req/sec spike-arrest limit and silently
+    // dropping most fetches, which starved the pool and broke "Show different options".
+    const genreList = (genreTokens.length > 0 ? genreTokens : ["Music"]).slice(0, 6);
+    const reqs: Array<{ classificationName: string; page: number }> = [];
+    for (const g of genreList) for (let page = 0; page < 3; page++) reqs.push({ classificationName: g, page });
+    const pages = await mapWithConcurrency(reqs, 4, (r) =>
+      fetchTicketmasterEventsPage({
+        classificationName: r.classificationName,
+        startDate,
+        endDate,
+        size: 199,
+        page: r.page,
+      })
+    );
+    const byId = new Map<string, TMEvent>();
+    for (const p of pages) {
+      if (p.status !== "fulfilled") continue;
+      for (const e of p.value) byId.set(e.id ?? `${e.name}|${e.dates?.start?.localDate}`, e);
+    }
+    tmTotalHits = byId.size;
+    ingest([...byId.values()], null);
+  } else {
+    // City-scoped search (few metros): per-metro genre fetch stays well under the
+    // rate limit and benefits from city/DMA targeting.
+    const settled = await mapWithConcurrency(metros, 5, async (metro) => {
+      const events = await fetchDiscoveryGenreEvents({
+        city: metro.cities[0],
+        state: metro.state,
+        startDate,
+        endDate,
+        genreTokens,
+      });
+      return { metro, events };
+    });
+    for (const s of settled) {
+      if (s.status !== "fulfilled") {
+        console.log("[DISCOVER_TM] metro fetch rejected:", s.reason);
+        continue;
+      }
+      const { metro, events } = s.value;
+      tmTotalHits += events.length;
+      ingest(events, metro);
     }
   }
 

@@ -146,6 +146,96 @@ async function topUpConcertOptionsFromPackages(
     .slice(0, maxReturn);
 }
 
+/**
+ * Genre / "best upcoming shows" / surprise discovery served from the cached
+ * discovery_shows table (refreshed daily by refresh-discovery) instead of live
+ * Ticketmaster. Applies metro + date + genre + exclude filters, then picks a
+ * date- and metro/city/artist-diverse set so "Show different options" rotates
+ * deeply. Returns options shaped like the live TM discovery output.
+ */
+async function discoverFromCache(
+  supabase: any,
+  opts: {
+    metroSlugs: string[];
+    startYmd: string;
+    endYmd: string;
+    genreTokens: string[];
+    excludeIds: string[];
+    maxReturn: number;
+  },
+): Promise<Array<Record<string, unknown>>> {
+  const { data, error } = await supabase
+    .from("discovery_shows")
+    .select("tm_event_id,artist,event_name,metro_slug,city,venue,event_date,genre,ticket_url,image_url,score")
+    .eq("active", true)
+    .gte("event_date", opts.startYmd)
+    .lte("event_date", opts.endYmd)
+    .order("score", { ascending: false })
+    .limit(500);
+  if (error || !Array.isArray(data)) {
+    if (error) console.warn("[DISCOVER_CACHE] read failed:", error.message);
+    return [];
+  }
+
+  const metroSet = new Set(opts.metroSlugs);
+  const exclude = new Set(opts.excludeIds);
+  const tokens = opts.genreTokens.map((t) => t.toLowerCase().trim()).filter(Boolean);
+  const matchesGenre = (row: Record<string, unknown>) => {
+    if (!tokens.length) return true;
+    const hay = `${row.genre ?? ""} ${row.event_name ?? ""} ${row.artist ?? ""}`.toLowerCase();
+    return tokens.some(
+      (t) => hay.includes(t) || t.split(/[\s/]+/).filter((w) => w.length > 2).every((w) => hay.includes(w)),
+    );
+  };
+
+  const pool = (data as Array<Record<string, unknown>>)
+    .filter((r) => metroSet.size === 0 || metroSet.has(String(r.metro_slug)))
+    .filter((r) => !exclude.has(String(r.tm_event_id)))
+    .filter(matchesGenre);
+
+  const picked: Array<Record<string, unknown>> = [];
+  const usedMetros = new Set<string>();
+  const usedCities = new Set<string>();
+  const usedArtists = new Set<string>();
+  const usedMonths = new Set<string>();
+  const monthOf = (r: Record<string, unknown>) => String(r.event_date || "").slice(0, 7);
+  const artistOf = (r: Record<string, unknown>) => String(r.artist || "").toLowerCase();
+  const cityOf = (r: Record<string, unknown>) => String(r.city || "").toLowerCase();
+
+  const passes: Array<(r: Record<string, unknown>) => boolean> = [
+    (r) => !usedMetros.has(String(r.metro_slug)) && !usedArtists.has(artistOf(r)) && !usedMonths.has(monthOf(r)),
+    (r) => !usedCities.has(cityOf(r)) && !usedArtists.has(artistOf(r)) && !usedMonths.has(monthOf(r)),
+    (r) => !usedMetros.has(String(r.metro_slug)) && !usedArtists.has(artistOf(r)),
+    (r) => !usedArtists.has(artistOf(r)),
+    () => true,
+  ];
+
+  for (const pass of passes) {
+    for (const r of pool) {
+      if (picked.length >= opts.maxReturn) break;
+      if (picked.some((p) => p.tm_event_id === r.tm_event_id)) continue;
+      if (!pass(r)) continue;
+      picked.push(r);
+      usedMetros.add(String(r.metro_slug));
+      usedCities.add(cityOf(r));
+      usedArtists.add(artistOf(r));
+      usedMonths.add(monthOf(r));
+    }
+  }
+
+  return picked.map((r) => ({
+    id: r.tm_event_id,
+    artist: r.artist,
+    city: r.city,
+    venue: r.venue,
+    date: r.event_date,
+    url: r.ticket_url,
+    image_url: r.image_url,
+    _score: r.score,
+    _verified_ticketmaster: true,
+  }));
+}
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -403,16 +493,32 @@ serve(async (req) => {
         // our cities but they fall outside the Thu–Sun window — surface a specific hint.
         const weekdayDropRef = artistSearch ? { count: 0 } : undefined;
 
-        let opts = await discoverConcertsFromCatalogMetros({
-          metros: targetMetros,
-          startDate: discStart,
-          endDate: discEnd,
-          artistKeyword: artistSearch || undefined,
-          genreTokens,
-          maxReturn: MAX_RETURN,
-          excludeEventIds,
-          _weekdayDropRef: weekdayDropRef,
-        });
+        // Artist search → live Ticketmaster (single nationwide call, accurate).
+        // Genre / "best upcoming shows" / surprise → served from the cached
+        // discovery_shows table (refreshed daily) so we never hit TM's rate/quota
+        // limits and the pool is deep + instant to rotate.
+        let opts: Array<Record<string, unknown>>;
+        if (artistSearch) {
+          opts = await discoverConcertsFromCatalogMetros({
+            metros: targetMetros,
+            startDate: discStart,
+            endDate: discEnd,
+            artistKeyword: artistSearch,
+            genreTokens,
+            maxReturn: MAX_RETURN,
+            excludeEventIds,
+            _weekdayDropRef: weekdayDropRef,
+          });
+        } else {
+          opts = await discoverFromCache(supabase, {
+            metroSlugs: targetMetros.map((m) => m.slug),
+            startYmd: discStart,
+            endYmd: maxDiscoveryEnd,
+            genreTokens,
+            excludeIds: excludeEventIds,
+            maxReturn: MAX_RETURN,
+          });
+        }
 
         opts = opts
           .filter((v) => {
