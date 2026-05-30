@@ -44,7 +44,8 @@ async function topUpConcertOptionsFromPackages(
   minTripYmd: string,
   maxDiscoveryEnd: string,
   maxReturn: number,
-  targetMetros: MetroConfig[]
+  targetMetros: MetroConfig[],
+  excludeEventIds: string[] = []
 ): Promise<Array<Record<string, unknown>>> {
   if (currentOptions.length >= maxReturn) return currentOptions;
   const nowIso = new Date().toISOString();
@@ -68,6 +69,14 @@ async function topUpConcertOptionsFromPackages(
     : new Set(targetMetros.map((m) => m.slug));
 
   const seen = new Set(currentOptions.map(concertOptionKey));
+  // IDs already shown to the user (passed on "Show different options") so refresh
+  // surfaces genuinely new fill-ins instead of re-adding the same packages.
+  const excludeSet = new Set(excludeEventIds.map((id) => String(id).trim()).filter(Boolean));
+  // Months already covered by the live TM results — package fill-ins prefer
+  // unused months so the combined set spans near → far dates.
+  const usedMonths = new Set(
+    currentOptions.map((o) => String(o.date || "").slice(0, 7)).filter(Boolean),
+  );
   const toppedUp = [...currentOptions];
   const packageOptions = data
     .map((row: any) => {
@@ -101,11 +110,14 @@ async function topUpConcertOptionsFromPackages(
     })
     .sort((a: Record<string, unknown>, b: Record<string, unknown>) => String(a.date || "").localeCompare(String(b.date || "")));
 
-  for (const option of packageOptions) {
-    if (toppedUp.length >= maxReturn) break;
-    const key = concertOptionKey(option);
-    if (seen.has(key)) continue;
-    seen.add(key);
+  const eligible = packageOptions.filter((option: Record<string, unknown>) => {
+    if (excludeSet.has(String(option.id))) return false;
+    return !seen.has(concertOptionKey(option));
+  });
+
+  const addPackage = (option: Record<string, unknown>) => {
+    seen.add(concertOptionKey(option));
+    usedMonths.add(String(option.date || "").slice(0, 7));
     toppedUp.push({
       id: option.id,
       artist: option.artist,
@@ -115,6 +127,18 @@ async function topUpConcertOptionsFromPackages(
       url: option.url,
       _verified_package: true,
     });
+  };
+
+  // Pass 1: prefer months not already covered (date spread). Pass 2: fill any remaining.
+  for (const option of eligible) {
+    if (toppedUp.length >= maxReturn) break;
+    if (usedMonths.has(String(option.date || "").slice(0, 7))) continue;
+    addPackage(option);
+  }
+  for (const option of eligible) {
+    if (toppedUp.length >= maxReturn) break;
+    if (seen.has(concertOptionKey(option))) continue;
+    addPackage(option);
   }
 
   return toppedUp
@@ -404,8 +428,11 @@ serve(async (req) => {
           // upcoming shows.
           const packageWindowEnd = addMonthsToYmd(minTripYmd, 6);
           const topUpEnd = packageWindowEnd > maxDiscoveryEnd ? packageWindowEnd : maxDiscoveryEnd;
-          opts = await topUpConcertOptionsFromPackages(supabase, opts, minTripYmd, topUpEnd, MAX_RETURN, targetMetros);
+          opts = await topUpConcertOptionsFromPackages(supabase, opts, minTripYmd, topUpEnd, MAX_RETURN, targetMetros, excludeEventIds);
         }
+
+        // Present near → far so users scan from the soonest getaway outward.
+        opts.sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")));
 
         // If a named artist had 0 weekend-eligible shows but some were dropped only by
         // the day-of-week filter, tell the frontend so it can show a specific message.

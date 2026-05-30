@@ -717,8 +717,14 @@ function pickBestDiverseConcerts(cands: DiscoveryCandidate[], maxReturn: number)
   const usedMetros = new Set<string>();
   const usedCities = new Set<string>();
   const usedArtists = new Set<string>();
+  // Year-month bucket so the final set spreads from near to further-out dates
+  // instead of clustering in one busy month.
+  const usedMonths = new Set<string>();
+  const monthOf = (c: DiscoveryCandidate) => c.ymd.slice(0, 7);
 
   const passes = [
+    (c: DiscoveryCandidate) => !usedMetros.has(c.metro.slug) && !usedArtists.has(c.artist.toLowerCase()) && !usedMonths.has(monthOf(c)),
+    (c: DiscoveryCandidate) => !usedCities.has(c.city.toLowerCase()) && !usedArtists.has(c.artist.toLowerCase()) && !usedMonths.has(monthOf(c)),
     (c: DiscoveryCandidate) => !usedMetros.has(c.metro.slug) && !usedArtists.has(c.artist.toLowerCase()),
     (c: DiscoveryCandidate) => !usedCities.has(c.city.toLowerCase()) && !usedArtists.has(c.artist.toLowerCase()),
     (c: DiscoveryCandidate) => !usedMetros.has(c.metro.slug),
@@ -736,6 +742,7 @@ function pickBestDiverseConcerts(cands: DiscoveryCandidate[], maxReturn: number)
       usedMetros.add(c.metro.slug);
       usedCities.add(c.city.toLowerCase());
       usedArtists.add(c.artist.toLowerCase());
+      usedMonths.add(monthOf(c));
     }
   }
 
