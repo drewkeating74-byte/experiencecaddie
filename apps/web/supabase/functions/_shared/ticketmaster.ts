@@ -816,6 +816,8 @@ export async function fetchNationwideDiscoveryShows(params: {
   endDate: string;
   genreTokens: string[];
   pagesPerGenre?: number;
+  /** Optional out-param for operational diagnostics (request/rejection counts). */
+  stats?: Record<string, unknown>;
 }): Promise<DiscoveryShowRow[]> {
   const { metros, startDate, endDate, genreTokens } = params;
   const pagesPerGenre = params.pagesPerGenre ?? 4;
@@ -834,9 +836,21 @@ export async function fetchNationwideDiscoveryShows(params: {
   );
 
   const byId = new Map<string, TMEvent>();
+  let rejected = 0;
+  let firstError = "";
   for (const p of pages) {
-    if (p.status !== "fulfilled") continue;
+    if (p.status !== "fulfilled") {
+      rejected++;
+      if (!firstError) firstError = String((p as PromiseRejectedResult).reason).slice(0, 250);
+      continue;
+    }
     for (const e of p.value) byId.set(e.id ?? `${e.name}|${e.dates?.start?.localDate}`, e);
+  }
+  if (params.stats) {
+    params.stats.requests = reqs.length;
+    params.stats.rejected = rejected;
+    params.stats.distinctEvents = byId.size;
+    params.stats.firstError = firstError;
   }
 
   const rows: DiscoveryShowRow[] = [];

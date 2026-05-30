@@ -82,6 +82,7 @@ Deno.serve(async (req: Request) => {
   const endDate = ymd(addMonths(today, 6));
 
   const started = Date.now();
+  const stats: Record<string, unknown> = {};
   let rows: DiscoveryShowRow[] = [];
   try {
     rows = await fetchNationwideDiscoveryShows({
@@ -90,6 +91,7 @@ Deno.serve(async (req: Request) => {
       endDate,
       genreTokens: REFRESH_GENRES,
       pagesPerGenre,
+      stats,
     });
   } catch (err) {
     return json({ error: `Discovery fetch failed: ${err instanceof Error ? err.message : String(err)}` }, 502);
@@ -100,6 +102,7 @@ Deno.serve(async (req: Request) => {
       dry_run: true,
       window: { startDate, endDate },
       fetched: rows.length,
+      tm: stats,
       sample: rows.slice(0, 10).map((r) => ({ date: r.event_date, artist: r.artist, city: r.city, genre: r.genre, score: r.score })),
       elapsed_ms: Date.now() - started,
     });
@@ -145,6 +148,7 @@ Deno.serve(async (req: Request) => {
   return json({
     window: { startDate, endDate },
     fetched: rows.length,
+    tm: stats,
     upserted,
     pruned_past: deletedPast ?? 0,
     deactivated_stale: deactivated ?? 0,
