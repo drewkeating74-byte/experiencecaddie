@@ -230,6 +230,18 @@ const SQL = {
       AND e.source_name IS DISTINCT FROM 'ticketmaster'
     ORDER BY e.event_date;
   `,
+  dup_keys: `
+    SELECT lower(e.name) AS name,
+           count(*) AS rows,
+           count(DISTINCT e.artist_id) AS distinct_artist_ids,
+           count(DISTINCT a.name)      AS distinct_artist_names
+    FROM public.events e
+    LEFT JOIN public.artists a ON a.id = e.artist_id
+    WHERE e.event_date >= current_date
+    GROUP BY lower(e.name)
+    HAVING count(*) > 1
+    ORDER BY count(*) DESC, name;
+  `,
   events_freshness: `
     SELECT
       count(*)                                                AS total,

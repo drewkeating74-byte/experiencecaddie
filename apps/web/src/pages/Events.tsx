@@ -36,10 +36,14 @@ export default function Events() {
   // event date, so the first row seen per group is the next upcoming show.
   // Multi-city tours therefore show a single card with a "+N more dates" hint
   // instead of repeating the same artist multiple times.
+  //
+  // NOTE: group by artist *name* (not artist_id) — seed data created a separate
+  // artists row per city for the same touring act, so ids differ while the name
+  // is identical. Fall back to the event name when there's no artist.
   const grouped = useMemo(() => {
     const map = new Map<string, { event: Event; count: number }>();
     for (const e of filtered) {
-      const key = e.artists?.id || e.artists?.name || e.name;
+      const key = (e.artists?.name || e.name || "").trim().toLowerCase();
       const existing = map.get(key);
       if (existing) existing.count += 1;
       else map.set(key, { event: e, count: 1 });
