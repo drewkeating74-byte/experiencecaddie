@@ -20,9 +20,10 @@
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { METROS } from "../_shared/golfCities.ts";
+import { METROS, getMetroByCity } from "../_shared/golfCities.ts";
 import {
   fetchNationwideDiscoveryShows,
+  isWeekendGetawayYmd,
   type DiscoveryShowRow,
 } from "../_shared/ticketmaster.ts";
 
@@ -68,7 +69,7 @@ Deno.serve(async (req: Request) => {
   const authHeader = req.headers.get("authorization") ?? "";
   if (!authHeader) return json({ error: "Unauthorized — authorization header required" }, 401);
 
-  let body: { dry_run?: boolean; pages?: number } = {};
+  let body: { dry_run?: boolean; pages?: number; mode?: string } = {};
   try {
     body = await req.json();
   } catch {
@@ -80,6 +81,16 @@ Deno.serve(async (req: Request) => {
   const today = new Date();
   const startDate = ymd(today);
   const endDate = ymd(addMonths(today, 6));
+
+  const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+
+  // Bootstrap mode: seed the cache from the existing curated events catalog
+  // (no Ticketmaster calls). Useful when the TM daily quota is exhausted so the
+  // cache still has real, bookable shows to serve until the next TM refresh.
+  if (body.mode === "seed_from_events") {
+    return await seedFromEvents(createClient(supabaseUrl, serviceRoleKey), startDate, endDate);
+  }
 
   const started = Date.now();
   const stats: Record<string, unknown> = {};
@@ -108,10 +119,7 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  const supabase = createClient(
-    Deno.env.get("SUPABASE_URL") ?? "",
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
-  );
+  const supabase = createClient(supabaseUrl, serviceRoleKey);
 
   const runIso = new Date().toISOString();
   const errors: string[] = [];
@@ -157,3 +165,87 @@ Deno.serve(async (req: Request) => {
     elapsed_ms: Date.now() - started,
   });
 });
+
+/**
+ * Seed discovery_shows from the curated public.events catalog (no TM calls).
+ * Maps each event's venue city to a catalog metro so it surfaces in discovery,
+ * keeps only weekend-eligible dates inside the window, and upserts. tm_event_id
+ * is namespaced as `event:<id>` so these bootstrap rows never collide with real
+ * Ticketmaster rows and naturally deactivate once a real TM refresh runs.
+ */
+async function seedFromEvents(supabase: any, startDate: string, endDate: string): Promise<Response> {
+  const started = Date.now();
+  const { data, error } = await supabase
+    .from("events")
+    .select(
+      "id,name,event_date,image_url,ticket_url,min_price,max_price,source_id,artists(name),venues(name,city)",
+    )
+    .gte("event_date", startDate)
+    .lte("event_date", endDate);
+
+  if (error) return json({ mode: "seed_from_events", error: error.message }, 502);
+
+  const seen = new Set<string>();
+  const rows: Array<Record<string, unknown>> = [];
+  let noMetro = 0;
+  let notWeekend = 0;
+
+  for (const e of (data ?? []) as any[]) {
+    const ymdDate: string = e.event_date;
+    if (!isWeekendGetawayYmd(ymdDate)) {
+      notWeekend++;
+      continue;
+    }
+    const city: string = e.venues?.city ?? "";
+    const metro = getMetroByCity(city);
+    if (!metro) {
+      noMetro++;
+      continue;
+    }
+    const tmId = `event:${e.id}`;
+    if (seen.has(tmId)) continue;
+    seen.add(tmId);
+    const artist: string = e.artists?.name || e.name || "Live show";
+    rows.push({
+      tm_event_id: tmId,
+      artist,
+      event_name: e.name ?? artist,
+      metro_slug: metro.slug,
+      city: metro.city,
+      venue: e.venues?.name ?? null,
+      event_date: ymdDate,
+      genre: null,
+      ticket_url: e.ticket_url ?? null,
+      image_url: e.image_url ?? null,
+      min_price: e.min_price ?? null,
+      max_price: e.max_price ?? null,
+      score: 55,
+    });
+  }
+
+  const runIso = new Date().toISOString();
+  const payload = rows.map((r) => ({ ...r, active: true, refreshed_at: runIso, updated_at: runIso }));
+  const errors: string[] = [];
+  let upserted = 0;
+  for (let i = 0; i < payload.length; i += 200) {
+    const chunk = payload.slice(i, i + 200);
+    const { error: upErr } = await supabase
+      .from("discovery_shows")
+      .upsert(chunk, { onConflict: "tm_event_id", ignoreDuplicates: false });
+    if (upErr) errors.push(upErr.message);
+    else upserted += chunk.length;
+  }
+
+  return json({
+    mode: "seed_from_events",
+    window: { startDate, endDate },
+    candidates: (data ?? []).length,
+    seeded: rows.length,
+    skipped_not_weekend: notWeekend,
+    skipped_no_metro: noMetro,
+    upserted,
+    error_count: errors.length,
+    errors,
+    elapsed_ms: Date.now() - started,
+  });
+}

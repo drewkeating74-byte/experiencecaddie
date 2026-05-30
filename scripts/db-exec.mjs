@@ -45,6 +45,16 @@ const SQL = {
     CREATE INDEX IF NOT EXISTS idx_discovery_shows_score  ON public.discovery_shows (score DESC);
     ALTER TABLE public.discovery_shows ENABLE ROW LEVEL SECURITY;
   `,
+  events_upcoming_scope: `
+    SELECT
+      count(*)                                                              AS total_events,
+      count(*) FILTER (WHERE e.event_date >= current_date)                  AS upcoming,
+      count(*) FILTER (WHERE e.event_date >= current_date + 14
+                         AND e.event_date <= current_date + 180)            AS in_window,
+      count(DISTINCT v.city)                                                AS cities
+    FROM public.events e
+    LEFT JOIN public.venues v ON v.id = e.venue_id;
+  `,
   discovery_columns: `
     SELECT column_name, data_type, is_nullable
     FROM information_schema.columns

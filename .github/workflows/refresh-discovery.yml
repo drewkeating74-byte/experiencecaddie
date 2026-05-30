@@ -9,6 +9,15 @@ on:
   schedule:
     - cron: "0 9 * * *"    # Daily 09:00 UTC
   workflow_dispatch:        # Allow manual trigger from GitHub Actions tab
+    inputs:
+      mode:
+        description: "Refresh mode: 'tm' (live Ticketmaster) or 'seed_from_events' (bootstrap cache from curated events, no TM calls)"
+        required: false
+        default: "tm"
+        type: choice
+        options:
+          - tm
+          - seed_from_events
 
 jobs:
   refresh:
@@ -20,14 +29,22 @@ jobs:
       - name: Run refresh-discovery edge function
         env:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          MODE: ${{ github.event.inputs.mode || 'tm' }}
         run: |
+          if [ "$MODE" = "seed_from_events" ]; then
+            PAYLOAD='{"mode":"seed_from_events"}'
+          else
+            PAYLOAD='{}'
+          fi
+          echo "Dispatch mode: $MODE"
+
           RESPONSE=$(curl -s -w "\n%{http_code}" \
             -X POST \
             "https://kxibaydbhquospzoefva.supabase.co/functions/v1/refresh-discovery" \
             -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
             -H "Content-Type: application/json" \
             -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
-            -d '{}')
+            -d "$PAYLOAD")
 
           HTTP_BODY=$(echo "$RESPONSE" | head -n -1)
           HTTP_STATUS=$(echo "$RESPONSE" | tail -n 1)
