@@ -39,6 +39,67 @@ const SQL = {
     WHERE table_schema = 'public' AND table_name = 'golf_courses'
     ORDER BY ordinal_position;
   `,
+  events_columns: `
+    SELECT column_name, data_type, is_nullable, column_default
+    FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'events'
+    ORDER BY ordinal_position;
+  `,
+  artists_columns: `
+    SELECT column_name, data_type, is_nullable
+    FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'artists'
+    ORDER BY ordinal_position;
+  `,
+  events_tm_sample: `
+    SELECT id, name, source_name, source_id, artist_id, image_url
+    FROM public.events
+    WHERE source_name = 'ticketmaster' AND source_id IS NOT NULL
+    LIMIT 6;
+  `,
+  events_scope_tm: `
+    SELECT
+      count(*)                                                       AS total,
+      count(source_id)                                               AS has_source_id,
+      count(image_url)                                               AS already_has_photo,
+      count(*) FILTER (WHERE source_name = 'ticketmaster')           AS ticketmaster_rows,
+      count(*) FILTER (WHERE source_name = 'ticketmaster'
+                         AND source_id IS NOT NULL
+                         AND image_url IS NULL)                      AS eligible,
+      count(*) FILTER (WHERE source_name = 'ticketmaster'
+                         AND artist_id IS NULL)                      AS tm_rows_no_artist
+    FROM public.events;
+  `,
+  concert_post_backfill: `
+    SELECT
+      (SELECT count(*) FROM public.events
+         WHERE source_name = 'ticketmaster')                         AS tm_events,
+      (SELECT count(image_url) FROM public.events
+         WHERE source_name = 'ticketmaster')                         AS tm_events_with_image,
+      (SELECT count(*) FROM public.events
+         WHERE source_name = 'ticketmaster' AND image_url IS NULL)   AS tm_events_still_null,
+      (SELECT count(*) FROM public.artists)                          AS artists_total,
+      (SELECT count(image_url) FROM public.artists)                  AS artists_with_image
+  `,
+  concert_missing: `
+    SELECT e.id, e.name, e.source_id, e.event_date, e.ticket_url, a.name AS artist
+    FROM public.events e
+    LEFT JOIN public.artists a ON a.id = e.artist_id
+    WHERE e.source_name = 'ticketmaster' AND e.image_url IS NULL
+    ORDER BY e.event_date;
+  `,
+  events_freshness: `
+    SELECT
+      count(*)                                                AS total,
+      count(*) FILTER (WHERE event_date >= current_date)      AS upcoming,
+      count(*) FILTER (WHERE event_date <  current_date)      AS past,
+      count(image_url)                                        AS have_image_url,
+      count(*) FILTER (WHERE source_name = 'ticketmaster')    AS from_ticketmaster,
+      count(DISTINCT source_name)                             AS distinct_source_names,
+      min(event_date)                                         AS earliest,
+      max(event_date)                                         AS latest
+    FROM public.events;
+  `,
   placeid_probe: `
     SELECT
       count(*)                                                AS total,
