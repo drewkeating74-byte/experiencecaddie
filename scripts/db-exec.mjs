@@ -141,6 +141,95 @@ const SQL = {
       (SELECT count(*) FROM public.packages WHERE id = 'f7ed0000-0000-0000-0000-000000000018') AS package_left,
       (SELECT count(*) FROM public.events   WHERE name ILIKE '%Billy Joel%')                    AS any_billy_events;
   `,
+  events_page_view: `
+    SELECT
+      count(*)                                                AS upcoming_total,
+      count(image_url)                                        AS with_image,
+      count(*) FILTER (WHERE image_url IS NULL)               AS missing_image,
+      count(*) FILTER (WHERE source_name = 'ticketmaster')    AS tm_rows,
+      count(*) FILTER (WHERE source_name IS NULL)             AS seeded_rows
+    FROM public.events
+    WHERE event_date >= current_date;
+  `,
+  events_dupes: `
+    SELECT lower(name) AS name, count(*) AS rows,
+           count(DISTINCT event_date) AS distinct_dates,
+           count(DISTINCT venue_id)   AS distinct_venues
+    FROM public.events
+    WHERE event_date >= current_date
+    GROUP BY lower(name)
+    HAVING count(*) > 1
+    ORDER BY count(*) DESC, name;
+  `,
+  dup_blast_radius: `
+    WITH grp AS (
+      SELECT e.id, lower(e.name) AS lname, e.event_date,
+             count(*) OVER (PARTITION BY lower(e.name), e.event_date) AS cnt
+      FROM public.events e
+      WHERE e.event_date >= current_date
+    )
+    SELECT
+      (SELECT count(*) FROM grp WHERE cnt > 1)                                            AS dup_event_rows,
+      (SELECT count(DISTINCT (lname, event_date)) FROM grp WHERE cnt > 1)                 AS dup_groups,
+      (SELECT count(*) FROM public.packages p JOIN grp g ON p.event_id = g.id
+         WHERE g.cnt > 1)                                                                 AS packages_on_dups,
+      (SELECT count(*) FROM public.packages p JOIN grp g ON p.event_id = g.id
+         WHERE g.cnt > 1 AND p.active = true)                                             AS active_packages_on_dups,
+      (SELECT count(*) FROM public.bookings b
+         JOIN public.packages p ON b.package_id = p.id
+         JOIN grp g ON p.event_id = g.id WHERE g.cnt > 1)                                 AS bookings_on_dups
+  `,
+  dup_detail: `
+    WITH grp AS (
+      SELECT e.id, e.name, e.event_date, e.venue_id, e.image_url,
+             count(*) OVER (PARTITION BY lower(e.name), e.event_date) AS cnt
+      FROM public.events e
+      WHERE e.event_date >= current_date
+    )
+    SELECT g.name, g.event_date::date AS date, g.id AS event_id,
+           v.city AS venue_city,
+           (g.image_url IS NOT NULL) AS has_image,
+           p.id AS package_id, p.active AS pkg_active, p.city AS pkg_city
+    FROM grp g
+    LEFT JOIN public.venues v ON v.id = g.venue_id
+    LEFT JOIN public.packages p ON p.event_id = g.id
+    WHERE g.cnt > 1
+    ORDER BY lower(g.name), g.event_date, v.city;
+  `,
+  dedupe_preview: `
+    SELECT e.id, e.name, e.event_date::date AS date
+    FROM public.events e
+    WHERE e.event_date >= current_date
+      AND NOT EXISTS (SELECT 1 FROM public.packages p WHERE p.event_id = e.id)
+      AND EXISTS (
+        SELECT 1 FROM public.events e3
+        JOIN public.packages p3 ON p3.event_id = e3.id
+        WHERE lower(e3.name) = lower(e.name) AND e3.event_date = e.event_date AND e3.id <> e.id
+      )
+    ORDER BY e.name, e.id;
+  `,
+  dedupe_execute: `
+    DELETE FROM public.events e
+    WHERE e.event_date >= current_date
+      AND NOT EXISTS (SELECT 1 FROM public.packages p WHERE p.event_id = e.id)
+      AND EXISTS (
+        SELECT 1 FROM public.events e3
+        JOIN public.packages p3 ON p3.event_id = e3.id
+        WHERE lower(e3.name) = lower(e.name) AND e3.event_date = e.event_date AND e3.id <> e.id
+      );
+  `,
+  packages_total: `SELECT count(*) AS packages, count(*) FILTER (WHERE active) AS active FROM public.packages;`,
+  seeded_missing: `
+    SELECT e.id, e.name, e.event_date::date AS date, e.artist_id,
+           a.name AS artist, v.city AS venue_city, v.state AS venue_state
+    FROM public.events e
+    LEFT JOIN public.artists a ON a.id = e.artist_id
+    LEFT JOIN public.venues v ON v.id = e.venue_id
+    WHERE e.event_date >= current_date
+      AND e.image_url IS NULL
+      AND e.source_name IS DISTINCT FROM 'ticketmaster'
+    ORDER BY e.event_date;
+  `,
   events_freshness: `
     SELECT
       count(*)                                                AS total,

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import type { Event } from "@/types/database";
 import { Card, CardContent } from "@/components/ui/card";
@@ -32,6 +32,21 @@ export default function Events() {
     return e.name.toLowerCase().includes(s) || e.artists?.name?.toLowerCase().includes(s) || e.venues?.name?.toLowerCase().includes(s);
   });
 
+  // Collapse to one card per artist/tour. `filtered` is ordered by soonest
+  // event date, so the first row seen per group is the next upcoming show.
+  // Multi-city tours therefore show a single card with a "+N more dates" hint
+  // instead of repeating the same artist multiple times.
+  const grouped = useMemo(() => {
+    const map = new Map<string, { event: Event; count: number }>();
+    for (const e of filtered) {
+      const key = e.artists?.id || e.artists?.name || e.name;
+      const existing = map.get(key);
+      if (existing) existing.count += 1;
+      else map.set(key, { event: e, count: 1 });
+    }
+    return Array.from(map.values());
+  }, [filtered]);
+
   return (
     <div className="container mx-auto px-4 py-8">
       <h1 className="font-serif text-3xl font-bold">Upcoming Concerts</h1>
@@ -44,9 +59,9 @@ export default function Events() {
 
       {loading ? (
         <div className="mt-12 text-center text-muted-foreground">Loading events...</div>
-      ) : filtered.length > 0 ? (
+      ) : grouped.length > 0 ? (
         <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {filtered.map((event) => (
+          {grouped.map(({ event, count }) => (
             <Card key={event.id} className="group overflow-hidden border-border/50 transition-all hover:shadow-lg">
               <div className="relative aspect-[16/10] overflow-hidden">
                 <img src={event.image_url || "/placeholder.svg"} alt={event.name} className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105" />
@@ -63,6 +78,11 @@ export default function Events() {
                 <p className="mt-1 flex items-center gap-1 text-sm text-muted-foreground">
                   <Calendar className="h-3.5 w-3.5" />
                   {formatUsDate(event.event_date)}
+                  {count > 1 && (
+                    <span className="ml-1 text-xs text-muted-foreground/80">
+                      +{count - 1} more date{count - 1 === 1 ? "" : "s"}
+                    </span>
+                  )}
                 </p>
                 {(event.min_price || event.max_price) && (
                   <p className="mt-2 font-semibold">${event.min_price}{event.max_price ? ` – $${event.max_price}` : ""}</p>
