@@ -107,6 +107,40 @@ const SQL = {
     WHERE e.source_id = 'G5eVZb3cBovL6' OR (e.name ILIKE '%Billy Joel%' AND e.name ILIKE '%Sting%')
     ORDER BY e.created_at, e.id;
   `,
+  concert_image_samples: `
+    SELECT name, event_date::date AS date, image_url
+    FROM public.events
+    WHERE source_name = 'ticketmaster' AND image_url IS NOT NULL
+    ORDER BY event_date
+    LIMIT 8;
+  `,
+  fk_to_packages: `
+    SELECT tc.table_name, kcu.column_name, rc.delete_rule
+    FROM information_schema.table_constraints tc
+    JOIN information_schema.key_column_usage kcu
+      ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
+    JOIN information_schema.constraint_column_usage ccu
+      ON ccu.constraint_name = tc.constraint_name AND ccu.table_schema = tc.table_schema
+    JOIN information_schema.referential_constraints rc
+      ON rc.constraint_name = tc.constraint_name
+    WHERE tc.constraint_type = 'FOREIGN KEY' AND ccu.table_name = 'packages'
+    ORDER BY tc.table_name;
+  `,
+  billy_package_refs: `
+    SELECT p.id AS package_id, p.name, p.active, p.event_id,
+      (SELECT count(*) FROM public.bookings b WHERE b.package_id = p.id) AS booking_refs
+    FROM public.packages p
+    WHERE p.event_id = 'e7ed0000-0000-0000-0000-000000000018';
+  `,
+  billy_delete: `
+    DELETE FROM public.events WHERE id = 'e7ed0000-0000-0000-0000-000000000018';
+  `,
+  billy_verify_gone: `
+    SELECT
+      (SELECT count(*) FROM public.events   WHERE id = 'e7ed0000-0000-0000-0000-000000000018') AS event_left,
+      (SELECT count(*) FROM public.packages WHERE id = 'f7ed0000-0000-0000-0000-000000000018') AS package_left,
+      (SELECT count(*) FROM public.events   WHERE name ILIKE '%Billy Joel%')                    AS any_billy_events;
+  `,
   events_freshness: `
     SELECT
       count(*)                                                AS total,
