@@ -69,7 +69,7 @@ const emptyForm = () => ({
 
 type FormState = ReturnType<typeof emptyForm>;
 
-type ListFilter = "all" | "active" | "featured" | "expired" | "expiring_soon" | "inactive";
+type ListFilter = "all" | "active" | "featured" | "expired" | "expiring_soon" | "inactive" | "needs_review";
 type ListSort = "event_date" | "created_at" | "expires_at";
 
 export function AdminPackagesManager() {
@@ -313,6 +313,19 @@ export function AdminPackagesManager() {
 
   const now = new Date();
 
+  const filterCounts = useMemo(() => {
+    const status = (p: PkgRow) => getPackageInventoryStatus(p, now);
+    return {
+      all:           items.length,
+      active:        items.filter((p) => p.active === true && status(p) !== "expired").length,
+      featured:      items.filter((p) => p.featured === true).length,
+      expiring_soon: items.filter((p) => status(p) === "expiring_soon").length,
+      expired:       items.filter((p) => status(p) === "expired").length,
+      inactive:      items.filter((p) => p.active === false).length,
+      needs_review:  items.filter((p) => p.verification_status === "needs_review").length,
+    };
+  }, [items, now]);
+
   const filteredSorted = useMemo(() => {
     let rows = [...items];
     const status = (p: PkgRow) => getPackageInventoryStatus(p, now);
@@ -327,6 +340,8 @@ export function AdminPackagesManager() {
       rows = rows.filter((p) => status(p) === "expiring_soon");
     } else if (listFilter === "inactive") {
       rows = rows.filter((p) => p.active === false);
+    } else if (listFilter === "needs_review") {
+      rows = rows.filter((p) => p.verification_status === "needs_review");
     }
 
     rows.sort((a, b) => {
@@ -645,6 +660,7 @@ export function AdminPackagesManager() {
               "expiring_soon",
               "expired",
               "inactive",
+              "needs_review",
             ] as ListFilter[]
           ).map((f) => (
             <Button
@@ -656,6 +672,9 @@ export function AdminPackagesManager() {
               onClick={() => setListFilter(f)}
             >
               {f.replace(/_/g, " ")}
+              <span className={`ml-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none ${listFilter === f ? "bg-white/20 text-white" : "bg-muted text-muted-foreground"}`}>
+                {filterCounts[f]}
+              </span>
             </Button>
           ))}
         </div>
