@@ -50,7 +50,7 @@ export default function Admin() {
           <TabsTrigger value="bookings">Bookings</TabsTrigger>
         </TabsList>
 
-        <div className="mt-4 mb-2">
+        <div className="mt-4 mb-2 flex flex-wrap gap-2">
           <button
             onClick={() => navigate("/admin/golf-review")}
             className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -58,6 +58,16 @@ export default function Admin() {
             <ExternalLink className="h-3 w-3" />
             Open Golf Course Reviewer →
           </button>
+          <a
+            href="http://localhost:3000"
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Start the review tool first: node --env-file=.env scripts/review-tool.mjs"
+            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            <ExternalLink className="h-3 w-3" />
+            Open Instagram Review Tool →
+          </a>
         </div>
 
         <TabsContent value="packages"><AdminPackagesManager /></TabsContent>
