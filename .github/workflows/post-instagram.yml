@@ -1,0 +1,57 @@
+name: Post to Instagram
+
+# Runs Tuesday and Friday at 2pm UTC (9am Central).
+# Picks pending rows from instagram_queue, schedules them 4 hours ahead
+# (posts at ~1pm Central) so you can review + cancel in Meta Business Suite.
+#
+# Manual dispatch options:
+#   dry_run=true   → preview without posting
+#   post_now=true  → publish immediately (skip the 4-hour schedule)
+
+on:
+  schedule:
+    - cron: "0 14 * * 2,5"   # Tuesday + Friday 14:00 UTC = 9:00am Central
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Preview only — no API calls"
+        required: false
+        default: "false"
+        type: boolean
+      post_now:
+        description: "Publish immediately (skip scheduling)"
+        required: false
+        default: "false"
+        type: boolean
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: scripts
+
+      - name: Post pending queue items to Instagram
+        env:
+          META_ACCESS_TOKEN:              ${{ secrets.META_ACCESS_TOKEN }}
+          INSTAGRAM_BUSINESS_ACCOUNT_ID:  ${{ secrets.INSTAGRAM_BUSINESS_ACCOUNT_ID }}
+          DATABASE_URL:                   ${{ secrets.DATABASE_URL }}
+          PGHOST:                         ${{ secrets.PGHOST }}
+          PGPORT:                         ${{ secrets.PGPORT }}
+          PGUSER:                         ${{ secrets.PGUSER }}
+          PGPASSWORD:                     ${{ secrets.PGPASSWORD }}
+          PGDATABASE:                     ${{ secrets.PGDATABASE }}
+        run: |
+          FLAGS=""
+          [ "${{ github.event.inputs.dry_run }}" = "true" ] && FLAGS="$FLAGS --dry-run"
+          [ "${{ github.event.inputs.post_now }}" = "true" ] && FLAGS="$FLAGS --now"
+          node scripts/post-to-instagram.mjs $FLAGS
