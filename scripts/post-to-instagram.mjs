@@ -1,49 +1,51 @@
 /**
  * post-to-instagram.mjs
  *
- * Posts pending instagram_queue rows as scheduled Instagram carousel posts.
- * Each post is scheduled 4 hours ahead so you can preview + cancel in
- * Meta Business Suite before it goes live.
+ * Posts pending instagram_queue rows to Instagram via Buffer's API.
+ * Each post is scheduled a few hours ahead so you can review + cancel
+ * in the Buffer dashboard before it goes live.
  *
  * Usage:
  *   node --env-file=.env scripts/post-to-instagram.mjs [--dry-run] [--now]
  *
- *   --dry-run   Preview what would be posted without calling Instagram or DB
- *   --now       Publish immediately instead of scheduling 4 hours ahead
+ *   --dry-run   Preview what would be posted without calling Buffer or DB
+ *   --now       Schedule for 30 minutes from now instead of the default offset
  *
  * Required env vars:
- *   META_ACCESS_TOKEN            Long-lived Page access token (60 days)
- *   INSTAGRAM_BUSINESS_ACCOUNT_ID  Numeric IG account ID (e.g. 17604144370103029)
+ *   BUFFER_ACCESS_TOKEN       Your Buffer OAuth access token
+ *   BUFFER_PROFILE_ID         Your Instagram profile ID in Buffer
+ *                             (find it by running with --list-profiles)
  *
  * Optional:
- *   DATABASE_URL or PG* vars (same as other scripts)
+ *   SCHEDULE_OFFSET_HOURS     Hours ahead to schedule (default: 4)
  *
- * How it works (Instagram Graph API carousel flow):
- *   1. Upload each slide as a child media container (image_url → IG CDN)
- *   2. Create a carousel container referencing the child IDs
- *   3. Publish (or schedule) the carousel container
- *   4. Update instagram_queue row to status='scheduled' or 'posted'
+ * Setup:
+ *   1. Create Buffer account at buffer.com, connect Instagram
+ *   2. Create a Buffer app at buffer.com/developers/apps
+ *   3. Run: node --env-file=.env scripts/refresh-buffer-token.mjs --code=<auth_code>
+ *   4. Find your profile ID: node --env-file=.env scripts/post-to-instagram.mjs --list-profiles
+ *   5. Add BUFFER_PROFILE_ID to .env
  */
 
 import pg from 'pg';
 
 const pool = new pg.Pool();
 
-const ACCESS_TOKEN = process.env.META_ACCESS_TOKEN;
-const IG_ACCOUNT_ID = process.env.INSTAGRAM_BUSINESS_ACCOUNT_ID;
-const BASE = `https://graph.facebook.com/v21.0`;
+const ACCESS_TOKEN = process.env.BUFFER_ACCESS_TOKEN;
+const PROFILE_ID   = process.env.BUFFER_PROFILE_ID;
+const OFFSET_HOURS = parseInt(process.env.SCHEDULE_OFFSET_HOURS ?? '4', 10);
+const BASE         = 'https://api.bufferapp.com/1';
 
-const DRY_RUN = process.argv.includes('--dry-run');
-const POST_NOW = process.argv.includes('--now');
-// Schedule 4 hours ahead by default so you can review in Meta Business Suite
-const SCHEDULE_OFFSET_HOURS = 4;
+const DRY_RUN       = process.argv.includes('--dry-run');
+const POST_SOON     = process.argv.includes('--now');
+const LIST_PROFILES = process.argv.includes('--list-profiles');
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function checkEnv() {
   const missing = [];
-  if (!ACCESS_TOKEN) missing.push('META_ACCESS_TOKEN');
-  if (!IG_ACCOUNT_ID) missing.push('INSTAGRAM_BUSINESS_ACCOUNT_ID');
+  if (!ACCESS_TOKEN) missing.push('BUFFER_ACCESS_TOKEN');
+  if (!PROFILE_ID && !LIST_PROFILES) missing.push('BUFFER_PROFILE_ID');
   if (missing.length) {
     console.error(`\n  Missing env vars: ${missing.join(', ')}`);
     console.error(`  Add them to .env and to GitHub Actions secrets.\n`);
@@ -51,59 +53,37 @@ function checkEnv() {
   }
 }
 
-async function igPost(path, body) {
-  const url = `${BASE}${path}`;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...body, access_token: ACCESS_TOKEN }),
-  });
+async function bufferGet(path) {
+  const url = `${BASE}${path}?access_token=${ACCESS_TOKEN}`;
+  const res  = await fetch(url);
   const data = await res.json();
-  if (!res.ok || data.error) {
-    throw new Error(data.error?.message ?? `HTTP ${res.status} from ${path}`);
-  }
+  if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
   return data;
 }
 
-// ── Step 1: Create a child media container for one slide ──────────────────────
-async function createChildContainer(imageUrl) {
-  const data = await igPost(`/${IG_ACCOUNT_ID}/media`, {
-    image_url: imageUrl,
-    is_carousel_item: true,
+async function bufferPost(path, params) {
+  const body = new URLSearchParams({ access_token: ACCESS_TOKEN, ...params });
+  const res  = await fetch(`${BASE}${path}`, { method: 'POST', body });
+  const data = await res.json();
+  if (!res.ok || data.error) throw new Error(JSON.stringify(data));
+  return data;
+}
+
+// ── List connected profiles ───────────────────────────────────────────────────
+async function listProfiles() {
+  const profiles = await bufferGet('/profiles.json');
+  console.log('\n  Buffer connected profiles:\n');
+  profiles.forEach(p => {
+    console.log(`  ${p.service.padEnd(14)} ${p.service_username.padEnd(30)} ID: ${p.id}`);
   });
-  return data.id; // child container ID
+  console.log('\n  Add BUFFER_PROFILE_ID=<id> to your .env\n');
 }
 
-// ── Step 2: Create the carousel container ─────────────────────────────────────
-async function createCarouselContainer(childIds, caption, scheduledTime) {
-  const body = {
-    media_type: 'CAROUSEL',
-    children: childIds.join(','),
-    caption,
-  };
-  if (scheduledTime) {
-    body.scheduled_publish_time = Math.floor(scheduledTime.getTime() / 1000);
-    body.published = false;
-  } else {
-    body.published = false; // will publish in step 3
-  }
-  const data = await igPost(`/${IG_ACCOUNT_ID}/media`, body);
-  return data.id; // carousel container ID
-}
-
-// ── Step 3: Publish the carousel ──────────────────────────────────────────────
-async function publishCarousel(carouselId) {
-  const data = await igPost(`/${IG_ACCOUNT_ID}/media_publish`, {
-    creation_id: carouselId,
-  });
-  return data.id; // published media ID
-}
-
-// ── Build caption from package info ───────────────────────────────────────────
+// ── Build caption ─────────────────────────────────────────────────────────────
 function buildCaption(row) {
-  const artist = row.artist_name || '';
+  const artist = row.artist_name    || '';
   const course = row.golf_course_name || '';
-  const city   = row.city || '';
+  const city   = row.city           || '';
   const date   = row.event_date_fmt || '';
 
   return [
@@ -121,15 +101,22 @@ function buildCaption(row) {
 async function main() {
   if (!DRY_RUN) checkEnv();
 
-  // Fetch pending rows joined with package info
+  // List profiles mode
+  if (LIST_PROFILES) {
+    await listProfiles();
+    await pool.end();
+    return;
+  }
+
+  // Fetch pending rows
   const { rows: queue } = await pool.query(`
     SELECT
-      iq.id          AS queue_id,
+      iq.id            AS queue_id,
       iq.hook_slide_url,
       iq.golf_slide_url,
       iq.concert_slide_url,
       iq.cta_slide_url,
-      p.name         AS package_name,
+      p.name           AS package_name,
       p.artist_name,
       p.golf_course_name,
       p.city,
@@ -150,11 +137,13 @@ async function main() {
 
   console.log(`\n  Found ${queue.length} pending post(s).\n`);
 
-  const scheduledTime = POST_NOW ? null : (() => {
-    const t = new Date();
-    t.setHours(t.getHours() + SCHEDULE_OFFSET_HOURS);
-    return t;
-  })();
+  // Schedule time
+  const scheduledAt = new Date();
+  scheduledAt.setMinutes(POST_SOON ? scheduledAt.getMinutes() + 30 : scheduledAt.getHours() + OFFSET_HOURS * 60);
+  if (!POST_SOON) {
+    scheduledAt.setHours(scheduledAt.getHours() + OFFSET_HOURS);
+    scheduledAt.setMinutes(0, 0, 0);
+  }
 
   for (const row of queue) {
     const slides = [
@@ -171,48 +160,45 @@ async function main() {
 
     const caption = buildCaption(row);
 
-    console.log(`  Package: ${row.package_name}`);
-    console.log(`  Slides:  ${slides.length}`);
-    console.log(`  Mode:    ${POST_NOW ? 'publish immediately' : `schedule for ${scheduledTime.toLocaleString()}`}`);
+    console.log(`  Package:   ${row.package_name}`);
+    console.log(`  Slides:    ${slides.length}`);
+    console.log(`  Scheduled: ${scheduledAt.toLocaleString()}`);
+
     if (DRY_RUN) {
       console.log(`  Caption:\n${caption.split('\n').map(l => '    ' + l).join('\n')}`);
+      console.log(`  Slide URLs:`);
+      slides.forEach((u, i) => console.log(`    ${i + 1}. ${u}`));
       console.log(`  [DRY RUN — no API calls made]\n`);
       continue;
     }
 
     try {
-      // 1. Upload each slide as a child container
-      console.log(`  Uploading ${slides.length} child containers...`);
-      const childIds = [];
-      for (const url of slides) {
-        const id = await createChildContainer(url);
-        childIds.push(id);
-        process.stdout.write('    .');
-      }
-      console.log(' done');
+      // Buffer carousel: pass each photo URL as media[photo_urls][]
+      // For Instagram carousels Buffer uses multiple photo_urls
+      const params = {
+        'profile_ids[]':          PROFILE_ID,
+        'text':                   caption,
+        'scheduled_at':           scheduledAt.toISOString(),
+      };
 
-      // 2. Create the carousel container
-      const carouselId = await createCarouselContainer(childIds, caption, scheduledTime);
-      console.log(`  Carousel container: ${carouselId}`);
+      // Add each slide as a carousel image
+      slides.forEach((url, i) => {
+        params[`media[photo_urls][${i}]`] = url;
+      });
 
-      // 3. Publish or schedule
-      let publishedId = null;
-      if (POST_NOW) {
-        publishedId = await publishCarousel(carouselId);
-        console.log(`  Published! Media ID: ${publishedId}`);
-      } else {
-        console.log(`  Scheduled for ${scheduledTime.toLocaleString()} — review in Meta Business Suite`);
-      }
+      // Set carousel type
+      params['media[media_type]'] = 'carousel';
 
-      // 4. Update queue status
-      const newStatus = POST_NOW ? 'posted' : 'scheduled';
+      const result = await bufferPost('/updates/create.json', params);
+
+      console.log(`  Buffer update ID: ${result.updates?.[0]?.id ?? result.id}`);
+      console.log(`  → Review at buffer.com/app before it posts\n`);
+
+      // Update queue status
       await pool.query(
-        `UPDATE public.instagram_queue
-         SET status = $1, posted_at = $2
-         WHERE id = $3`,
-        [newStatus, POST_NOW ? new Date() : scheduledTime, row.queue_id]
+        `UPDATE public.instagram_queue SET status='scheduled', posted_at=$1 WHERE id=$2`,
+        [scheduledAt, row.queue_id]
       );
-      console.log(`  Queue status → ${newStatus}\n`);
 
     } catch (err) {
       console.error(`  ERROR for ${row.package_name}: ${err.message}\n`);
