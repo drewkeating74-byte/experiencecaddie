@@ -28,7 +28,7 @@ const pool = new pg.Pool();
 const ACCESS_TOKEN  = process.env.BUFFER_ACCESS_TOKEN;
 const CHANNEL_ID    = process.env.BUFFER_CHANNEL_ID;
 const OFFSET_HOURS  = parseInt(process.env.SCHEDULE_OFFSET_HOURS ?? '4', 10);
-const GQL_URL       = 'https://api.bufferapp.com/graphql';
+const GQL_URL       = 'https://api.buffer.com';
 
 const DRY_RUN        = process.argv.includes('--dry-run');
 const POST_SOON      = process.argv.includes('--now');
@@ -51,19 +51,26 @@ async function gql(query, variables = {}) {
 
 // ── List channels ─────────────────────────────────────────────────────────────
 async function listChannels() {
-  const data = await gql(`
-    query {
-      channels {
-        id
-        name
-        service
-        serviceUsername
-      }
-    }
-  `);
+  // 1. Get organization ID
+  const acct = await gql(`query { account { organizations { id name } } }`);
+  const org  = acct.account?.organizations?.[0];
+  if (!org) { console.error('  No organization found.'); return; }
+  console.log(`\n  Organization: ${org.name} (${org.id})`);
+
+  // 2. Get channels for that org
+  const chData = await gql(
+    `query($orgId: OrganizationId!) { channels(input: { organizationId: $orgId }) { id name service } }`,
+    { orgId: org.id }
+  );
+  const channels = chData.channels ?? [];
+
   console.log('\n  Buffer connected channels:\n');
-  (data.channels ?? []).forEach(c => {
-    console.log(`  ${c.service.padEnd(14)} @${(c.serviceUsername || c.name || '').padEnd(30)} ID: ${c.id}`);
+  if (!channels.length) {
+    console.log('  No channels returned.');
+    return;
+  }
+  channels.forEach(c => {
+    console.log(`  ${(c.service||'').padEnd(14)} @${(c.serviceUsername || c.name || '').padEnd(30)} ID: ${c.id}`);
   });
   console.log('\n  Add BUFFER_CHANNEL_ID=<id> to your .env\n');
 }
@@ -179,7 +186,7 @@ async function main() {
         mutation CreatePost($input: CreatePostInput!) {
           createPost(input: $input) {
             ... on PostActionSuccess {
-              post { id scheduledAt }
+              post { id }
             }
             ... on MutationError {
               message
@@ -191,11 +198,11 @@ async function main() {
           channelId:     CHANNEL_ID,
           text:          caption,
           assets,
-          schedulingType: 'scheduled',
-          scheduledAt:   scheduledAt.toISOString(),
-          mode:          'queue',
+          schedulingType: 'automatic',
+          dueAt:         scheduledAt.toISOString(),
+          mode:          'customScheduled',
           metadata: {
-            instagram: { type: 'carousel' },
+            instagram: { type: 'post', shouldShareToFeed: true },
           },
         },
       });
