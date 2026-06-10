@@ -39,18 +39,22 @@ function json(data: unknown, status = 200) {
   });
 }
 
-// Genres to keep cached. Covers the signup genre chips plus golf-audience
-// staples. classificationName values use Ticketmaster's genre vocabulary.
+// Genres to keep cached. Golf-audience staples (Country, Rock, Classic Rock,
+// Americana) are listed first so they consume more TM quota pages before
+// lower-priority genres. Americana and Folk were previously missing entirely.
 const REFRESH_GENRES = [
   "Country",
   "Rock",
+  "Classic Rock",
+  "Americana",
+  "Folk",
   "Pop",
+  "Alternative",
+  "Singer-Songwriter",
+  "Dance/Electronic",
   "Hip-Hop/Rap",
   "R&B",
   "Latin",
-  "Dance/Electronic",
-  "Alternative",
-  "Classic Rock",
 ];
 
 function ymd(d: Date): string {
@@ -211,7 +215,7 @@ async function seedFromEvents(supabase: any, startDate: string, endDate: string)
       artist,
       event_name: e.name ?? artist,
       metro_slug: metro.slug,
-      city: metro.city,
+      city: city || metro.cities?.[0] || metro.label,
       venue: e.venues?.name ?? null,
       event_date: ymdDate,
       genre: null,

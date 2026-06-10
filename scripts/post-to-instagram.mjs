@@ -153,10 +153,11 @@ async function main() {
   }
 
   for (const row of queue) {
+    // Carousel order: Hook → Concert → Golf → CTA
     const slides = [
       row.hook_slide_url,
-      row.golf_slide_url,
       row.concert_slide_url,
+      row.golf_slide_url,
       row.cta_slide_url,
     ].filter(Boolean);
 

@@ -523,6 +523,16 @@ async function createPackageFromCandidate({ show, course }) {
   return { ok: true, packageId: pkgRows[0]?.id, name: pkgName };
 }
 
+/**
+ * Rewrite a Google-hosted photo URL to a 1080x1350 center-crop so it fills
+ * the portrait slide exactly. Non-Google URLs are returned unchanged.
+ */
+function toPortraitCrop(url) {
+  if (!url || !url.includes("googleusercontent.com")) return url;
+  if (/=[^=/]+$/.test(url)) return url.replace(/=[^=/]+$/, "=w1080-h1350-c");
+  return `${url}=w1080-h1350-c`;
+}
+
 // ── BannerBear Collections API ────────────────────────────────────────────────
 async function generateSlides({ packageId, coursePhoto, concertPhoto, artistName, courseName, city, state, eventDate, rawEventDate, courseRating, venueName }) {
   if (!BB_KEY) throw new Error("BANNERBEAR_API_KEY is not set");
@@ -544,6 +554,9 @@ async function generateSlides({ packageId, coursePhoto, concertPhoto, artistName
     ? `${golfDay} Morning · Near ${venueName}`
     : `${golfDay} Morning · ${cityState}`;
 
+  // Slide header, e.g. "Houston Golf & Concert Escape"
+  const packageTitle = `${city} Golf & Concert Escape`;
+
   // ── Hook copy — deterministic variant per package, char-limit validated ─────
   const hook = normalizeHook(pickHookVariant(packageId));
 
@@ -564,13 +577,14 @@ async function generateSlides({ packageId, coursePhoto, concertPhoto, artistName
         { name: "website_url",   text: "experiencecaddie.com" },
 
         // ── Artist/Concert slide (EC Concert Slide — images[1]) ───────────
+        { name: "package_title", text: packageTitle },
         { name: "event_label",  text: bodyCopy },
         { name: "artist_name",  text: artistName },
         { name: "event_detail", text: `${eventDate}  ·  ${cityState}` },
         { name: "concert_bg",   image_url: concertPhoto },
 
         // ── Golf slide (EC Golf Slide — images[2]) ────────────────────────
-        { name: "course_photo",  image_url: coursePhoto },
+        { name: "course_photo",  image_url: toPortraitCrop(coursePhoto) },
         { name: "course_name",   text: courseName },
         { name: "course_label",  text: courseLabel },
         { name: "course_detail", text: `${courseRating ? `★ ${courseRating}  ` : ""}${cityState}` },
@@ -1212,8 +1226,9 @@ const server = http.createServer(async (req, res) => {
     if (method === "POST" && url.pathname === "/api/approve") {
       const body = await readBody(req);
 
+      // Carousel order: Hook → Concert → Golf → CTA
       const slides = [
-        body.hookSlideUrl, body.golfSlideUrl, body.concertSlideUrl, body.ctaSlideUrl,
+        body.hookSlideUrl, body.concertSlideUrl, body.golfSlideUrl, body.ctaSlideUrl,
       ].filter(Boolean);
 
       // Schedule in Buffer immediately if credentials are available

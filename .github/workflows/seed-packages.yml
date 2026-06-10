@@ -1,0 +1,65 @@
+name: Seed Packages from Discovery
+
+# Runs daily after refresh-discovery (which runs at various times).
+# Default: dry-run — reports candidates in the Actions log.
+# Manual dispatch with mode=create writes packages to the DB.
+
+on:
+  schedule:
+    - cron: "30 4 * * *"   # 04:30 UTC daily, after refresh-discovery
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "dry-run (default) or create"
+        required: false
+        default: "dry-run"
+        type: choice
+        options:
+          - dry-run
+          - create
+
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run seed-packages-from-discovery
+        env:
+          PGHOST:     ${{ secrets.PGHOST }}
+          PGPORT:     ${{ secrets.PGPORT }}
+          PGUSER:     ${{ secrets.PGUSER }}
+          PGPASSWORD: ${{ secrets.PGPASSWORD }}
+          PGDATABASE: ${{ secrets.PGDATABASE }}
+        run: |
+          MODE="${{ github.event.inputs.mode || 'dry-run' }}"
+          if [ "$MODE" = "create" ]; then
+            echo "Running in CREATE mode — packages will be written to DB"
+            node --env-file=/dev/null scripts/seed-packages-from-discovery.mjs --create
+          else
+            echo "Running in DRY-RUN mode — no DB writes"
+            node --env-file=/dev/null scripts/seed-packages-from-discovery.mjs
+          fi
+
+      - name: Score new event images (create mode only)
+        if: ${{ github.event.inputs.mode == 'create' }}
+        env:
+          PGHOST:     ${{ secrets.PGHOST }}
+          PGPORT:     ${{ secrets.PGPORT }}
+          PGUSER:     ${{ secrets.PGUSER }}
+          PGPASSWORD: ${{ secrets.PGPASSWORD }}
+          PGDATABASE: ${{ secrets.PGDATABASE }}
+        run: |
+          echo "Scoring event image brightness for newly created events…"
+          node --env-file=/dev/null scripts/score-event-images.mjs

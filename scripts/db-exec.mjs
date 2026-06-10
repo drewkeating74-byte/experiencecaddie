@@ -45,6 +45,55 @@ const SQL = {
     CREATE INDEX IF NOT EXISTS idx_discovery_shows_score  ON public.discovery_shows (score DESC);
     ALTER TABLE public.discovery_shows ENABLE ROW LEVEL SECURITY;
   `,
+  role_caps: `
+    SELECT rolname, rolsuper, rolcreaterole, rolbypassrls
+    FROM pg_roles
+    WHERE rolname IN ('postgres', current_user);
+  `,
+  rls_status: `
+    SELECT c.relname AS table_name,
+           c.relrowsecurity AS rls_enabled,
+           COALESCE(p.policies, 0) AS policy_count
+    FROM pg_class c
+    LEFT JOIN (
+      SELECT schemaname, tablename, count(*) AS policies
+      FROM pg_policies WHERE schemaname = 'public' GROUP BY 1,2
+    ) p ON p.tablename = c.relname
+    WHERE c.relnamespace = 'public'::regnamespace
+      AND c.relkind = 'r'
+      AND c.relname IN ('artists','events','venues','golf_courses','destinations',
+                        'metro_areas','hotels','packages','discovery_shows',
+                        'analytics_events','click_events')
+    ORDER BY c.relname;
+  `,
+  list_tables: `
+    SELECT t.table_name,
+           COALESCE(c.reltuples::bigint, 0) AS approx_rows
+    FROM information_schema.tables t
+    LEFT JOIN pg_class c ON c.relname = t.table_name
+    WHERE t.table_schema = 'public' AND t.table_type = 'BASE TABLE'
+    ORDER BY t.table_name;
+  `,
+  discovery_summary: `
+    SELECT
+      count(*)                                  AS total,
+      count(*) FILTER (WHERE active)            AS active,
+      count(DISTINCT metro_slug)                AS metros,
+      count(DISTINCT city)                      AS cities,
+      count(DISTINCT artist)                    AS artists,
+      count(DISTINCT date_trunc('month', event_date)) AS months,
+      min(event_date)                           AS earliest,
+      max(event_date)                           AS latest,
+      count(*) FILTER (WHERE image_url IS NOT NULL) AS with_image
+    FROM public.discovery_shows;
+  `,
+  discovery_by_month: `
+    SELECT to_char(date_trunc('month', event_date), 'YYYY-MM') AS month,
+           count(*) AS shows
+    FROM public.discovery_shows
+    WHERE active
+    GROUP BY 1 ORDER BY 1;
+  `,
   events_upcoming_scope: `
     SELECT
       count(*)                                                              AS total_events,
