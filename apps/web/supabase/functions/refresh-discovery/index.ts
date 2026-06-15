@@ -23,6 +23,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { METROS, getMetroByCity } from "../_shared/golfCities.ts";
 import {
   fetchNationwideDiscoveryShows,
+  discoverConcertsFromCatalogMetros,
   isWeekendGetawayYmd,
   type DiscoveryShowRow,
 } from "../_shared/ticketmaster.ts";
@@ -47,9 +48,10 @@ const REFRESH_GENRES = [
   "Rock",
   "Classic Rock",
   "Americana",
+  "Jam Band",
+  "Alternative",
   "Folk",
   "Pop",
-  "Alternative",
   "Singer-Songwriter",
   "Dance/Electronic",
   "Hip-Hop/Rap",
@@ -73,14 +75,14 @@ Deno.serve(async (req: Request) => {
   const authHeader = req.headers.get("authorization") ?? "";
   if (!authHeader) return json({ error: "Unauthorized — authorization header required" }, 401);
 
-  let body: { dry_run?: boolean; pages?: number; mode?: string } = {};
+  let body: { dry_run?: boolean; pages?: number; mode?: string; artists?: string[] } = {};
   try {
     body = await req.json();
   } catch {
     // empty body ok
   }
   const dryRun = body.dry_run === true;
-  const pagesPerGenre = Math.min(Math.max(body.pages ?? 4, 1), 5);
+  const pagesPerGenre = Math.min(Math.max(body.pages ?? 6, 1), 8);
 
   const today = new Date();
   const startDate = ymd(today);
@@ -94,6 +96,16 @@ Deno.serve(async (req: Request) => {
   // cache still has real, bookable shows to serve until the next TM refresh.
   if (body.mode === "seed_from_events") {
     return await seedFromEvents(createClient(supabaseUrl, serviceRoleKey), startDate, endDate);
+  }
+
+  if (body.mode === "backfill_artists") {
+    return await backfillTargetArtists(
+      createClient(supabaseUrl, serviceRoleKey),
+      startDate,
+      endDate,
+      body.artists,
+      dryRun,
+    );
   }
 
   const started = Date.now();
@@ -249,6 +261,89 @@ async function seedFromEvents(supabase: any, startDate: string, endDate: string)
     skipped_no_metro: noMetro,
     upserted,
     error_count: errors.length,
+    errors,
+    elapsed_ms: Date.now() - started,
+  });
+}
+
+const DEFAULT_BACKFILL_ARTISTS = [
+  "Widespread Panic", "AJR", "Eric Church", "String Cheese Incident", "Sombr",
+  "Parker McCollum", "Dead & Company", "Dave Matthews Band", "Billy Strings",
+];
+
+async function backfillTargetArtists(
+  supabase: ReturnType<typeof createClient>,
+  startDate: string,
+  endDate: string,
+  artists: string[] | undefined,
+  dryRun: boolean,
+): Promise<Response> {
+  const started = Date.now();
+  const list = (artists?.length ? artists : DEFAULT_BACKFILL_ARTISTS).slice(0, 20);
+  const rows: DiscoveryShowRow[] = [];
+  const errors: string[] = [];
+
+  for (const artist of list) {
+    try {
+      const options = await discoverConcertsFromCatalogMetros({
+        metros: METROS,
+        startDate,
+        endDate,
+        artistKeyword: artist,
+        genreTokens: ["Country", "Rock", "Jam Band", "Americana"],
+        maxReturn: 12,
+      });
+      for (const o of options) {
+        const tmId = String(o.tm_event_id ?? o.id ?? "").trim();
+        if (!tmId) continue;
+        rows.push({
+          tm_event_id: tmId,
+          artist: String(o.artist ?? artist),
+          event_name: String(o.event_name ?? o.name ?? artist),
+          metro_slug: String(o.metro_slug ?? ""),
+          city: String(o.city ?? ""),
+          venue: o.venue ? String(o.venue) : null,
+          event_date: String(o.event_date ?? o.date ?? ""),
+          genre: o.genre ? String(o.genre) : null,
+          ticket_url: o.ticket_url ? String(o.ticket_url) : null,
+          image_url: o.image_url ? String(o.image_url) : null,
+          min_price: typeof o.min_price === "number" ? o.min_price : null,
+          max_price: typeof o.max_price === "number" ? o.max_price : null,
+          score: Math.max(Number(o._score ?? o.score ?? 160), 160),
+        });
+      }
+    } catch (err) {
+      errors.push(`${artist}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  if (dryRun) {
+    return json({
+      mode: "backfill_artists",
+      dry_run: true,
+      artists: list,
+      fetched: rows.length,
+      sample: rows.slice(0, 15),
+      errors,
+      elapsed_ms: Date.now() - started,
+    });
+  }
+
+  const runIso = new Date().toISOString();
+  let upserted = 0;
+  const payload = rows.map((r) => ({ ...r, active: true, refreshed_at: runIso, updated_at: runIso }));
+  for (let i = 0; i < payload.length; i += 100) {
+    const chunk = payload.slice(i, i + 100);
+    const { error } = await supabase.from("discovery_shows").upsert(chunk, { onConflict: "tm_event_id" });
+    if (error) errors.push(error.message);
+    else upserted += chunk.length;
+  }
+
+  return json({
+    mode: "backfill_artists",
+    artists: list,
+    fetched: rows.length,
+    upserted,
     errors,
     elapsed_ms: Date.now() - started,
   });

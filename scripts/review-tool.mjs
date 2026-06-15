@@ -25,6 +25,11 @@ import http from "http";
 import { exec } from "child_process";
 import pg from "pg";
 import sharp from "sharp";
+import {
+  audienceGenreSql,
+  audienceScoreSql,
+  FEATURED_CITIES,
+} from "./audience-filters.mjs";
 
 const PORT = 3000;
 const BB_KEY        = process.env.BANNERBEAR_API_KEY;
@@ -227,7 +232,14 @@ async function supabaseInsert(table, row) {
 }
 
 // ── Package query ─────────────────────────────────────────────────────────────
-async function fetchPackages(limit = 50) {
+async function fetchPackages(limit = 50, sort = "date_asc", city = "") {
+  const order = sort === "date_desc" ? "DESC" : "ASC";
+  const params = [limit];
+  let cityClause = "";
+  if (city) {
+    params.push(city);
+    cityClause = `AND LOWER(gc.city) = LOWER($${params.length})`;
+  }
   // Exclude packages already in the queue (pending or posted)
   const { rows } = await pool.query(`
     SELECT
@@ -240,6 +252,8 @@ async function fetchPackages(limit = 50) {
       e.event_date,
       e.image_brightness_score,
       v.name AS venue_name,
+      e.image_url                 AS event_image_url,
+      p.image_url                 AS package_image_url,
       -- Concert image options
       a.fanartv_background_url,
       a.spotify_image_url,
@@ -265,14 +279,15 @@ async function fetchPackages(limit = 50) {
       -- AND COALESCE(a.fanartv_background_url, a.spotify_image_url) IS NOT NULL
       AND e.event_date BETWEEN CURRENT_DATE + INTERVAL '30 days'
                            AND CURRENT_DATE + INTERVAL '180 days'
+      AND ${audienceGenreSql("a.genre")}
+      ${cityClause}
       AND p.id NOT IN (
         SELECT package_id FROM public.instagram_queue
-        WHERE status IN ('pending','posted')
-          AND package_id IS NOT NULL
+        WHERE package_id IS NOT NULL
       )
-    ORDER BY e.event_date ASC
+    ORDER BY e.event_date::date ${order}, a.name ASC
     LIMIT $1
-  `, [limit]);
+  `, params);
   return rows;
 }
 
@@ -328,7 +343,7 @@ function courseNameIsPlayable(name) {
   return true;
 }
 
-async function fetchCandidates() {
+async function fetchCandidates({ offset = 0, limit = 15, sort = "score", city = "" } = {}) {
   const { rows: shows } = await pool.query(`
     SELECT * FROM (
       SELECT DISTINCT ON (ds.tm_event_id)
@@ -340,7 +355,8 @@ async function fetchCandidates() {
       WHERE ds.active = true
       AND ds.event_date >= CURRENT_DATE + INTERVAL '30 days'
       AND ds.event_date <= CURRENT_DATE + INTERVAL '210 days'
-      AND ds.score >= 158
+      AND ${audienceScoreSql("ds.score", "ds.genre")}
+      AND ${audienceGenreSql("ds.genre")}
         AND ds.artist NOT ILIKE '%tribute%'
         AND ds.artist NOT ILIKE '%revisited%'
         AND ds.event_name NOT ILIKE '%tribute%'
@@ -363,10 +379,6 @@ async function fetchCandidates() {
       AND ds.artist NOT ILIKE '%arrolladora%'
       AND ds.artist NOT ILIKE '%banda%'
       AND ds.artist NOT ILIKE '%gipsy kings%'
-        AND LOWER(ds.genre) NOT IN (
-          'latin','r&b','hip-hop/rap','hip-hop','rap','reggaeton',
-          'urban contemporary','gospel','christian & gospel'
-        )
         AND NOT EXISTS (
           SELECT 1 FROM public.packages p
           JOIN public.events e ON e.id = p.event_id
@@ -375,17 +387,14 @@ async function fetchCandidates() {
       ORDER BY ds.tm_event_id, ds.score DESC
     ) sub
     ORDER BY score DESC, event_date ASC
-    LIMIT 60
+    LIMIT 500
   `);
 
-  const genreCounts = {};
-  const artistSeen = new Set();
-  const MAX_PER_GENRE = 5;
-
-  const candidates = [];
+  const byArtist = new Map();
   for (const show of shows) {
     const lookupCity = resolveCity(show.metro_slug, show.city);
     if (!lookupCity) continue;
+    if (city && lookupCity.toLowerCase() !== city.toLowerCase()) continue;
     const { rows: rawCourses } = await pool.query(`
       SELECT id, name, city, state, rating, marketing_image_url
       FROM public.golf_courses
@@ -404,19 +413,49 @@ async function fetchCandidates() {
     const courses = rawCourses.filter(c => courseNameIsPlayable(c.name));
     if (!courses.length) continue;
 
-    // One show per artist — pick the best date (already sorted by score DESC)
     const artistKey = show.artist.toLowerCase().trim();
-    if (artistSeen.has(artistKey)) continue;
-    artistSeen.add(artistKey);
-
-    // Per-genre cap so no single genre dominates the list
-    const genre = (show.genre || 'Other').toLowerCase();
-    genreCounts[genre] = (genreCounts[genre] || 0) + 1;
-    if (genreCounts[genre] > MAX_PER_GENRE) continue;
-
-    candidates.push({ show, course: courses[0], lookupCity });
+    const entry = { show, course: courses[0], lookupCity };
+    const prev = byArtist.get(artistKey);
+    if (!prev) {
+      byArtist.set(artistKey, entry);
+      continue;
+    }
+    const date = String(show.event_date).slice(0, 10);
+    const prevDate = String(prev.show.event_date).slice(0, 10);
+    const score = Number(show.score) || 0;
+    const prevScore = Number(prev.show.score) || 0;
+    if (sort === "date_desc") {
+      if (date > prevDate) byArtist.set(artistKey, entry);
+    } else if (sort === "date_asc") {
+      if (date < prevDate) byArtist.set(artistKey, entry);
+    } else if (score > prevScore || (score === prevScore && date < prevDate)) {
+      byArtist.set(artistKey, entry);
+    }
   }
-  return candidates;
+
+  const all = Array.from(byArtist.values());
+
+  const byDate = (a, b) =>
+    String(a.show.event_date).slice(0, 10).localeCompare(String(b.show.event_date).slice(0, 10));
+  if (sort === "date_asc") {
+    all.sort(byDate);
+  } else if (sort === "date_desc") {
+    all.sort((a, b) => byDate(b, a));
+  } else {
+    all.sort((a, b) =>
+      (Number(b.show.score) - Number(a.show.score)) || byDate(a, b)
+    );
+  }
+
+  const safeOffset = Math.max(0, Number(offset) || 0);
+  const pageSize = Math.min(50, Math.max(1, Number(limit) || 50));
+  return {
+    items: all.slice(safeOffset, safeOffset + pageSize),
+    total: all.length,
+    offset: safeOffset,
+    limit: pageSize,
+    hasMore: safeOffset + pageSize < all.length,
+  };
 }
 
 async function scoreImageBrightness(url) {
@@ -533,6 +572,21 @@ function toPortraitCrop(url) {
   return `${url}=w1080-h1350-c`;
 }
 
+function shortCourseName(name) {
+  return String(name || "")
+    .replace(/\s+(Municipal\s+)?Golf\s+(Course|Club|Links)\s*$/i, "")
+    .trim();
+}
+
+function formatCtaDate(d) {
+  if (Number.isNaN(d.getTime())) return "";
+  const months = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+  ];
+  return `${months[d.getMonth()]} ${d.getDate()}`;
+}
+
 // ── BannerBear Collections API ────────────────────────────────────────────────
 async function generateSlides({ packageId, coursePhoto, concertPhoto, artistName, courseName, city, state, eventDate, rawEventDate, courseRating, venueName }) {
   if (!BB_KEY) throw new Error("BANNERBEAR_API_KEY is not set");
@@ -550,6 +604,11 @@ async function generateSlides({ packageId, coursePhoto, concertPhoto, artistName
   const golfDate  = new Date(d);
   golfDate.setDate(golfDate.getDate() - 1);
   const golfDay   = Number.isNaN(golfDate.getTime()) ? "" : days[golfDate.getDay()];
+
+  const ctaEventDate = formatCtaDate(d) || eventDate;
+  const ctaBodyCopy = dayName && golfDay
+    ? `${artistName} ${dayName} night. ${shortCourseName(courseName)} ${golfDay} morning. One platform. Zero hassle.`
+    : `${artistName}. One platform. Zero hassle.`;
   const courseLabel = venueName
     ? `${golfDay} Morning · Near ${venueName}`
     : `${golfDay} Morning · ${cityState}`;
@@ -590,9 +649,9 @@ async function generateSlides({ packageId, coursePhoto, concertPhoto, artistName
         { name: "course_detail", text: `${courseRating ? `★ ${courseRating}  ` : ""}${cityState}` },
 
         // ── Booking/CTA slide (EC CTA Slide — images[3]) ─────────────────
-        { name: "city",       text: cityState },
-        { name: "event_date", text: eventDate },
-        { name: "body_copy",  text: bodyCopy },
+        { name: "city",       text: city },
+        { name: "event_date", text: ctaEventDate },
+        { name: "body_copy",  text: ctaBodyCopy },
       ],
     }),
   });
@@ -671,6 +730,9 @@ const HTML = /* html */`<!DOCTYPE html>
                   margin-bottom: 20px; flex-wrap: wrap; gap: 12px; }
   .pick-count { font-size: 0.9rem; color: var(--muted); }
   .pick-count strong { color: var(--orange); }
+  .sort-control { display: flex; align-items: center; gap: 8px; font-size: 0.82rem; color: var(--muted); }
+  .sort-control select { background: var(--surface2); color: var(--text); border: 1px solid var(--border);
+                         border-radius: 6px; padding: 7px 10px; font-size: 0.82rem; cursor: pointer; }
 
   .pkg-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
   .pkg-card { background: var(--surface); border: 2px solid var(--border); border-radius: 12px;
@@ -766,6 +828,7 @@ const HTML = /* html */`<!DOCTYPE html>
                         margin-bottom: 16px; flex-wrap: wrap; gap: 10px; }
   .candidates-header h2 { font-size: 1rem; font-weight: 700; color: var(--text); }
   .candidates-header p  { font-size: 0.82rem; color: var(--muted); }
+  .cand-nav { display: flex; gap: 8px; flex-wrap: wrap; }
   .cand-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
   .cand-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px;
                padding: 14px; display: flex; flex-direction: column; gap: 8px; }
@@ -796,7 +859,21 @@ const HTML = /* html */`<!DOCTYPE html>
   <p class="page-sub">Select the packages you want to build reels for, then click Review Selected.</p>
   <div class="pick-toolbar">
     <span class="pick-count" id="pick-count">Loading…</span>
-    <button class="btn-review" id="btn-review" disabled onclick="goToReview()">Review Selected (0)</button>
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <label class="sort-control">City
+        <select id="city-filter" onchange="setCityFilter(this.value)">
+          <option value="">All cities</option>
+        </select>
+      </label>
+      <label class="sort-control">Sort
+        <select id="list-sort" onchange="setListSort(this.value)">
+          <option value="date_asc">Date — soonest</option>
+          <option value="date_desc">Date — latest</option>
+          <option value="score">Best match</option>
+        </select>
+      </label>
+      <button class="btn-review" id="btn-review" disabled onclick="goToReview()">Review Selected (0)</button>
+    </div>
   </div>
   <div id="pkg-grid" class="pkg-grid"><div class="loading">Loading packages…</div></div>
 </div>
@@ -806,10 +883,14 @@ const HTML = /* html */`<!DOCTYPE html>
     <div class="candidates-header">
       <div>
         <h2>Package Candidates</h2>
-        <p>Discovery shows not yet in the catalog — click Add to create the package.</p>
+        <p>Discovery shows not yet in the catalog — Country, Rock &amp; Americana only.</p>
       </div>
-      <button class="btn-back" onclick="loadCandidates()" id="btn-reload-cands">Refresh</button>
+      <div class="cand-nav">
+        <button class="btn-back" onclick="loadCandidates({ previous: true })" id="btn-cand-prev" disabled>← Previous</button>
+        <button class="btn-back" onclick="loadCandidates({ advance: true })" id="btn-cand-next">Show More →</button>
+      </div>
     </div>
+    <p class="page-sub" id="cand-batch-info" style="margin-top:-8px;margin-bottom:12px"></p>
     <div id="cand-grid" class="cand-grid"><div class="loading" style="padding:20px">Loading candidates…</div></div>
   </div>
 </div>
@@ -825,12 +906,26 @@ const HTML = /* html */`<!DOCTYPE html>
 
 <script>
 const BB_ENABLED = __BB_ENABLED__;
+const FEATURED_CITIES = __FEATURED_CITIES__;
 let allPackages = [];   // all returned from API
 let pickedIds   = new Set();  // package IDs the user has selected
 let reviewList  = [];   // packages being reviewed (ordered by pick)
+let listSort    = 'date_asc';
+let cityFilter  = '';
 const selected  = {};   // { [reviewIdx]: { courseUrl, courseLabel, concertUrl, concertType, generated } }
 
 if (!BB_ENABLED) document.getElementById('no-key-warn').style.display = '';
+
+function concertImageUrl(pkg) {
+  return pkg.fanartv_background_url || pkg.spotify_image_url
+    || pkg.event_image_url || pkg.package_image_url || null;
+}
+function concertImageType(pkg) {
+  if (pkg.fanartv_background_url) return 'fanart';
+  if (pkg.spotify_image_url) return 'spotify';
+  if (pkg.event_image_url || pkg.package_image_url) return 'event';
+  return null;
+}
 
 // ── Screen switching ──────────────────────────────────────────────────────────
 function goToReview() {
@@ -841,8 +936,8 @@ function goToReview() {
     selected[i] = {
       courseUrl:   p.marketing_image_url,
       courseLabel: 'auto-pick',
-      concertUrl:  p.fanartv_background_url || p.spotify_image_url,
-      concertType: p.fanartv_background_url ? 'fanart' : 'spotify',
+      concertUrl:  concertImageUrl(p),
+      concertType: concertImageType(p),
     };
   });
   document.getElementById('review-cards').innerHTML = reviewList.map(renderReviewCard).join('');
@@ -867,7 +962,8 @@ function goToPick() {
 // ── Load all packages ─────────────────────────────────────────────────────────
 async function load() {
   try {
-    const res  = await fetch('/api/packages');
+    const cityQs = cityFilter ? \`&city=\${encodeURIComponent(cityFilter)}\` : '';
+    const res  = await fetch(\`/api/packages?sort=\${listSort}\${cityQs}\`);
     allPackages = await res.json();
     renderPickScreen();
   } catch(e) {
@@ -887,10 +983,30 @@ function renderPickScreen() {
   document.getElementById('pick-count').innerHTML =
     \`<strong>\${allPackages.length}</strong> packages available\`;
   grid.innerHTML = allPackages.map(renderPickCard).join('');
+  pickedIds.forEach(id => {
+    const el = document.getElementById(\`pkgcard-\${id}\`);
+    if (el) el.classList.add('picked');
+  });
+}
+
+function setListSort(value) {
+  listSort = value;
+  candOffset = 0;
+  const sel = document.getElementById('list-sort');
+  if (sel) sel.value = value;
+  load();
+  loadCandidates();
+}
+
+function setCityFilter(value) {
+  cityFilter = value;
+  candOffset = 0;
+  load();
+  loadCandidates();
 }
 
 function renderPickCard(pkg) {
-  const thumb = pkg.fanartv_background_url || pkg.spotify_image_url || pkg.marketing_image_url;
+  const thumb = concertImageUrl(pkg);
   const thumbHtml = thumb
     ? \`<img class="pkg-thumb" src="\${thumb}" alt="\${pkg.artist_name}" loading="lazy">\`
     : \`<div class="pkg-thumb-placeholder">♪</div>\`;
@@ -951,6 +1067,13 @@ function renderReviewCard(pkg, i) {
       <img src="\${pkg.spotify_image_url}" alt="Spotify" loading="lazy">
       <span class="thumb-label">Spotify</span>
     </div>\`);
+  const eventImg = pkg.event_image_url || pkg.package_image_url;
+  if (eventImg) concertOpts.push(\`
+    <div class="concert-opt" id="concert-\${i}-event" onclick="selectConcert(\${i}, '\${eventImg}', 'event')">
+      <img src="\${eventImg}" alt="Ticketmaster" loading="lazy">
+      <span class="thumb-label">Ticketmaster</span>
+    </div>\`);
+  if (!concertOpts.length) concertOpts.push('<div class="loading" style="padding:8px;font-size:0.8rem">No concert image — run Spotify/Fanart backfill</div>');
 
   return \`
   <div class="card" id="card-\${i}">
@@ -993,7 +1116,7 @@ function highlightCourse(i, url) {
   });
 }
 function highlightConcert(i, type) {
-  ['fanart','spotify'].forEach(t => {
+  ['fanart','spotify','event'].forEach(t => {
     const el = document.getElementById(\`concert-\${i}-\${t}\`);
     if (el) el.classList.toggle('selected', t === type);
   });
@@ -1029,7 +1152,7 @@ async function generate(i) {
         courseRating: pkg.course_rating,
         venueName:    pkg.venue_name,
         coursePhoto:  sel.courseUrl  || pkg.marketing_image_url,
-        concertPhoto: sel.concertUrl || pkg.fanartv_background_url || pkg.spotify_image_url,
+        concertPhoto: sel.concertUrl || concertImageUrl(pkg),
       }),
     });
     const data = await res.json();
@@ -1067,7 +1190,7 @@ async function approve(i) {
         city:                 pkg.city,
         eventDate:            pkg.event_date_fmt,
         selectedCoursePhoto:  sel.courseUrl  || pkg.marketing_image_url,
-        selectedConcertPhoto: sel.concertUrl || pkg.fanartv_background_url || pkg.spotify_image_url,
+        selectedConcertPhoto: sel.concertUrl || concertImageUrl(pkg),
         hookSlideUrl:         sel.generated?.hook_slide_url    || null,
         concertSlideUrl:      sel.generated?.concert_slide_url || null,
         golfSlideUrl:         sel.generated?.golf_slide_url    || null,
@@ -1108,18 +1231,46 @@ async function skip(i) {
 }
 
 // ── Candidates ────────────────────────────────────────────────────────────────
-async function loadCandidates() {
+const CAND_PAGE = 50;
+let candOffset = 0;
+let candTotal  = 0;
+
+async function loadCandidates({ advance = false, previous = false } = {}) {
   const grid = document.getElementById('cand-grid');
+  const info = document.getElementById('cand-batch-info');
+  const prevBtn = document.getElementById('btn-cand-prev');
+  const nextBtn = document.getElementById('btn-cand-next');
   grid.innerHTML = '<div class="loading" style="padding:20px">Loading candidates…</div>';
   try {
-    const res  = await fetch('/api/candidates');
+    if (previous) candOffset = Math.max(0, candOffset - CAND_PAGE);
+    else if (advance) candOffset += CAND_PAGE;
+
+    const cityQs = cityFilter ? \`&city=\${encodeURIComponent(cityFilter)}\` : '';
+    const res  = await fetch(\`/api/candidates?offset=\${candOffset}&limit=\${CAND_PAGE}&sort=\${listSort}\${cityQs}\`);
     const data = await res.json();
-    if (!data.length) {
-      grid.innerHTML = '<div class="loading" style="padding:20px;color:var(--muted)">No new candidates right now — all discovery shows are already packaged.</div>';
+    const batch = data.items ?? data;
+
+    if (!batch.length) {
+      if (advance && candOffset > 0) {
+        candOffset = 0;
+        return loadCandidates();
+      }
+      info.textContent = '';
+      if (prevBtn) prevBtn.disabled = true;
+      if (nextBtn) nextBtn.disabled = true;
+      grid.innerHTML = '<div class="loading" style="padding:20px;color:var(--muted)">No matching candidates right now — try Show More or run the artist backfill script.</div>';
       return;
     }
-    grid.innerHTML = data.map(renderCandCard).join('');
+
+    candOffset = data.offset ?? candOffset;
+    candTotal  = data.total ?? batch.length;
+    const end = Math.min(candOffset + batch.length, candTotal);
+    info.textContent = \`Showing \${candOffset + 1}–\${end} of \${candTotal}\`;
+    if (prevBtn) prevBtn.disabled = candOffset <= 0;
+    if (nextBtn) nextBtn.disabled = candOffset + CAND_PAGE >= candTotal;
+    grid.innerHTML = batch.map(renderCandCard).join('');
   } catch(e) {
+    info.textContent = '';
     grid.innerHTML = \`<div class="loading" style="color:#f87171;padding:20px">Failed to load: \${e.message}</div>\`;
   }
 }
@@ -1148,8 +1299,9 @@ async function addCandidate(tmEventId, btn) {
   btn.textContent = 'Adding…';
   try {
     // find the full candidate object
-    const res0 = await fetch('/api/candidates');
-    const all  = await res0.json();
+    const res0 = await fetch(\`/api/candidates?offset=\${candOffset}&limit=\${CAND_PAGE}&sort=\${listSort}\${cityFilter ? '&city=' + encodeURIComponent(cityFilter) : ''}\`);
+    const payload = await res0.json();
+    const all  = payload.items ?? payload;
     const cand = all.find(c => c.show.tm_event_id === tmEventId);
     if (!cand) throw new Error('Candidate not found — may already exist');
 
@@ -1174,13 +1326,27 @@ async function addCandidate(tmEventId, btn) {
 }
 
 load();
+initCityFilter();
 loadCandidates();
+
+function initCityFilter() {
+  const sel = document.getElementById('city-filter');
+  if (!sel) return;
+  for (const c of FEATURED_CITIES) {
+    const o = document.createElement('option');
+    o.value = c;
+    o.textContent = c;
+    sel.appendChild(o);
+  }
+}
 </script>
 </body>
 </html>`;
 
 // Replace template placeholder with runtime value
-const serveHTML = HTML.replace("__BB_ENABLED__", BB_KEY ? "true" : "false");
+const serveHTML = HTML
+  .replace("__BB_ENABLED__", BB_KEY ? "true" : "false")
+  .replace("__FEATURED_CITIES__", JSON.stringify(FEATURED_CITIES));
 
 // ── HTTP server ───────────────────────────────────────────────────────────────
 const server = http.createServer(async (req, res) => {
@@ -1197,14 +1363,20 @@ const server = http.createServer(async (req, res) => {
 
     // GET /api/packages
     if (method === "GET" && url.pathname === "/api/packages") {
-      const rows = await fetchPackages();
+      const sort = url.searchParams.get("sort") || "date_asc";
+      const city = url.searchParams.get("city") || "";
+      const rows = await fetchPackages(50, sort, city);
       return json(res, 200, rows);
     }
 
     // GET /api/candidates — discovery shows without packages, with best matching course
     if (method === "GET" && url.pathname === "/api/candidates") {
-      const rows = await fetchCandidates();
-      return json(res, 200, rows);
+      const offset = Number(url.searchParams.get("offset") || 0);
+      const limit  = Number(url.searchParams.get("limit")  || 50);
+      const sort   = url.searchParams.get("sort") || "score";
+      const city   = url.searchParams.get("city") || "";
+      const result = await fetchCandidates({ offset, limit, sort, city });
+      return json(res, 200, result);
     }
 
     // POST /api/candidates/create — create event + package for one candidate
