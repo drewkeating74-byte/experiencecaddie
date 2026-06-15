@@ -11,8 +11,8 @@
  * Matching logic:
  *   1. Show city → direct golf_courses city match.
  *   2. Show city → METRO_MAP fallback (e.g. Landover → Washington).
- *   3. Among matching courses, pick the one with the best image quality
- *      (marketing_image_url scored, lowest brightness = most dramatic).
+ *   3. Among matching courses, prefer gold/silver tier (bronze fallback),
+ *      then quality score, then darkest marketing_image_url.
  *
  * Package defaults:
  *   price = 825, category = "Golf + Concert", source = "curated",
@@ -21,6 +21,7 @@
 
 import pg from 'pg';
 import sharp from 'sharp';
+import { marketingGolfCourseOrderBySql } from './audience-filters.mjs';
 
 const CREATE  = process.argv.includes('--create');
 const LIMIT   = (() => { const i = process.argv.indexOf('--limit'); return i !== -1 ? Number(process.argv[i+1]) : 50; })();
@@ -233,7 +234,8 @@ for (const show of shows) {
   }
 
   const { rows: rawCourses } = await pool.query(`
-    SELECT id, name, city, state, rating, marketing_image_url, image_brightness_score
+    SELECT id, name, city, state, rating, marketing_image_url, image_brightness_score,
+           tier_hint, normalized_quality_score
     FROM public.golf_courses
     WHERE LOWER(city) = LOWER($1)
       AND active = true
@@ -244,9 +246,7 @@ for (const show of shows) {
         course_type IS NULL
         OR course_type NOT IN ('private','semi_private','resort','military','simulator','driving_range','mini_golf','not_golf')
       )
-    ORDER BY
-      CASE WHEN image_brightness_score IS NOT NULL THEN image_brightness_score ELSE 100 END ASC,
-      rating DESC NULLS LAST
+    ORDER BY ${marketingGolfCourseOrderBySql()}
     LIMIT 10
   `, [lookupCity]);
   const courses = rawCourses.filter(c => courseNameIsPlayable(c.name));

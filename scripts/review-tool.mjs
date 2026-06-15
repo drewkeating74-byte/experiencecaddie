@@ -29,6 +29,7 @@ import {
   audienceGenreSql,
   audienceScoreSql,
   FEATURED_CITIES,
+  marketingGolfCourseOrderBySql,
 } from "./audience-filters.mjs";
 
 const PORT = 3000;
@@ -396,7 +397,8 @@ async function fetchCandidates({ offset = 0, limit = 15, sort = "score", city = 
     if (!lookupCity) continue;
     if (city && lookupCity.toLowerCase() !== city.toLowerCase()) continue;
     const { rows: rawCourses } = await pool.query(`
-      SELECT id, name, city, state, rating, marketing_image_url
+      SELECT id, name, city, state, rating, marketing_image_url,
+             tier_hint, normalized_quality_score, image_brightness_score
       FROM public.golf_courses
       WHERE LOWER(city) = LOWER($1)
         AND active = true
@@ -407,7 +409,7 @@ async function fetchCandidates({ offset = 0, limit = 15, sort = "score", city = 
           course_type IS NULL
           OR course_type NOT IN ('private','semi_private','resort','military','simulator','driving_range','mini_golf','not_golf')
         )
-      ORDER BY image_brightness_score ASC NULLS LAST, rating DESC NULLS LAST
+      ORDER BY ${marketingGolfCourseOrderBySql()}
       LIMIT 5
     `, [lookupCity]);
     const courses = rawCourses.filter(c => courseNameIsPlayable(c.name));
