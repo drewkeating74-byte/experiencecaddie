@@ -8,9 +8,12 @@ export const CONCERT_GENRES = [
   "Classic Rock",
   "Pop",
   "Alternative",
+  "Indie",
+  "Jam Band",
+  "Americana",
+  "Folk",
   "Latin",
   "EDM",
-  "Americana",
 ] as const;
 
 export type ConcertGenre = (typeof CONCERT_GENRES)[number];
