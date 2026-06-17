@@ -14,6 +14,7 @@ export const CONCERT_GENRES = [
   "Folk",
   "Latin",
   "EDM",
+  "Blues",
 ] as const;
 
 export type ConcertGenre = (typeof CONCERT_GENRES)[number];

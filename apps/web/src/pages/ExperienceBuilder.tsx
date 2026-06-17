@@ -1069,7 +1069,7 @@ export default function ExperienceBuilder() {
           {selectedEntry === "find_concert" && (
             <div className="space-y-3 animate-fade-in">
               <Label>What kind of music are you into?</Label>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <div className="flex flex-wrap justify-center gap-2">
                 {CONCERT_GENRES.map((genre) => {
                   const active = selectedGenres.includes(genre);
                   return (
@@ -1081,7 +1081,7 @@ export default function ExperienceBuilder() {
                           active ? prev.filter((g) => g !== genre) : [...prev, genre]
                         )
                       }
-                      className={`rounded-full border px-4 py-2.5 sm:py-1.5 text-sm transition-all min-h-[44px] sm:min-h-0 ${
+                      className={`rounded-full border px-4 py-2.5 sm:py-1.5 text-sm transition-all min-h-[44px] sm:min-h-0 basis-[calc(50%-0.25rem)] sm:basis-[calc(25%-0.375rem)] ${
                         active
                           ? "border-primary bg-primary/10 text-foreground"
                           : "border-border text-muted-foreground hover:border-primary/30"

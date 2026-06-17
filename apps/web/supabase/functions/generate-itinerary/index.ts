@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { reportError } from "../_shared/monitoring.ts";
 import {
   buildGoogleTicketsSearchUrl,
+  catalogRowMatchesGenreTokens,
   discoverConcertsFromCatalogMetros,
   isWeekendGetawayYmd,
   parseFlexibleDateToYmd,
@@ -36,6 +37,25 @@ function concertOptionKey(option: Record<string, unknown>): string {
     String(option.city || "").toLowerCase().trim(),
     String(option.date || "").slice(0, 10),
   ].join("|");
+}
+
+function mergeDiscoverOptions(
+  primary: Array<Record<string, unknown>>,
+  extra: Array<Record<string, unknown>>,
+  maxReturn: number,
+): Array<Record<string, unknown>> {
+  const seen = new Set(
+    primary.map((o) => String(o.id || "").trim() || concertOptionKey(o)).filter(Boolean),
+  );
+  const merged = [...primary];
+  for (const option of extra) {
+    if (merged.length >= maxReturn) break;
+    const key = String(option.id || "").trim() || concertOptionKey(option);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    merged.push(option);
+  }
+  return merged;
 }
 
 async function topUpConcertOptionsFromPackages(
@@ -179,14 +199,15 @@ async function discoverFromCache(
 
   const metroSet = new Set(opts.metroSlugs);
   const exclude = new Set(opts.excludeIds);
-  const tokens = opts.genreTokens.map((t) => t.toLowerCase().trim()).filter(Boolean);
-  const matchesGenre = (row: Record<string, unknown>) => {
-    if (!tokens.length) return true;
-    const hay = `${row.genre ?? ""} ${row.event_name ?? ""} ${row.artist ?? ""}`.toLowerCase();
-    return tokens.some(
-      (t) => hay.includes(t) || t.split(/[\s/]+/).filter((w) => w.length > 2).every((w) => hay.includes(w)),
+  const matchesGenre = (row: Record<string, unknown>) =>
+    catalogRowMatchesGenreTokens(
+      {
+        genre: row.genre ? String(row.genre) : null,
+        artist: row.artist ? String(row.artist) : null,
+        event_name: row.event_name ? String(row.event_name) : null,
+      },
+      opts.genreTokens,
     );
-  };
 
   const pool = (data as Array<Record<string, unknown>>)
     .filter((r) => metroSet.size === 0 || metroSet.has(String(r.metro_slug)))
@@ -518,6 +539,23 @@ serve(async (req) => {
             excludeIds: excludeEventIds,
             maxReturn: MAX_RETURN,
           });
+
+          // Genre-specific picks are not in the daily cache for every chip (e.g. Classic Rock).
+          // Query Ticketmaster live before falling back to unrelated catalog packages.
+          if (hasSpecificGenres && opts.length < MAX_RETURN) {
+            const liveOpts = await discoverConcertsFromCatalogMetros({
+              metros: targetMetros,
+              startDate: discStart,
+              endDate: maxDiscoveryEnd,
+              genreTokens,
+              maxReturn: MAX_RETURN,
+              excludeEventIds: [
+                ...excludeEventIds,
+                ...opts.map((o) => String(o.id || "").trim()).filter(Boolean),
+              ],
+            });
+            opts = mergeDiscoverOptions(opts, liveOpts, MAX_RETURN);
+          }
         }
 
         opts = opts
@@ -531,13 +569,9 @@ serve(async (req) => {
           .sort((a, b) => (Number(b._score ?? 0) - Number(a._score ?? 0)) || String(a.date || "").localeCompare(String(b.date || "")))
           .slice(0, MAX_RETURN);
 
-        // Top-up with curated catalog packages when no specific artist was requested.
-        // For a named artist, padding with unrelated concerts is misleading and hides
-        // the "no results" UX the user should see instead. For genre / "best upcoming
-        // shows" / surprise discovery we ALWAYS fill in from the verified catalog so the
-        // user sees compelling, bookable ideas rather than a dead "no results" screen —
-        // even when their literal date window has no live Ticketmaster matches.
-        if (opts.length < MAX_RETURN && !artistSearch) {
+        // Top-up with curated catalog packages only for open-ended discovery (no genre filter).
+        // Padding genre-specific searches with country/pop packages is misleading.
+        if (opts.length < MAX_RETURN && !artistSearch && !hasSpecificGenres) {
           // Generous 6-month horizon for the package fill-ins, independent of the user's
           // chosen dates, so inspiration results are never empty when the catalog has
           // upcoming shows.

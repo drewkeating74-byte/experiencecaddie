@@ -144,7 +144,7 @@ function genreMatchNeedles(raw: string): string[] {
     "hip-hop": ["rap", "hip hop"],
     soul: ["r&b", "neo-soul"],
     "r&b": ["soul"],
-    blues: ["jazz"],
+    blues: ["blues", "blues rock", "jazz"],
     jazz: ["blues"],
     latin: ["reggaeton", "regional mexican", "tropical", "latin pop"],
     americana: ["alt-country", "americana", "folk", "roots", "outlaw country"],
@@ -152,6 +152,7 @@ function genreMatchNeedles(raw: string): string[] {
     indie: ["indie rock", "indie pop", "indie"],
     "jam band": ["jam band", "jamband", "jam bands"],
     folk: ["folk", "folk rock", "singer-songwriter", "acoustic"],
+    "classic rock": ["classic rock", "arena rock"],
   };
   for (const n of [...needles]) {
     for (const x of alias[n] ?? []) needles.add(x);
@@ -198,6 +199,37 @@ export function tmEventMatchesGenreTokens(event: TMEvent, genreTokens: string[])
     if (!needles.length) return false;
     if (genreTokenIsEdmLike(raw)) {
       return needles.some((n) => classificationBlob.includes(n.replace(/\//g, " ")));
+    }
+    if (needles.some((n) => blob.includes(n))) return true;
+    const words = raw
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((w) => w.length > 2);
+    if (words.length > 1) return words.every((w) => blob.includes(w));
+    return false;
+  });
+}
+
+/** Genre filter for discovery_shows rows and catalog packages (no TM event object). */
+export function catalogRowMatchesGenreTokens(
+  row: {
+    genre?: string | null;
+    subgenre?: string | null;
+    artist?: string | null;
+    event_name?: string | null;
+  },
+  genreTokens: string[],
+): boolean {
+  if (!genreTokens.length) return true;
+  const blob = `${row.genre ?? ""} ${row.subgenre ?? ""} ${row.event_name ?? ""} ${row.artist ?? ""}`
+    .toLowerCase()
+    .replace(/\//g, " ")
+    .replace(/\s+/g, " ");
+  return genreTokens.some((raw) => {
+    const needles = genreMatchNeedles(raw);
+    if (!needles.length) return false;
+    if (genreTokenIsEdmLike(raw)) {
+      return needles.some((n) => blob.includes(n.replace(/\//g, " ")));
     }
     if (needles.some((n) => blob.includes(n))) return true;
     const words = raw
