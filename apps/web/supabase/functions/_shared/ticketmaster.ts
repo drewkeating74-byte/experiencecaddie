@@ -160,6 +160,54 @@ function genreMatchNeedles(raw: string): string[] {
   return [...needles].filter((n) => n.length > 1);
 }
 
+/** TM often tags jam acts as Rock/Country; match by headliner when the chip is Jam Band. */
+const JAM_BAND_ARTIST_NAMES = [
+  "Widespread Panic",
+  "Dead & Company",
+  "Dave Matthews Band",
+  "Billy Strings",
+  "String Cheese Incident",
+  "Phish",
+  "Gov't Mule",
+  "Trey Anastasio",
+  "Umphrey's McGee",
+];
+
+function blobContainsToken(blob: string, token: string): boolean {
+  const t = token.trim().toLowerCase();
+  if (!t) return false;
+  if (t.includes(" ")) return blob.includes(t);
+  const escaped = t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`\\b${escaped}\\b`, "i").test(blob);
+}
+
+function genreTokenIsJamBandLike(raw: string): boolean {
+  return genreMatchNeedles(raw).some((n) =>
+    ["jam band", "jamband", "jam bands"].includes(n)
+  );
+}
+
+function jamBandArtistMatchesName(artist: string | null | undefined): boolean {
+  const hay = (artist ?? "").toLowerCase().trim();
+  if (!hay) return false;
+  return JAM_BAND_ARTIST_NAMES.some((name) => hay.includes(name.toLowerCase()));
+}
+
+function catalogGenreBlobMatchesToken(blob: string, raw: string): boolean {
+  const needles = genreMatchNeedles(raw);
+  if (!needles.length) return false;
+  if (genreTokenIsEdmLike(raw)) {
+    return needles.some((n) => blob.includes(n.replace(/\//g, " ")));
+  }
+  if (needles.some((n) => blob.includes(n))) return true;
+  const words = raw
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((w) => w.length > 2);
+  if (words.length > 1) return words.every((w) => blobContainsToken(blob, w));
+  return false;
+}
+
 function eventClassificationBlob(event: TMEvent): string {
   const parts = (event.classifications ?? [])
     .flatMap((c) => [c.segment?.name, c.genre?.name, c.subGenre?.name])
@@ -194,20 +242,12 @@ export function tmEventMatchesGenreTokens(event: TMEvent, genreTokens: string[])
   if (genreTokensRequestEdm(genreTokens) && eventLooksLikePerformingArtsNoise(event)) return false;
   const classificationBlob = eventClassificationBlob(event);
   const blob = `${classificationBlob} ${event.name ?? ""}`.toLowerCase().replace(/\s+/g, " ");
-  return genreTokens.some((raw) => {
-    const needles = genreMatchNeedles(raw);
-    if (!needles.length) return false;
-    if (genreTokenIsEdmLike(raw)) {
-      return needles.some((n) => classificationBlob.includes(n.replace(/\//g, " ")));
-    }
-    if (needles.some((n) => blob.includes(n))) return true;
-    const words = raw
-      .toLowerCase()
-      .split(/\s+/)
-      .filter((w) => w.length > 2);
-    if (words.length > 1) return words.every((w) => blob.includes(w));
-    return false;
-  });
+  if (genreTokens.some((raw) => catalogGenreBlobMatchesToken(blob, raw))) return true;
+  if (genreTokens.some(genreTokenIsJamBandLike)) {
+    const artist = event._embedded?.attractions?.[0]?.name ?? event.name ?? "";
+    if (jamBandArtistMatchesName(artist)) return true;
+  }
+  return false;
 }
 
 /** Genre filter for discovery_shows rows and catalog packages (no TM event object). */
@@ -225,20 +265,9 @@ export function catalogRowMatchesGenreTokens(
     .toLowerCase()
     .replace(/\//g, " ")
     .replace(/\s+/g, " ");
-  return genreTokens.some((raw) => {
-    const needles = genreMatchNeedles(raw);
-    if (!needles.length) return false;
-    if (genreTokenIsEdmLike(raw)) {
-      return needles.some((n) => blob.includes(n.replace(/\//g, " ")));
-    }
-    if (needles.some((n) => blob.includes(n))) return true;
-    const words = raw
-      .toLowerCase()
-      .split(/\s+/)
-      .filter((w) => w.length > 2);
-    if (words.length > 1) return words.every((w) => blob.includes(w));
-    return false;
-  });
+  if (genreTokens.some((raw) => catalogGenreBlobMatchesToken(blob, raw))) return true;
+  if (genreTokens.some(genreTokenIsJamBandLike) && jamBandArtistMatchesName(row.artist)) return true;
+  return false;
 }
 
 function tmEventGenreMatchConfidence(event: TMEvent, genreTokens: string[]): "none" | "title" | "classification" {
@@ -902,7 +931,9 @@ export async function fetchNationwideDiscoveryShows(params: {
     if (eventLooksLikeAddOn(e)) continue;
     const score = scoreDiscoveryConcert(e, metro, ymd, genreList);
     const mapped = mapTmEventToResult(e, metro.cities[0], metro.state);
-    const genre = e.classifications?.[0]?.genre?.name ?? e.classifications?.[0]?.segment?.name ?? null;
+    const classification = e.classifications?.[0];
+    const genreParts = [classification?.genre?.name, classification?.subGenre?.name].filter(Boolean);
+    const genre = genreParts.length ? genreParts.join(" / ") : null;
     rows.push({
       tm_event_id: id,
       artist: e._embedded?.attractions?.[0]?.name ?? e.name ?? "",
