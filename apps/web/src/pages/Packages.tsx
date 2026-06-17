@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Helmet } from "react-helmet-async";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import type { Package } from "@/types/database";
 import { Card, CardContent } from "@/components/ui/card";
@@ -180,6 +181,15 @@ export default function Packages() {
   const hasActiveFilters = destination !== "all" || windowFilter !== "all" || search !== "";
 
   return (
+    <>
+      <Helmet>
+        <title>Current Golf + Concert Packages | Experience Caddie</title>
+        <meta name="description" content="Browse verified, bookable golf and concert weekend packages. Tee times, tickets, and hotels tied to confirmed tour dates." />
+        <meta property="og:title" content="Current Golf + Concert Packages | Experience Caddie" />
+        <meta property="og:description" content="Browse verified, bookable golf and concert weekend packages. Tee times, tickets, and hotels tied to confirmed tour dates." />
+        <meta property="og:url" content="https://experiencecaddie.com/packages" />
+        <link rel="canonical" href="https://experiencecaddie.com/packages" />
+      </Helmet>
     <div className="container mx-auto px-4 py-8">
       <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2">
         <div>
@@ -270,7 +280,7 @@ export default function Packages() {
                 <div className="relative aspect-[16/10] overflow-hidden">
                   <img
                     src={pkg.image_url || pkg.events?.image_url || DEFAULT_PACKAGE_IMAGE}
-                    alt={pkg.name}
+                    alt={`${pkg.name}${pkgArtistName(pkg) ? ` — ${pkgArtistName(pkg)}` : ""}${pkgCity(pkg) ? ` in ${pkgCity(pkg)}` : ""} golf and concert weekend`}
                     className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
                   />
                   {(pkg as any).source === "promoted" && (
@@ -361,5 +371,6 @@ export default function Packages() {
         </div>
       )}
     </div>
+    </>
   );
 }

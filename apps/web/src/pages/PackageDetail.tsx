@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Helmet } from "react-helmet-async";
 import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import type { Package } from "@/types/database";
@@ -83,7 +84,57 @@ export default function PackageDetail() {
         })
       : null;
 
+  const pageDescription = `Golf and concert weekend${destination?.city ? ` in ${destination.city}` : ""}${event?.artists?.name ? ` — ${event.artists.name}` : ""}${event?.venues?.name ? ` at ${event.venues.name}` : ""}. Tee times, tickets, and hotel included.`;
+
+  const productSchema = {
+    "@context": "https://schema.org",
+    "@type": "Product",
+    name: pkg.name,
+    description: pkg.description || `Golf and concert weekend package in ${destination?.city || destination?.name || ""}`,
+    image: pkg.image_url || event?.image_url,
+    offers: {
+      "@type": "Offer",
+      price: pkg.price,
+      priceCurrency: "USD",
+      availability: "https://schema.org/InStock",
+    },
+  };
+
+  const musicEventSchema = event
+    ? {
+        "@context": "https://schema.org",
+        "@type": "MusicEvent",
+        name: event.name,
+        startDate: event.event_date,
+        location: {
+          "@type": "MusicVenue",
+          name: event.venues?.name,
+          address: {
+            "@type": "PostalAddress",
+            addressLocality: destination?.city || destination?.name,
+          },
+        },
+        performer: {
+          "@type": "MusicGroup",
+          name: event.artists?.name,
+        },
+      }
+    : null;
+
   return (
+    <>
+      <Helmet>
+        <title>{`${pkg.name} | Experience Caddie`}</title>
+        <meta name="description" content={pageDescription} />
+        <meta property="og:title" content={`${pkg.name} | Experience Caddie`} />
+        <meta property="og:description" content={pageDescription} />
+        <meta property="og:url" content={`https://experiencecaddie.com/packages/${id}`} />
+        <link rel="canonical" href={`https://experiencecaddie.com/packages/${id}`} />
+        <script type="application/ld+json">{JSON.stringify(productSchema)}</script>
+        {musicEventSchema && (
+          <script type="application/ld+json">{JSON.stringify(musicEventSchema)}</script>
+        )}
+      </Helmet>
     <div className="container mx-auto px-4 py-8">
       <Button variant="ghost" onClick={() => navigate(-1)} className="mb-4">
         <ArrowLeft className="mr-2 h-4 w-4" /> Back
@@ -382,5 +433,6 @@ export default function PackageDetail() {
         </div>
       </div>
     </div>
+    </>
   );
 }

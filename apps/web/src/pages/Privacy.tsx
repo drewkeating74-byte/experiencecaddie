@@ -1,10 +1,20 @@
 import { Link } from "react-router-dom";
+import { Helmet } from "react-helmet-async";
 
 const CONTACT_EMAIL = "privacy@experiencecaddie.com";
 const LAST_UPDATED = "April 2026";
 
 export default function Privacy() {
   return (
+    <>
+      <Helmet>
+        <title>Privacy Policy | Experience Caddie</title>
+        <meta name="description" content="Experience Caddie privacy policy — how we collect, use, and protect your data." />
+        <meta property="og:title" content="Privacy Policy | Experience Caddie" />
+        <meta property="og:description" content="Experience Caddie privacy policy — how we collect, use, and protect your data." />
+        <meta property="og:url" content="https://experiencecaddie.com/privacy" />
+        <link rel="canonical" href="https://experiencecaddie.com/privacy" />
+      </Helmet>
     <div className="container mx-auto max-w-3xl px-4 py-12">
       <h1 className="font-serif text-3xl font-bold text-primary">Privacy Policy</h1>
       <p className="mt-2 text-sm text-muted-foreground">Last updated: {LAST_UPDATED}</p>
@@ -195,5 +205,6 @@ export default function Privacy() {
         </section>
       </div>
     </div>
+    </>
   );
 }

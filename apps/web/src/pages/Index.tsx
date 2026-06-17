@@ -1,7 +1,9 @@
 import { Link, useNavigate } from "react-router-dom";
+import { Helmet } from "react-helmet-async";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Music, MapPin, Calendar, ArrowRight, Star } from "lucide-react";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
@@ -16,6 +18,29 @@ import WeekendIdeasSignup from "@/components/WeekendIdeasSignup";
 const categories = [
   { icon: Music, label: "Golf + Concert", description: "Build a weekend around a show", link: "/experience" },
   { icon: Calendar, label: "Browse Packages", description: "Explore curated plans", link: "/packages" },
+];
+
+const faqs = [
+  {
+    q: "What is Experience Caddie?",
+    a: "Experience Caddie plans golf and concert weekends for groups. You pick an artist or city, and we build a complete itinerary — tee times at a nearby public course, concert tickets, and hotel options — all around a confirmed upcoming tour date.",
+  },
+  {
+    q: "What's included in a package?",
+    a: "Each package includes a round of golf (18 holes with cart) at a vetted public course near the venue, concert tickets through Ticketmaster, and hotel recommendations for a two-night stay. You book each component directly with the official provider.",
+  },
+  {
+    q: "Do I need a golf club membership?",
+    a: "No. Experience Caddie only recommends public courses — no membership required. We verify public access before including any course in a package.",
+  },
+  {
+    q: "How far in advance should I book?",
+    a: "Concert tours sell out fast. We recommend booking as soon as you see a package you like, especially for popular artists. Tee times and hotels are typically available closer to the date.",
+  },
+  {
+    q: "Can I build a custom weekend for my group?",
+    a: "Yes. Use the Experience Builder — enter your city or favorite artist, your travel dates, and group size, and we'll generate a custom itinerary around upcoming shows in your area.",
+  },
 ];
 
 export default function Index() {
@@ -44,6 +69,23 @@ export default function Index() {
 
   return (
     <>
+      <Helmet>
+        <title>Experience Caddie — Golf + Concert Weekends, Planned for You</title>
+        <meta name="description" content="Plan a golf and concert weekend in minutes. Choose an artist or city and we'll build three bookable packages — tee times, tickets, and hotels — around confirmed tour dates." />
+        <meta property="og:title" content="Experience Caddie — Golf + Concert Weekends, Planned for You" />
+        <meta property="og:description" content="Plan a golf and concert weekend in minutes. Choose an artist or city and we'll build three bookable packages — tee times, tickets, and hotels — around confirmed tour dates." />
+        <meta property="og:url" content="https://experiencecaddie.com/" />
+        <link rel="canonical" href="https://experiencecaddie.com/" />
+        <script type="application/ld+json">{JSON.stringify({
+          "@context": "https://schema.org",
+          "@type": "FAQPage",
+          "mainEntity": faqs.map((f) => ({
+            "@type": "Question",
+            "name": f.q,
+            "acceptedAnswer": { "@type": "Answer", "text": f.a },
+          })),
+        })}</script>
+      </Helmet>
       {/* Hero */}
       <section className="relative flex min-h-[70vh] items-center justify-center overflow-hidden">
         <img
@@ -124,17 +166,44 @@ export default function Index() {
         <h2 className="text-center font-serif text-3xl font-bold text-foreground">How It Works</h2>
         <div className="mx-auto mt-10 grid max-w-4xl gap-10 sm:grid-cols-3">
           {[
-            { step: "1", title: "Choose Your City or Artist" },
-            { step: "2", title: "We Build 5 Weekend Options" },
-            { step: "3", title: "You Book What You Like" },
+            {
+              step: "1",
+              title: "Choose Your City or Artist",
+              desc: "Pick a concert artist you love or a city you want to visit. We'll find confirmed upcoming tour dates that work for a weekend trip.",
+            },
+            {
+              step: "2",
+              title: "We Build 5 Weekend Options",
+              desc: "Experience Caddie matches your show with nearby public golf courses and hotels, then builds complete weekend itineraries with realistic timing.",
+            },
+            {
+              step: "3",
+              title: "You Book What You Like",
+              desc: "Reserve directly through official partners — tee times via GolfNow, tickets via Ticketmaster, and hotels via Booking.com or Expedia. No middleman.",
+            },
           ].map((item) => (
             <div key={item.step} className="flex flex-col items-center text-center">
               <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-accent/60 text-xl font-bold text-accent-foreground">
                 {item.step}
               </div>
               <h3 className="font-serif text-lg font-semibold text-foreground">{item.title}</h3>
+              <p className="mt-2 text-sm text-muted-foreground max-w-[200px] mx-auto">{item.desc}</p>
             </div>
           ))}
+        </div>
+      </section>
+
+      <section className="container mx-auto px-4 py-16 max-w-3xl">
+        <h2 className="text-center font-serif text-3xl font-bold text-foreground">Frequently Asked Questions</h2>
+        <div className="mt-8">
+          <Accordion type="single" collapsible className="space-y-2">
+            {faqs.map((faq, i) => (
+              <AccordionItem key={i} value={`faq-${i}`} className="border border-border/50 rounded-lg px-4">
+                <AccordionTrigger className="font-serif text-left font-semibold">{faq.q}</AccordionTrigger>
+                <AccordionContent className="text-muted-foreground">{faq.a}</AccordionContent>
+              </AccordionItem>
+            ))}
+          </Accordion>
         </div>
       </section>
 
@@ -266,7 +335,7 @@ function PackageCard({ pkg }: { pkg: Package }) {
         <div className="relative aspect-[16/10] overflow-hidden">
           <img
             src={pkg.image_url || event?.image_url || DEFAULT_PACKAGE_IMAGE}
-            alt={pkg.name}
+            alt={`${pkg.name}${event?.artists?.name ? ` — ${event.artists.name}` : ""}${destination?.city ? ` in ${destination.city}` : ""} golf and concert weekend`}
             className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
             loading="lazy"
             decoding="async"

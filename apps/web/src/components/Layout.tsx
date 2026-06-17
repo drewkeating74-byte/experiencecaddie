@@ -91,12 +91,18 @@ export default function Layout() {
       <footer className="border-t border-border bg-muted/30 py-6">
         <div className="container mx-auto px-4 text-center">
           <p className="font-serif text-base font-semibold text-primary">Experience Caddie</p>
+          <p className="mt-1 text-xs text-muted-foreground">Golf + concert weekends, planned for you.</p>
           <div className="mx-auto mt-3 mb-3 w-16 border-t border-border/60" />
           <nav className="flex items-center justify-center gap-4 text-xs text-muted-foreground">
             <Link to="/privacy" className="hover:text-primary hover:underline">Privacy Policy</Link>
             <span aria-hidden="true">·</span>
             <Link to="/terms" className="hover:text-primary hover:underline">Terms &amp; Affiliate Disclosure</Link>
           </nav>
+          <div className="mt-3 flex items-center justify-center gap-4 text-xs text-muted-foreground">
+            <a href="https://instagram.com/experiencecaddie" target="_blank" rel="noopener noreferrer" className="hover:text-primary hover:underline">Instagram</a>
+            <span aria-hidden="true">·</span>
+            <a href="mailto:privacy@experiencecaddie.com" className="hover:text-primary hover:underline">Contact</a>
+          </div>
           <p className="mt-2 text-xs text-muted-foreground">© {new Date().getFullYear()} Fairways &amp; Encores. All rights reserved.</p>
         </div>
       </footer>

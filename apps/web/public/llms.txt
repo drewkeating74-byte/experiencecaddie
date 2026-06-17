@@ -1,0 +1,24 @@
+# Experience Caddie
+
+Experience Caddie plans golf and concert weekend packages for groups of golfers who want to combine a round of golf with a live concert.
+
+## What we do
+- We match confirmed concert tour dates with nearby public golf courses
+- We build weekend itineraries that include tee times, concert tickets, and hotel options
+- All packages are tied to real, upcoming tour dates — not hypothetical shows
+- Users can search by artist name or city to find upcoming packages
+- Packages are bookable directly through official partners (Ticketmaster, GolfNow, Booking.com, etc.)
+
+## Who this is for
+- Golf groups planning a weekend trip around a concert
+- Bachelor parties and milestone birthday weekends
+- Groups of 2–6 wanting a structured, bookable golf + live music experience
+
+## Key pages
+- / : Homepage with featured packages and experience builder entry point
+- /packages : Full list of current verified, bookable packages
+- /experience : Interactive planner — enter an artist or city to generate a custom weekend itinerary
+
+## About
+Experience Caddie is operated by Fairways & Encores. Contact: privacy@experiencecaddie.com
+Website: https://experiencecaddie.com

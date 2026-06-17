@@ -1,10 +1,20 @@
 import { Link } from "react-router-dom";
+import { Helmet } from "react-helmet-async";
 
 const CONTACT_EMAIL = "legal@experiencecaddie.com";
 const LAST_UPDATED = "April 2026";
 
 export default function Terms() {
   return (
+    <>
+      <Helmet>
+        <title>Terms & Affiliate Disclosure | Experience Caddie</title>
+        <meta name="description" content="Terms of service and affiliate disclosure for Experience Caddie." />
+        <meta property="og:title" content="Terms & Affiliate Disclosure | Experience Caddie" />
+        <meta property="og:description" content="Terms of service and affiliate disclosure for Experience Caddie." />
+        <meta property="og:url" content="https://experiencecaddie.com/terms" />
+        <link rel="canonical" href="https://experiencecaddie.com/terms" />
+      </Helmet>
     <div className="container mx-auto max-w-3xl px-4 py-12">
       <h1 className="font-serif text-3xl font-bold text-primary">Terms &amp; Affiliate Disclosure</h1>
       <p className="mt-2 text-sm text-muted-foreground">Last updated: {LAST_UPDATED}</p>
@@ -123,5 +133,6 @@ export default function Terms() {
         </section>
       </div>
     </div>
+    </>
   );
 }

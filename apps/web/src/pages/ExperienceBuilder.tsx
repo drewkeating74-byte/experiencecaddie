@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Helmet } from "react-helmet-async";
 import { useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { logEvent } from "@/lib/analytics";
@@ -19,7 +20,16 @@ import { formatUsDate } from "@/lib/dateFormat";
 import WeekendIdeasSignup from "@/components/WeekendIdeasSignup";
 import { CONCERT_GENRES } from "@/config/concertGenres";
 
-
+const EXPERIENCE_PAGE_HELMET = (
+  <Helmet>
+    <title>Build Your Golf + Concert Weekend | Experience Caddie</title>
+    <meta name="description" content="Tell us your city or favorite artist. We'll build a custom golf and concert weekend itinerary around confirmed upcoming shows." />
+    <meta property="og:title" content="Build Your Golf + Concert Weekend | Experience Caddie" />
+    <meta property="og:description" content="Tell us your city or favorite artist. We'll build a custom golf and concert weekend itinerary around confirmed upcoming shows." />
+    <meta property="og:url" content="https://experiencecaddie.com/experience" />
+    <link rel="canonical" href="https://experiencecaddie.com/experience" />
+  </Helmet>
+);
 
 type EntryOption = "artist" | "find_concert" | "surprise";
 type BudgetTier = "low" | "mid" | "high";
@@ -758,6 +768,8 @@ export default function ExperienceBuilder() {
   if (discoveryStep === "no_results") {
     const artistName = selectedEntry === "artist" ? eventInput.trim() : null;
     return (
+      <>
+        {EXPERIENCE_PAGE_HELMET}
       <div className="container mx-auto max-w-2xl px-4 py-12">
         <div className="flex flex-col items-center text-center gap-6">
           <div className="rounded-full bg-muted p-4">
@@ -852,11 +864,14 @@ export default function ExperienceBuilder() {
           />
         </div>
       </div>
+      </>
     );
   }
 
   if (discoveryStep === "discovering") {
     return (
+      <>
+        {EXPERIENCE_PAGE_HELMET}
       <div className="flex min-h-[60vh] flex-col items-center justify-center gap-6">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
         <div className="text-center">
@@ -864,11 +879,14 @@ export default function ExperienceBuilder() {
           <p className="mt-2 text-muted-foreground">Looking for 5,000+ capacity venues in great golf cities</p>
         </div>
       </div>
+      </>
     );
   }
 
   if (discoveryStep === "pick" && concertOptions.length) {
     return (
+      <>
+        {EXPERIENCE_PAGE_HELMET}
       <div className="container mx-auto max-w-2xl px-4 py-12">
         <div className="space-y-6">
           <div>
@@ -970,6 +988,7 @@ export default function ExperienceBuilder() {
           </div>
         </div>
       </div>
+      </>
     );
   }
 
@@ -978,6 +997,8 @@ export default function ExperienceBuilder() {
     const artistLabel = eventInput.trim() || new URLSearchParams(location.search).get("event_details") || "";
     const cityLabel = selectedCities[0] || new URLSearchParams(location.search).get("city") || "";
     return (
+      <>
+        {EXPERIENCE_PAGE_HELMET}
       <div className="flex min-h-[60vh] flex-col items-center justify-center gap-6">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
         <div className="text-center">
@@ -998,10 +1019,13 @@ export default function ExperienceBuilder() {
           Cancel & try again
         </Button>
       </div>
+      </>
     );
   }
 
   return (
+    <>
+      {EXPERIENCE_PAGE_HELMET}
     <div className="container mx-auto max-w-2xl px-4 py-12">
       {step === "start" && (
         <form
@@ -1368,5 +1392,6 @@ export default function ExperienceBuilder() {
         </form>
       )}
     </div>
+    </>
   );
 }
