@@ -26,8 +26,10 @@ import { exec } from "child_process";
 import pg from "pg";
 import sharp from "sharp";
 import {
+  audienceGenreLabel,
   audienceGenreSql,
   audienceScoreSql,
+  AUDIENCE_GENRES,
   FEATURED_CITIES,
   marketingGolfCourseOrderBySql,
 } from "./audience-filters.mjs";
@@ -233,6 +235,41 @@ async function supabaseInsert(table, row) {
 }
 
 // ── Package query ─────────────────────────────────────────────────────────────
+const PACKAGE_PICKER_SELECT = `
+  SELECT
+    p.id, p.name AS package_name, p.city,
+    a.name                      AS artist_name,
+    gc.name                     AS course_name,
+    gc.state                    AS course_state,
+    gc.rating                   AS course_rating,
+    to_char(e.event_date, 'Mon DD, YYYY') AS event_date_fmt,
+    e.event_date,
+    e.image_brightness_score,
+    v.name AS venue_name,
+    e.image_url                 AS event_image_url,
+    p.image_url                 AS package_image_url,
+    a.fanartv_background_url,
+    a.spotify_image_url,
+    gc.marketing_image_url,
+    gc.image_brightness_score   AS course_brightness,
+    gc.image_url,    gc.image_url_2,  gc.image_url_3,
+    gc.image_url_4,  gc.image_url_5,  gc.image_url_6,
+    gc.image_url_7,  gc.image_url_8,  gc.image_url_9,
+    gc.image_url_10
+  FROM public.packages     p
+  JOIN public.events       e  ON e.id  = p.event_id
+  JOIN public.artists      a  ON a.id  = e.artist_id
+  JOIN public.golf_courses gc ON gc.id = p.golf_course_id
+  LEFT JOIN public.venues  v  ON v.id  = e.venue_id`;
+
+async function fetchPackageById(packageId) {
+  const { rows } = await pool.query(`
+    ${PACKAGE_PICKER_SELECT}
+    WHERE p.id = $1 AND p.active = true AND e.active = true
+  `, [packageId]);
+  return rows[0] ?? null;
+}
+
 async function fetchPackages(limit = 50, sort = "date_asc", city = "") {
   const order = sort === "date_desc" ? "DESC" : "ASC";
   const params = [limit];
@@ -243,39 +280,10 @@ async function fetchPackages(limit = 50, sort = "date_asc", city = "") {
   }
   // Exclude packages already in the queue (pending or posted)
   const { rows } = await pool.query(`
-    SELECT
-      p.id, p.name AS package_name, p.city,
-      a.name                      AS artist_name,
-      gc.name                     AS course_name,
-      gc.state                    AS course_state,
-      gc.rating                   AS course_rating,
-      to_char(e.event_date, 'Mon DD, YYYY') AS event_date_fmt,
-      e.event_date,
-      e.image_brightness_score,
-      v.name AS venue_name,
-      e.image_url                 AS event_image_url,
-      p.image_url                 AS package_image_url,
-      -- Concert image options
-      a.fanartv_background_url,
-      a.spotify_image_url,
-      -- Current marketing pick + score
-      gc.marketing_image_url,
-      gc.image_brightness_score   AS course_brightness,
-      -- All 10 photo slots
-      gc.image_url,    gc.image_url_2,  gc.image_url_3,
-      gc.image_url_4,  gc.image_url_5,  gc.image_url_6,
-      gc.image_url_7,  gc.image_url_8,  gc.image_url_9,
-      gc.image_url_10
-    FROM public.packages     p
-    JOIN public.events       e  ON e.id  = p.event_id
-    JOIN public.artists      a  ON a.id  = e.artist_id
-    JOIN public.golf_courses gc ON gc.id = p.golf_course_id
-    LEFT JOIN public.venues  v  ON v.id  = e.venue_id
+    ${PACKAGE_PICKER_SELECT}
     WHERE p.active = true
       AND e.active = true
       AND gc.marketing_image_url IS NOT NULL
-      AND e.image_brightness_score IS NOT NULL
-      AND e.image_brightness_score <= 70
       -- Allow packages even if no artist image exists yet (user can still pick a golf image and generate)
       -- AND COALESCE(a.fanartv_background_url, a.spotify_image_url) IS NOT NULL
       AND e.event_date BETWEEN CURRENT_DATE + INTERVAL '30 days'
@@ -487,6 +495,18 @@ async function createPackageFromCandidate({ show, course }) {
   );
   if (existing.length) {
     artistId = existing[0].id;
+    if (show.genre) {
+      const { rows: art } = await pool.query(
+        `SELECT genre FROM public.artists WHERE id = $1`, [artistId]
+      );
+      const g = (art[0]?.genre || "").toLowerCase();
+      if (!g || !AUDIENCE_GENRES.includes(g)) {
+        await pool.query(
+          `UPDATE public.artists SET genre = $1 WHERE id = $2`,
+          [show.genre, artistId],
+        );
+      }
+    }
   } else {
       const { rows: newA } = await pool.query(
         `INSERT INTO public.artists (name, genre) VALUES ($1, $2) RETURNING id`,
@@ -540,7 +560,10 @@ async function createPackageFromCandidate({ show, course }) {
     `SELECT id FROM public.packages WHERE event_id=$1 AND golf_course_id=$2 LIMIT 1`,
     [eventId, course.id]
   );
-  if (existPkg.length) return { ok: true, packageId: existPkg[0].id, name: pkgName, alreadyExisted: true };
+  if (existPkg.length) {
+    const pkg = await fetchPackageById(existPkg[0].id);
+    return { ok: true, packageId: existPkg[0].id, name: pkgName, alreadyExisted: true, package: pkg };
+  }
 
   const { rows: pkgRows } = await pool.query(`
     INSERT INTO public.packages
@@ -561,7 +584,9 @@ async function createPackageFromCandidate({ show, course }) {
     show.image_url,
   ]);
 
-  return { ok: true, packageId: pkgRows[0]?.id, name: pkgName };
+  const packageId = pkgRows[0]?.id;
+  const pkg = packageId ? await fetchPackageById(packageId) : null;
+  return { ok: true, packageId, name: pkgName, package: pkg };
 }
 
 /**
@@ -878,14 +903,13 @@ const HTML = /* html */`<!DOCTYPE html>
     </div>
   </div>
   <div id="pkg-grid" class="pkg-grid"><div class="loading">Loading packages…</div></div>
-</div>
 
   <!-- Candidates panel (bottom of Screen 1) -->
   <div class="candidates-section">
     <div class="candidates-header">
       <div>
         <h2>Package Candidates</h2>
-        <p>Discovery shows not yet in the catalog — Country, Rock &amp; Americana only.</p>
+        <p>Discovery shows not yet in the catalog — __AUDIENCE_GENRE_LABEL__.</p>
       </div>
       <div class="cand-nav">
         <button class="btn-back" onclick="loadCandidates({ previous: true })" id="btn-cand-prev" disabled>← Previous</button>
@@ -1030,6 +1054,12 @@ function renderPickCard(pkg) {
   </div>\`;
 }
 
+function updateReviewButton() {
+  const n = pickedIds.size;
+  document.getElementById('btn-review').textContent = \`Review Selected (\${n})\`;
+  document.getElementById('btn-review').disabled = n === 0;
+}
+
 function togglePick(id) {
   if (pickedIds.has(id)) {
     pickedIds.delete(id);
@@ -1038,9 +1068,7 @@ function togglePick(id) {
     pickedIds.add(id);
     document.getElementById(\`pkgcard-\${id}\`).classList.add('picked');
   }
-  const n = pickedIds.size;
-  document.getElementById('btn-review').textContent = \`Review Selected (\${n})\`;
-  document.getElementById('btn-review').disabled = n === 0;
+  updateReviewButton();
 }
 
 // ── Review card ───────────────────────────────────────────────────────────────
@@ -1315,10 +1343,19 @@ async function addCandidate(tmEventId, btn) {
     if (!res.ok) throw new Error(data.error || 'Create failed');
 
     btn.textContent = '✓ Added';
-    msgEl.textContent = 'Refresh the package picker to see it.';
+    msgEl.textContent = 'Added to package picker above — selected for review.';
     msgEl.className = 'cand-msg ok';
-    // Refresh main package list count
     await load();
+    if (data.packageId) {
+      if (!allPackages.some((p) => p.id === data.packageId) && data.package) {
+        allPackages = [data.package, ...allPackages];
+      }
+      pickedIds.add(data.packageId);
+      renderPickScreen();
+      updateReviewButton();
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    await loadCandidates();
   } catch(e) {
     btn.disabled = false;
     btn.textContent = '+ Add Package';
@@ -1348,7 +1385,8 @@ function initCityFilter() {
 // Replace template placeholder with runtime value
 const serveHTML = HTML
   .replace("__BB_ENABLED__", BB_KEY ? "true" : "false")
-  .replace("__FEATURED_CITIES__", JSON.stringify(FEATURED_CITIES));
+  .replace("__FEATURED_CITIES__", JSON.stringify(FEATURED_CITIES))
+  .replace("__AUDIENCE_GENRE_LABEL__", audienceGenreLabel());
 
 // ── HTTP server ───────────────────────────────────────────────────────────────
 const server = http.createServer(async (req, res) => {

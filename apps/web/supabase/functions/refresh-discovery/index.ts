@@ -40,23 +40,14 @@ function json(data: unknown, status = 200) {
   });
 }
 
-// Genres to keep cached. Golf-audience staples (Country, Rock, Classic Rock,
-// Americana) are listed first so they consume more TM quota pages before
-// lower-priority genres. Americana and Folk were previously missing entirely.
+// Golf-weekend audience staples — keep this list small so the daily edge job
+// stays within Supabase compute limits (5 genres × 4 TM pages).
 const REFRESH_GENRES = [
   "Country",
   "Rock",
-  "Classic Rock",
   "Americana",
   "Jam Band",
   "Alternative",
-  "Folk",
-  "Pop",
-  "Singer-Songwriter",
-  "Dance/Electronic",
-  "Hip-Hop/Rap",
-  "R&B",
-  "Latin",
 ];
 
 function ymd(d: Date): string {
@@ -82,7 +73,7 @@ Deno.serve(async (req: Request) => {
     // empty body ok
   }
   const dryRun = body.dry_run === true;
-  const pagesPerGenre = Math.min(Math.max(body.pages ?? 6, 1), 8);
+  const pagesPerGenre = Math.min(Math.max(body.pages ?? 4, 1), 6);
 
   const today = new Date();
   const startDate = ymd(today);

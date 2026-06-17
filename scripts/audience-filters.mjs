@@ -7,10 +7,17 @@ export const AUDIENCE_GENRES = [
   "americana",
   "alternative",
   "indie",
+  "folk",
+  "singer-songwriter",
+  "jam band",
 ];
+
+/** Lower discovery score bar for genres that TM often under-scores. */
+export const AUDIENCE_GENRES_LOW_SCORE = ["alternative", "indie"];
 
 export const AUDIENCE_SCORE_DEFAULT = 158;
 export const AUDIENCE_SCORE_PREFERRED = 145;
+export const AUDIENCE_SCORE_ALT_INDIE = 125;
 
 /** Golf-weekend metros — shown in review-tool city filter (alphabetical). */
 export const FEATURED_CITIES = [
@@ -41,17 +48,35 @@ export const TARGET_AUDIENCE_ARTISTS = [
 ];
 
 export function audienceGenreSql(column = "genre") {
-  const list = AUDIENCE_GENRES.map((g) => `'${g.replace(/'/g, "''")}'`).join(", ");
-  return `LOWER(COALESCE(${column}, '')) IN (${list})`;
+  return `LOWER(COALESCE(${column}, '')) IN (${sqlGenreList(AUDIENCE_GENRES)})`;
+}
+
+function sqlGenreList(genres) {
+  return genres.map((g) => `'${g.replace(/'/g, "''")}'`).join(", ");
+}
+
+export function audienceGenreLabel() {
+  const title = (s) =>
+    s.split(" ").map((w) =>
+      w.split("-").map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join("-")
+    ).join(" ");
+  const labels = AUDIENCE_GENRES.map(title);
+  if (labels.length <= 1) return labels[0] ?? "";
+  return `${labels.slice(0, -1).join(", ")} & ${labels[labels.length - 1]}`;
 }
 
 export function audienceScoreSql(column = "ds.score", genreColumn = "ds.genre") {
-  const preferred = AUDIENCE_GENRES.map((g) => `'${g.replace(/'/g, "''")}'`).join(", ");
+  const preferred = sqlGenreList(AUDIENCE_GENRES);
+  const lowScore = sqlGenreList(AUDIENCE_GENRES_LOW_SCORE);
   return `(
     ${column} >= ${AUDIENCE_SCORE_DEFAULT}
     OR (
       ${column} >= ${AUDIENCE_SCORE_PREFERRED}
       AND LOWER(COALESCE(${genreColumn}, '')) IN (${preferred})
+    )
+    OR (
+      ${column} >= ${AUDIENCE_SCORE_ALT_INDIE}
+      AND LOWER(COALESCE(${genreColumn}, '')) IN (${lowScore})
     )
   )`;
 }
