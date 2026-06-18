@@ -15,19 +15,24 @@
  * Required env vars:
  *   BUFFER_ACCESS_TOKEN   Personal API key from buffer.com/settings/api
  *   BUFFER_CHANNEL_ID     Your Instagram channel ID in Buffer
- *                         (find it by running with --list-channels)
- *
  * Optional:
- *   SCHEDULE_OFFSET_HOURS   Hours ahead to schedule (default: 4)
+ *   BUFFER_FACEBOOK_CHANNEL_ID  Facebook Page channel (scheduled +1 day after IG)
  */
 
 import pg from 'pg';
+import {
+  facebookDayAfter,
+  formatCentralSchedule,
+  nextPostSlot,
+  scheduleCarouselInBuffer,
+  scheduleInstagramAndFacebook,
+} from './buffer-schedule.mjs';
 
 const pool = new pg.Pool();
 
 const ACCESS_TOKEN  = process.env.BUFFER_ACCESS_TOKEN;
 const CHANNEL_ID    = process.env.BUFFER_CHANNEL_ID;
-const OFFSET_HOURS  = parseInt(process.env.SCHEDULE_OFFSET_HOURS ?? '4', 10);
+const FB_CHANNEL_ID = process.env.BUFFER_FACEBOOK_CHANNEL_ID;
 const GQL_URL       = 'https://api.buffer.com';
 
 const DRY_RUN        = process.argv.includes('--dry-run');
@@ -72,7 +77,9 @@ async function listChannels() {
   channels.forEach(c => {
     console.log(`  ${(c.service||'').padEnd(14)} @${(c.serviceUsername || c.name || '').padEnd(30)} ID: ${c.id}`);
   });
-  console.log('\n  Add BUFFER_CHANNEL_ID=<id> to your .env\n');
+  console.log('\n  Add BUFFER_CHANNEL_ID=<id> to your .env');
+  if (FB_CHANNEL_ID) console.log('  (Facebook +1 day uses BUFFER_FACEBOOK_CHANNEL_ID)\n');
+  else console.log('  Optional: BUFFER_FACEBOOK_CHANNEL_ID for Facebook +1 day\n');
 }
 
 // ── Build caption ─────────────────────────────────────────────────────────────
@@ -144,13 +151,9 @@ async function main() {
 
   console.log(`\n  Found ${queue.length} pending post(s).\n`);
 
-  // Scheduled time
-  const scheduledAt = new Date();
-  if (POST_SOON) {
-    scheduledAt.setMinutes(scheduledAt.getMinutes() + 30);
-  } else {
-    scheduledAt.setHours(scheduledAt.getHours() + OFFSET_HOURS, 0, 0, 0);
-  }
+  // Scheduled time — next IG slot (+ FB +1 day when configured)
+  let scheduledAt;
+  let facebookScheduledAt = null;
 
   for (const row of queue) {
     // Carousel order: Hook → Concert → Golf → CTA
@@ -170,9 +173,21 @@ async function main() {
 
     console.log(`  Package:   ${row.package_name}`);
     console.log(`  Slides:    ${slides.length}`);
-    console.log(`  Scheduled: ${scheduledAt.toLocaleString()}`);
 
     if (DRY_RUN) {
+      if (!POST_SOON) {
+        scheduledAt = nextPostSlot();
+        facebookScheduledAt = FB_CHANNEL_ID ? facebookDayAfter(scheduledAt) : null;
+      } else {
+        scheduledAt = new Date(Date.now() + 30 * 60_000);
+        facebookScheduledAt = FB_CHANNEL_ID
+          ? new Date(scheduledAt.getTime() + 86_400_000)
+          : null;
+      }
+      console.log(`  Instagram: ${formatCentralSchedule(scheduledAt)} CT`);
+      if (facebookScheduledAt) {
+        console.log(`  Facebook:  ${formatCentralSchedule(facebookScheduledAt)} CT (+1 day)`);
+      }
       console.log(`  Caption:\n${caption.split('\n').map(l => '    ' + l).join('\n')}`);
       console.log(`  Slides:`);
       slides.forEach((u, i) => console.log(`    ${i + 1}. ${u}`));
@@ -181,40 +196,45 @@ async function main() {
     }
 
     try {
-      const assets = slides.map(url => ({ image: { url } }));
-
-      const data = await gql(`
-        mutation CreatePost($input: CreatePostInput!) {
-          createPost(input: $input) {
-            ... on PostActionSuccess {
-              post { id }
-            }
-            ... on MutationError {
-              message
-            }
-          }
+      if (POST_SOON) {
+        scheduledAt = new Date(Date.now() + 30 * 60_000);
+        const igId = await scheduleCarouselInBuffer({
+          token: ACCESS_TOKEN,
+          channelId: CHANNEL_ID,
+          platform: 'instagram',
+          slides,
+          caption,
+          scheduledAt,
+        });
+        console.log(`  Instagram: ${formatCentralSchedule(scheduledAt)} CT — Buffer ${igId}`);
+        if (FB_CHANNEL_ID) {
+          facebookScheduledAt = facebookDayAfter(scheduledAt);
+          const fbId = await scheduleCarouselInBuffer({
+            token: ACCESS_TOKEN,
+            channelId: FB_CHANNEL_ID,
+            platform: 'facebook',
+            slides,
+            caption,
+            scheduledAt: facebookScheduledAt,
+          });
+          console.log(`  Facebook:  ${formatCentralSchedule(facebookScheduledAt)} CT — Buffer ${fbId}`);
         }
-      `, {
-        input: {
-          channelId:     CHANNEL_ID,
-          text:          caption,
-          assets,
-          schedulingType: 'automatic',
-          dueAt:         scheduledAt.toISOString(),
-          mode:          'customScheduled',
-          metadata: {
-            instagram: { type: 'post', shouldShareToFeed: true },
-          },
-        },
-      });
-
-      const post = data?.createPost?.post;
-      const err  = data?.createPost?.message;
-
-      if (err) throw new Error(err);
-
-      console.log(`  Buffer post ID: ${post?.id}`);
-      console.log(`  → Review at buffer.com/calendar before it goes live\n`);
+      } else {
+        const result = await scheduleInstagramAndFacebook({
+          token: ACCESS_TOKEN,
+          instagramChannelId: CHANNEL_ID,
+          facebookChannelId: FB_CHANNEL_ID || null,
+          slides,
+          caption,
+        });
+        scheduledAt = result.instagramAt;
+        facebookScheduledAt = result.facebookAt;
+        console.log(`  Instagram: ${formatCentralSchedule(scheduledAt)} CT — Buffer ${result.instagramId}`);
+        if (result.facebookId) {
+          console.log(`  Facebook:  ${formatCentralSchedule(facebookScheduledAt)} CT — Buffer ${result.facebookId}`);
+        }
+      }
+      console.log(`  → Review at buffer.com/calendar before they go live\n`);
 
       await pool.query(
         `UPDATE public.instagram_queue SET status='scheduled', posted_at=$1 WHERE id=$2`,

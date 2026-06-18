@@ -14,7 +14,7 @@
  *   GET  /api/packages  → Next 2 eligible packages with all image slots
  *   POST /api/generate  → Call BannerBear Collections API, return slide URLs
  *   POST /api/approve   → Insert into instagram_queue (status = pending)
- *   POST /api/skip      → Insert into instagram_queue (status = skipped)
+ *   POST /api/skip      → Insert into instagram_queue (status = skipped); hides from picker
  *
  * Required env vars:
  *   PGHOST, PGPORT, PGUSER, PGPASSWORD, PGDATABASE
@@ -32,7 +32,14 @@ import {
   AUDIENCE_GENRES,
   FEATURED_CITIES,
   marketingGolfCourseOrderBySql,
+  marketingGolfCourseWhereSql,
+  marketingCourseRecordIsPlayable,
+  MARKETING_MIN_HOLES,
+  MARKETING_MIN_QUALITY_SCORE,
+  MARKETING_MIN_RATING,
+  scoreDerivedGolfTier,
 } from "./audience-filters.mjs";
+import { scheduleInstagramAndFacebook } from "./buffer-schedule.mjs";
 
 const PORT = 3000;
 const BB_KEY        = process.env.BANNERBEAR_API_KEY;
@@ -41,66 +48,7 @@ const SUPABASE_URL  = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
 const SERVICE_KEY   = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const BUFFER_TOKEN  = process.env.BUFFER_ACCESS_TOKEN;
 const BUFFER_CHAN   = process.env.BUFFER_CHANNEL_ID;
-const BUFFER_GQL    = "https://api.buffer.com";
-
-// Posting schedule: [dayOfWeek (0=Sun), hour, minute] in Central time (UTC-5/UTC-6)
-// Mon 12pm CT = 17:00 UTC (CDT) | Wed 12pm CT = 17:00 UTC | Sat 9am CT = 14:00 UTC
-const POST_SLOTS = [
-  { day: 1, hour: 17, minute: 0 },  // Monday    noon Central (UTC-5)
-  { day: 3, hour: 17, minute: 0 },  // Wednesday noon Central
-  { day: 6, hour: 14, minute: 0 },  // Saturday  9am  Central
-];
-
-/** Returns the next available UTC posting time from POST_SLOTS, at least 1 hour from now. */
-function nextPostSlot() {
-  const now = new Date();
-  const soon = new Date(now.getTime() + 60 * 60 * 1000); // at least 1h from now
-  for (let daysAhead = 0; daysAhead <= 7; daysAhead++) {
-    for (const slot of POST_SLOTS) {
-      const candidate = new Date(Date.UTC(
-        now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + daysAhead,
-        slot.hour, slot.minute, 0, 0
-      ));
-      if (candidate.getUTCDay() === slot.day && candidate > soon) return candidate;
-    }
-  }
-  // Fallback: 4 hours from now
-  return new Date(now.getTime() + 4 * 60 * 60 * 1000);
-}
-
-/** Schedule a carousel post in Buffer and return the Buffer post ID. */
-async function scheduleInBuffer({ slides, caption, scheduledAt }) {
-  if (!BUFFER_TOKEN || !BUFFER_CHAN) return null;
-  const assets = slides.map(url => ({ image: { url } }));
-  const res = await fetch(BUFFER_GQL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${BUFFER_TOKEN}` },
-    body: JSON.stringify({
-      query: `mutation CreatePost($input: CreatePostInput!) {
-        createPost(input: $input) {
-          ... on PostActionSuccess { post { id } }
-          ... on MutationError { message }
-        }
-      }`,
-      variables: {
-        input: {
-          channelId:     BUFFER_CHAN,
-          text:          caption,
-          assets,
-          schedulingType: "automatic",
-          dueAt:         scheduledAt.toISOString(),
-          mode:          "customScheduled",
-          metadata: { instagram: { type: "post", shouldShareToFeed: true } },
-        },
-      },
-    }),
-  });
-  const data = await res.json();
-  const post = data?.data?.createPost?.post;
-  const err  = data?.data?.createPost?.message;
-  if (err) throw new Error(`Buffer: ${err}`);
-  return post?.id ?? null;
-}
+const BUFFER_FB_CHAN = process.env.BUFFER_FACEBOOK_CHANNEL_ID;
 
 function buildCaption({ artistName, courseCourseName, city, eventDateFmt }) {
   const artist = artistName    || "";
@@ -242,6 +190,9 @@ const PACKAGE_PICKER_SELECT = `
     gc.name                     AS course_name,
     gc.state                    AS course_state,
     gc.rating                   AS course_rating,
+    gc.holes                    AS course_holes,
+    gc.tier_hint                AS course_tier_hint,
+    gc.normalized_quality_score AS course_quality_score,
     to_char(e.event_date, 'Mon DD, YYYY') AS event_date_fmt,
     e.event_date,
     e.image_brightness_score,
@@ -330,26 +281,13 @@ function resolveCity(slug, fallback) {
   return slug.split('-').map(w => w[0].toUpperCase() + w.slice(1)).join(' ');
 }
 
-// ── Golf course name heuristics ───────────────────────────────────────────────
-function courseNameIsPlayable(name) {
-  const n = (name || '').toLowerCase();
-  if (/topgolf|top\s*golf/i.test(n)) return false;
-  if (/driving\s*range/i.test(n)) return false;
-  if (/mini\s*golf|minigolf|putt-?putt|pitch\s*and\s*putt/i.test(n)) return false;
-  if (/simulator|indoor\s*golf|golf\s*simulator/i.test(n)) return false;
-  if (/military|naval|navy|marine\s*corps|air\s*force|army|coast\s*guard|\bbase\b|\bmwr\b|\bdod\b/i.test(n)) return false;
-  if (/9[\s-]?hole|nine[\s-]?hole|par[\s-]?3\b|par[\s-]?27/i.test(n)) return false;
-  if (/putting\s*(green|edge|course)|adventure\s*golf|footgolf|disc\s*golf/i.test(n)) return false;
-  if (/academy|instruction|lessons?\b|golf\s*school/i.test(n) && !/course|club|resort|links/i.test(n)) return false;
-  if (/\bfive\s*iron\b/i.test(n)) return false;
-  if (/\bcity\s*golf\b/i.test(n)) return false;
-  if (/\bbig\s*shots?\s*golf\b/i.test(n)) return false;
-  if (/\bpopstroke\b/i.test(n)) return false;
-  if (/\bx-golf\b|\bxgolf\b/i.test(n)) return false;
-  if (/\bputtery\b/i.test(n)) return false;
-  if (/golf\s*lounge/i.test(n)) return false;
-  if (/lounge.*golf|bar.*golf/i.test(n)) return false;
-  return true;
+// ── Golf course selection (shared filters in audience-filters.mjs) ────────────
+function formatCourseOptionLabel(course) {
+  const tier = scoreDerivedGolfTier(course);
+  const holes = course.holes != null ? `${course.holes}h` : "18h";
+  const rating = course.rating != null ? `★ ${course.rating}` : "unrated";
+  const qs = course.normalized_quality_score != null ? `Q${course.normalized_quality_score}` : "";
+  return `${course.name} (${tier}, ${holes}, ${rating}${qs ? `, ${qs}` : ""})`;
 }
 
 async function fetchCandidates({ offset = 0, limit = 15, sort = "score", city = "" } = {}) {
@@ -399,14 +337,14 @@ async function fetchCandidates({ offset = 0, limit = 15, sort = "score", city = 
     LIMIT 500
   `);
 
-  const byArtist = new Map();
+  const byArtistCity = new Map();
   for (const show of shows) {
     const lookupCity = resolveCity(show.metro_slug, show.city);
     if (!lookupCity) continue;
     if (city && lookupCity.toLowerCase() !== city.toLowerCase()) continue;
     const { rows: rawCourses } = await pool.query(`
-      SELECT id, name, city, state, rating, marketing_image_url,
-             tier_hint, normalized_quality_score, image_brightness_score
+      SELECT id, name, city, state, rating, holes, user_rating_count,
+             marketing_image_url, tier_hint, normalized_quality_score, image_brightness_score
       FROM public.golf_courses
       WHERE LOWER(city) = LOWER($1)
         AND active = true
@@ -417,17 +355,34 @@ async function fetchCandidates({ offset = 0, limit = 15, sort = "score", city = 
           course_type IS NULL
           OR course_type NOT IN ('private','semi_private','resort','military','simulator','driving_range','mini_golf','not_golf')
         )
-      ORDER BY ${marketingGolfCourseOrderBySql()}
-      LIMIT 5
+        ${marketingGolfCourseWhereSql()}
+      ORDER BY ${marketingGolfCourseOrderBySql({ preferSilver: true })}
+      LIMIT 8
     `, [lookupCity]);
-    const courses = rawCourses.filter(c => courseNameIsPlayable(c.name));
+    const courses = rawCourses.filter((c) => marketingCourseRecordIsPlayable(c));
     if (!courses.length) continue;
 
-    const artistKey = show.artist.toLowerCase().trim();
-    const entry = { show, course: courses[0], lookupCity };
-    const prev = byArtist.get(artistKey);
+    const dedupeKey = `${show.artist.toLowerCase().trim()}::${lookupCity.toLowerCase()}`;
+    const entry = {
+      show,
+      course: courses[0],
+      courseOptions: courses.map((c) => ({
+        id: c.id,
+        name: c.name,
+        city: c.city,
+        state: c.state,
+        rating: c.rating,
+        holes: c.holes,
+        tier_hint: c.tier_hint,
+        normalized_quality_score: c.normalized_quality_score,
+        marketing_image_url: c.marketing_image_url,
+        label: formatCourseOptionLabel(c),
+      })),
+      lookupCity,
+    };
+    const prev = byArtistCity.get(dedupeKey);
     if (!prev) {
-      byArtist.set(artistKey, entry);
+      byArtistCity.set(dedupeKey, entry);
       continue;
     }
     const date = String(show.event_date).slice(0, 10);
@@ -435,15 +390,15 @@ async function fetchCandidates({ offset = 0, limit = 15, sort = "score", city = 
     const score = Number(show.score) || 0;
     const prevScore = Number(prev.show.score) || 0;
     if (sort === "date_desc") {
-      if (date > prevDate) byArtist.set(artistKey, entry);
+      if (date > prevDate) byArtistCity.set(dedupeKey, entry);
     } else if (sort === "date_asc") {
-      if (date < prevDate) byArtist.set(artistKey, entry);
+      if (date < prevDate) byArtistCity.set(dedupeKey, entry);
     } else if (score > prevScore || (score === prevScore && date < prevDate)) {
-      byArtist.set(artistKey, entry);
+      byArtistCity.set(dedupeKey, entry);
     }
   }
 
-  const all = Array.from(byArtist.values());
+  const all = Array.from(byArtistCity.values());
 
   const byDate = (a, b) =>
     String(a.show.event_date).slice(0, 10).localeCompare(String(b.show.event_date).slice(0, 10));
@@ -551,9 +506,11 @@ async function createPackageFromCandidate({ show, course }) {
   const sunday = new Date(friday);
   sunday.setDate(friday.getDate() + 2);
 
-  // Guard: reject course if name heuristic fails (shouldn't happen via UI but safety net)
-  if (!courseNameIsPlayable(course.name)) {
-    throw new Error(`Course "${course.name}" is not a playable public golf course.`);
+  // Guard: reject sub-silver or short courses (safety net if UI sends a bad pick)
+  if (!marketingCourseRecordIsPlayable(course)) {
+    throw new Error(
+      `Course "${course.name}" does not meet marketing standards (18+ holes, silver quality, rating ≥ ${MARKETING_MIN_RATING}).`,
+    );
   }
 
   const { rows: existPkg } = await pool.query(
@@ -764,7 +721,7 @@ const HTML = /* html */`<!DOCTYPE html>
   .pkg-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
   .pkg-card { background: var(--surface); border: 2px solid var(--border); border-radius: 12px;
               padding: 0; overflow: hidden; cursor: pointer; transition: border-color 0.15s;
-              display: flex; flex-direction: column; }
+              display: flex; flex-direction: column; position: relative; }
   .pkg-card:hover { border-color: #444; }
   .pkg-card.picked { border-color: var(--orange); }
 
@@ -786,6 +743,13 @@ const HTML = /* html */`<!DOCTYPE html>
   .pkg-card.picked .pick-badge { display: inline-block; }
   .pick-hint { font-size: 0.75rem; color: var(--muted); }
   .pkg-card.picked .pick-hint { display: none; }
+  .btn-pkg-remove { position: absolute; top: 8px; right: 8px; z-index: 2;
+                    width: 28px; height: 28px; border-radius: 50%;
+                    background: rgba(0,0,0,0.72); color: #ccc; border: 1px solid var(--border);
+                    cursor: pointer; font-size: 1.15rem; line-height: 1; padding: 0;
+                    display: flex; align-items: center; justify-content: center; }
+  .btn-pkg-remove:hover:not(:disabled) { background: #3d1a1a; color: #f87171; border-color: #f87171; }
+  .btn-pkg-remove:disabled { opacity: 0.5; cursor: wait; }
 
   /* ── Review (Screen 2) ── */
   .review-toolbar { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; }
@@ -863,6 +827,7 @@ const HTML = /* html */`<!DOCTYPE html>
   .cand-meta   { font-size: 0.78rem; color: var(--muted); line-height: 1.5; }
   .cand-meta .date { color: var(--orange); font-weight: 600; }
   .cand-course { font-size: 0.78rem; color: #7db8f8; }
+  .cand-course-select { margin-top: 8px; width: 100%; font-size: 0.78rem; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--card); color: var(--text); }
   .btn-add { margin-top: auto; background: var(--green); color: #fff; padding: 7px 14px;
              border-radius: 6px; border: none; cursor: pointer; font-size: 0.82rem;
              font-weight: 600; width: 100%; transition: background 0.15s; }
@@ -883,7 +848,7 @@ const HTML = /* html */`<!DOCTYPE html>
 
 <!-- Screen 1: Package Picker -->
 <div id="screen-pick" class="screen active">
-  <p class="page-sub">Select the packages you want to build reels for, then click Review Selected.</p>
+  <p class="page-sub">Select packages to build reels for, or click <strong>✕</strong> to remove ones you won't post.</p>
   <div class="pick-toolbar">
     <span class="pick-count" id="pick-count">Loading…</span>
     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
@@ -990,7 +955,10 @@ async function load() {
   try {
     const cityQs = cityFilter ? \`&city=\${encodeURIComponent(cityFilter)}\` : '';
     const res  = await fetch(\`/api/packages?sort=\${listSort}\${cityQs}\`);
-    allPackages = await res.json();
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || \`HTTP \${res.status}\`);
+    if (!Array.isArray(data)) throw new Error('Unexpected response from /api/packages');
+    allPackages = data;
     renderPickScreen();
   } catch(e) {
     document.getElementById('pkg-grid').innerHTML =
@@ -1031,17 +999,26 @@ function setCityFilter(value) {
   loadCandidates();
 }
 
+function tierLabel(hint, qs) {
+  if (qs != null && qs >= 70) return 'gold';
+  if (qs != null && qs >= 50) return 'silver';
+  return hint || 'bronze';
+}
+
 function renderPickCard(pkg) {
   const thumb = concertImageUrl(pkg);
   const thumbHtml = thumb
     ? \`<img class="pkg-thumb" src="\${thumb}" alt="\${pkg.artist_name}" loading="lazy">\`
     : \`<div class="pkg-thumb-placeholder">♪</div>\`;
+  const tier = tierLabel(pkg.course_tier_hint, pkg.course_quality_score);
   return \`
   <div class="pkg-card" id="pkgcard-\${pkg.id}" onclick="togglePick('\${pkg.id}')">
+    <button type="button" class="btn-pkg-remove" title="Remove from list"
+            onclick="event.stopPropagation(); dismissPackage('\${pkg.id}', this)">×</button>
     \${thumbHtml}
     <div class="pkg-body">
       <div class="pkg-artist">\${pkg.artist_name}</div>
-      <div class="pkg-course">\${pkg.course_name}</div>
+      <div class="pkg-course">\${pkg.course_name}\${pkg.course_holes ? \` · \${pkg.course_holes}h\` : ''}\${tier ? \` · \${tier}\` : ''}\${pkg.course_rating ? \` · ★\${pkg.course_rating}\` : ''}</div>
       <div class="pkg-meta">
         <span class="date">\${pkg.event_date_fmt}</span>
         <span>\${pkg.city}, \${pkg.course_state}</span>
@@ -1069,6 +1046,36 @@ function togglePick(id) {
     document.getElementById(\`pkgcard-\${id}\`).classList.add('picked');
   }
   updateReviewButton();
+}
+
+async function dismissPackage(id, btn) {
+  if (btn?.disabled) return;
+  if (btn) btn.disabled = true;
+  try {
+    const res = await fetch('/api/skip', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ packageId: id }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Remove failed');
+
+    pickedIds.delete(id);
+    allPackages = allPackages.filter((p) => p.id !== id);
+    document.getElementById(\`pkgcard-\${id}\`)?.remove();
+    updateReviewButton();
+
+    const grid = document.getElementById('pkg-grid');
+    const n = allPackages.length;
+    document.getElementById('pick-count').innerHTML = n
+      ? \`<strong>\${n}</strong> packages available\`
+      : '0 packages available';
+    if (!n && grid) {
+      grid.innerHTML = '<div class="empty">No packages left.<br><small>Removed packages stay hidden on future sessions.</small></div>';
+    }
+  } catch (e) {
+    if (btn) btn.disabled = false;
+    alert(e.message);
+  }
 }
 
 // ── Review card ───────────────────────────────────────────────────────────────
@@ -1230,7 +1237,7 @@ async function approve(i) {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Approve failed');
     const schedMsg = data.scheduledAt
-      ? \` — scheduled in Buffer for \${new Date(data.scheduledAt).toLocaleString('en-US',{weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}\`
+      ? \` — IG \${new Date(data.scheduledAt).toLocaleString('en-US',{weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZone:'America/Chicago'})} CT\${data.facebookScheduledAt ? \` · FB \${new Date(data.facebookScheduledAt).toLocaleString('en-US',{weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZone:'America/Chicago'})} CT\` : ''}\`
       : ' — saved to queue';
     msgEl.innerHTML = \`<div class="status-msg ok">✓ Approved\${schedMsg}</div>\`;
     document.getElementById(\`card-\${i}\`).style.opacity = '0.4';
@@ -1306,21 +1313,35 @@ async function loadCandidates({ advance = false, previous = false } = {}) {
 }
 
 function renderCandCard(c) {
-  const { show, course } = c;
+  const { show, course, courseOptions = [] } = c;
   const id = show.tm_event_id;
+  const optionsHtml = courseOptions.length > 1
+    ? \`<label class="section-label" style="margin-top:8px;display:block;font-size:0.72rem;color:var(--muted)">Golf course (silver+ only)</label>
+       <select class="cand-course-select" id="cand-course-\${id}" onchange="onCandidateCourseChange('\${id}')">
+         \${courseOptions.map((opt) => \`
+           <option value="\${opt.id}" \${opt.id === course.id ? 'selected' : ''}>\${opt.label}</option>
+         \`).join('')}
+       </select>\`
+    : \`<div class="cand-course">⛳ \${course.name} · \${tierLabel(course.tier_hint, course.normalized_quality_score)}+\${course.holes ? \` · \${course.holes}h\` : ''}\${course.rating ? \` · ★\${course.rating}\` : ''}</div>\`;
   return \`
-  <div class="cand-card" id="cand-\${id}">
+  <div class="cand-card" id="cand-\${id}" data-course-id="\${course.id}">
     <div class="cand-artist">\${show.artist}</div>
     <div class="cand-meta">
       <span class="date">\${show.event_date_fmt}</span>
       &nbsp;·&nbsp;\${show.city}
       &nbsp;·&nbsp;\${show.genre}
     </div>
-    <div class="cand-course">⛳ \${course.name}, \${course.city}, \${course.state}</div>
+    \${optionsHtml}
     <button class="btn-add" id="btn-add-\${id}"
             onclick="addCandidate('\${id}', this)">+ Add Package</button>
     <div class="cand-msg" id="cand-msg-\${id}"></div>
   </div>\`;
+}
+
+function onCandidateCourseChange(tmEventId) {
+  const card = document.getElementById(\`cand-\${tmEventId}\`);
+  const sel = document.getElementById(\`cand-course-\${tmEventId}\`);
+  if (card && sel) card.dataset.courseId = sel.value;
 }
 
 async function addCandidate(tmEventId, btn) {
@@ -1330,14 +1351,33 @@ async function addCandidate(tmEventId, btn) {
   try {
     // find the full candidate object
     const res0 = await fetch(\`/api/candidates?offset=\${candOffset}&limit=\${CAND_PAGE}&sort=\${listSort}\${cityFilter ? '&city=' + encodeURIComponent(cityFilter) : ''}\`);
-    const payload = await res0.json();
-    const all  = payload.items ?? payload;
+    const candidatesPayload = await res0.json();
+    const all  = candidatesPayload.items ?? candidatesPayload;
     const cand = all.find(c => c.show.tm_event_id === tmEventId);
     if (!cand) throw new Error('Candidate not found — may already exist');
 
+    const card = document.getElementById(\`cand-\${tmEventId}\`);
+    const selectedCourseId = card?.dataset?.courseId || cand.course.id;
+    const course = cand.courseOptions?.find((opt) => opt.id === selectedCourseId)
+      || cand.courseOptions?.find((opt) => opt.id === cand.course.id)
+      || cand.course;
+    const createBody = {
+      show: cand.show,
+      course: {
+        id: course.id,
+        name: course.name,
+        city: course.city,
+        state: course.state,
+        rating: course.rating,
+        holes: course.holes,
+        tier_hint: course.tier_hint,
+        normalized_quality_score: course.normalized_quality_score,
+      },
+    };
+
     const res = await fetch('/api/candidates/create', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(cand),
+      body: JSON.stringify(createBody),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Create failed');
@@ -1444,24 +1484,39 @@ const server = http.createServer(async (req, res) => {
       ].filter(Boolean);
 
       // Schedule in Buffer immediately if credentials are available
-      let bufferPostId  = null;
-      let scheduledAt   = null;
-      let status        = "pending";
+      let bufferPostId = null;
+      let facebookBufferPostId = null;
+      let scheduledAt = null;
+      let facebookScheduledAt = null;
+      let status = "pending";
       if (BUFFER_TOKEN && BUFFER_CHAN && slides.length >= 2) {
         try {
-          scheduledAt  = nextPostSlot();
           const caption = buildCaption({
             artistName:       body.artistName,
             courseCourseName: body.courseName,
             city:             body.city,
             eventDateFmt:     body.eventDate,
           });
-          bufferPostId = await scheduleInBuffer({ slides, caption, scheduledAt });
+          const result = await scheduleInstagramAndFacebook({
+            token:               BUFFER_TOKEN,
+            instagramChannelId:  BUFFER_CHAN,
+            facebookChannelId:   BUFFER_FB_CHAN || null,
+            slides,
+            caption,
+          });
+          scheduledAt = result.instagramAt;
+          bufferPostId = result.instagramId;
+          facebookScheduledAt = result.facebookAt;
+          facebookBufferPostId = result.facebookId;
           status = "scheduled";
-          console.log(`[approve] Scheduled in Buffer: ${bufferPostId} @ ${scheduledAt.toISOString()}`);
+          console.log(`[approve] Instagram: ${bufferPostId} @ ${scheduledAt.toISOString()}`);
+          if (facebookBufferPostId) {
+            console.log(`[approve] Facebook: ${facebookBufferPostId} @ ${facebookScheduledAt.toISOString()}`);
+          }
         } catch (e) {
           console.error(`[approve] Buffer scheduling failed: ${e.message} — saving as pending`);
           scheduledAt = null;
+          facebookScheduledAt = null;
           status = "pending";
         }
       }
@@ -1482,7 +1537,9 @@ const server = http.createServer(async (req, res) => {
         ok: true,
         id: inserted?.[0]?.id,
         bufferId: bufferPostId,
+        facebookBufferId: facebookBufferPostId,
         scheduledAt: scheduledAt?.toISOString() ?? null,
+        facebookScheduledAt: facebookScheduledAt?.toISOString() ?? null,
       });
     }
 
@@ -1509,11 +1566,16 @@ server.listen(PORT, "127.0.0.1", () => {
   console.log(`  ─────────────────────────────`);
   console.log(`  URL  : ${addr}`);
   console.log(`  BB   : ${BB_KEY ? "✓ BannerBear enabled" : "✗ No BB key — generate disabled"}`);
+  console.log(`  IG   : ${BUFFER_CHAN ? "✓ Buffer Instagram" : "✗ No BUFFER_CHANNEL_ID"}`);
+  console.log(`  FB   : ${BUFFER_FB_CHAN ? "✓ Buffer Facebook (+1 day)" : "○ Facebook not configured"}`);
   console.log(`  DB   : ${process.env.PGHOST}`);
   console.log(`\n  Press Ctrl+C to stop.\n`);
 
-  // Try to open browser (works on Mac/Linux; Windows uses 'start')
-  const cmd = process.platform === "win32" ? `start ${addr}`
-            : process.platform === "darwin" ? `open ${addr}` : `xdg-open ${addr}`;
+  // Try to open browser (Windows needs cmd /c start with an empty window title)
+  const cmd = process.platform === "win32"
+    ? `cmd /c start "" "${addr}"`
+    : process.platform === "darwin"
+      ? `open "${addr}"`
+      : `xdg-open "${addr}"`;
   exec(cmd, () => {});
 });

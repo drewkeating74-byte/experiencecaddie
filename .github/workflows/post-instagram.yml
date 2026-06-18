@@ -1,6 +1,6 @@
 name: Post to Instagram
 
-# Runs Tuesday and Friday at 2pm UTC (9am Central).
+# Runs Tuesday, Thursday, and Saturday at 2pm UTC (~9am Central).
 # Picks pending rows from instagram_queue, schedules them 4 hours ahead
 # (posts at ~1pm Central) so you can review + cancel in Meta Business Suite.
 #
@@ -10,7 +10,7 @@ name: Post to Instagram
 
 on:
   schedule:
-    - cron: "0 14 * * 2,5"   # Tuesday + Friday 14:00 UTC = 9:00am Central
+    - cron: "0 14 * * 2,4,6"   # Tue, Thu, Sat 14:00 UTC ≈ 9:00am Central
   workflow_dispatch:
     inputs:
       dry_run:
@@ -44,6 +44,7 @@ jobs:
         env:
           BUFFER_ACCESS_TOKEN:  ${{ secrets.BUFFER_ACCESS_TOKEN }}
           BUFFER_CHANNEL_ID:    ${{ secrets.BUFFER_CHANNEL_ID }}
+          BUFFER_FACEBOOK_CHANNEL_ID: ${{ secrets.BUFFER_FACEBOOK_CHANNEL_ID }}
           DATABASE_URL:         ${{ secrets.DATABASE_URL }}
           PGHOST:               ${{ secrets.PGHOST }}
           PGPORT:               ${{ secrets.PGPORT }}

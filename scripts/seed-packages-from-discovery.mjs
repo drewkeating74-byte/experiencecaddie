@@ -11,8 +11,7 @@
  * Matching logic:
  *   1. Show city → direct golf_courses city match.
  *   2. Show city → METRO_MAP fallback (e.g. Landover → Washington).
- *   3. Among matching courses, prefer gold/silver tier (bronze fallback),
- *      then quality score, then darkest marketing_image_url.
+ *   3. Among matching courses, prefer silver-tier 18-hole public courses (gold fallback).
  *
  * Package defaults:
  *   price = 825, category = "Golf + Concert", source = "curated",
@@ -21,7 +20,11 @@
 
 import pg from 'pg';
 import sharp from 'sharp';
-import { marketingGolfCourseOrderBySql } from './audience-filters.mjs';
+import {
+  marketingGolfCourseOrderBySql,
+  marketingGolfCourseWhereSql,
+  marketingCourseRecordIsPlayable,
+} from './audience-filters.mjs';
 
 const CREATE  = process.argv.includes('--create');
 const LIMIT   = (() => { const i = process.argv.indexOf('--limit'); return i !== -1 ? Number(process.argv[i+1]) : 50; })();
@@ -44,30 +47,6 @@ function genreIsEligible(genre) {
   if (!genre) return true; // unknown genre — allow with human review
   const g = genre.toLowerCase();
   if (EXCLUDED_GENRES.has(g)) return false;
-  return true;
-}
-
-// ── Golf course name heuristics ───────────────────────────────────────────────
-// Mirrors isUsableGolfCourse / isLikelyPlayableCourse from verify-packages and search.
-function courseNameIsPlayable(name) {
-  const n = (name || '').toLowerCase();
-  if (/topgolf|top\s*golf/i.test(n)) return false;
-  if (/driving\s*range/i.test(n)) return false;
-  if (/mini\s*golf|minigolf|putt-?putt|pitch\s*and\s*putt/i.test(n)) return false;
-  if (/simulator|indoor\s*golf|golf\s*simulator/i.test(n)) return false;
-  if (/military|naval|navy|marine\s*corps|air\s*force|army|coast\s*guard|\bbase\b|\bmwr\b|\bdod\b/i.test(n)) return false;
-  if (/9[\s-]?hole|nine[\s-]?hole|par[\s-]?3\b|par[\s-]?27/i.test(n)) return false;
-  if (/putting\s*(green|edge|course)|adventure\s*golf|footgolf|disc\s*golf/i.test(n)) return false;
-  if (/academy|instruction|lessons?\b|golf\s*school/i.test(n) && !/course|club|resort|links/i.test(n)) return false;
-  if (/\bfive\s*iron\b/i.test(n)) return false;   // simulator/social golf chain
-  if (/\bcity\s*golf\b/i.test(n)) return false;   // simulator chain
-  if (/\bbig\s*shots?\s*golf\b/i.test(n)) return false;
-  if (/\bpopstroke\b/i.test(n)) return false;
-  if (/\bx-golf\b|\bxgolf\b/i.test(n)) return false;
-  if (/\bputtery\b/i.test(n)) return false;          // bar/putting entertainment chain
-  if (/\bbirdies\s*golf\s*lounge\b/i.test(n)) return false;
-  if (/golf\s*lounge/i.test(n)) return false;
-  if (/lounge.*golf|bar.*golf/i.test(n)) return false;
   return true;
 }
 
@@ -234,7 +213,7 @@ for (const show of shows) {
   }
 
   const { rows: rawCourses } = await pool.query(`
-    SELECT id, name, city, state, rating, marketing_image_url, image_brightness_score,
+    SELECT id, name, city, state, rating, holes, user_rating_count, marketing_image_url, image_brightness_score,
            tier_hint, normalized_quality_score
     FROM public.golf_courses
     WHERE LOWER(city) = LOWER($1)
@@ -246,10 +225,11 @@ for (const show of shows) {
         course_type IS NULL
         OR course_type NOT IN ('private','semi_private','resort','military','simulator','driving_range','mini_golf','not_golf')
       )
-    ORDER BY ${marketingGolfCourseOrderBySql()}
+      ${marketingGolfCourseWhereSql()}
+    ORDER BY ${marketingGolfCourseOrderBySql({ preferSilver: true })}
     LIMIT 10
   `, [lookupCity]);
-  const courses = rawCourses.filter(c => courseNameIsPlayable(c.name));
+  const courses = rawCourses.filter((c) => marketingCourseRecordIsPlayable(c));
 
   if (!courses.length) {
     results.push({ show, course: null, reason: `no courses found in ${lookupCity}` });
