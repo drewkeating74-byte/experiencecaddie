@@ -4,6 +4,10 @@
       "source": "/instagram",
       "destination": "https://www.experiencecaddie.com?utm_source=instagram&utm_medium=bio&utm_campaign=always-on",
       "permanent": true
+    },
+    {
+      "source": "/sitemap.xml",
+      "destination": "https://kxibaydbhquospzoefva.supabase.co/functions/v1/generate-sitemap"
     }
   ],
   "rewrites": [
