@@ -40,10 +40,12 @@ import {
   scoreDerivedGolfTier,
 } from "./audience-filters.mjs";
 import { scheduleInstagramAndFacebook } from "./buffer-schedule.mjs";
+import { buildGroupChatModifications } from "../src/marketing/groupChatBank.js";
 
 const PORT = 3000;
 const BB_KEY        = process.env.BANNERBEAR_API_KEY;
 const BB_TEMPLATE   = "8D6okAWQ2BNrnNmXPl"; // Collection template set UID
+const BB_GROUP_CHAT_TEMPLATE = "ok0l2K5mM9Lv53j1Yx";
 const SUPABASE_URL  = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
 const SERVICE_KEY   = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const BUFFER_TOKEN  = process.env.BUFFER_ACCESS_TOKEN;
@@ -655,6 +657,35 @@ async function generateSlides({ packageId, coursePhoto, concertPhoto, artistName
     golf_slide_url:    images[1]?.image_url ?? null,  // EC Golf Slide
     cta_slide_url:     images[2]?.image_url ?? null,  // EC CTA Slide (Build My Weekend)
     hook_slide_url:    images[3]?.image_url ?? null,  // EC Reel Hook Slide
+  };
+}
+
+async function renderGroupChatPost() {
+  if (!BB_KEY) throw new Error("BANNERBEAR_API_KEY is not set");
+
+  const createRes = await fetch("https://sync.api.bannerbear.com/v2/images", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${BB_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      template: BB_GROUP_CHAT_TEMPLATE,
+      modifications: buildGroupChatModifications(),
+    }),
+  });
+
+  if (!createRes.ok) {
+    const body = await createRes.text();
+    throw new Error(`BannerBear ${createRes.status}: ${body.slice(0, 300)}`);
+  }
+
+  const result = await createRes.json();
+  console.log(`Group Chat image_url: ${result.image_url ?? ""}`);
+
+  return {
+    uid: result.uid,
+    image_url: result.image_url ?? null,
   };
 }
 
