@@ -40,7 +40,10 @@ import {
   scoreDerivedGolfTier,
 } from "./audience-filters.mjs";
 import { scheduleInstagramAndFacebook } from "./buffer-schedule.mjs";
-import { buildGroupChatModifications } from "../src/marketing/groupChatBank.js";
+import {
+  buildGroupChatCaption,
+  buildGroupChatModifications,
+} from "../src/marketing/groupChatBank.js";
 
 const PORT = 3000;
 const BB_KEY        = process.env.BANNERBEAR_API_KEY;
@@ -844,6 +847,17 @@ const HTML = /* html */`<!DOCTYPE html>
   .loading { color: var(--muted); font-style: italic; padding: 40px; text-align: center; }
   .empty   { color: var(--muted); text-align: center; padding: 60px; font-size: 1rem; }
 
+  .standalone-draft { background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+                      padding: 18px; margin-bottom: 24px; max-width: 980px; }
+  .standalone-draft h2 { color: var(--orange); font-size: 1.05rem; margin-bottom: 4px; }
+  .standalone-draft p { color: var(--muted); font-size: 0.84rem; line-height: 1.5; }
+  .group-draft-preview { display: grid; grid-template-columns: minmax(220px, 320px) 1fr;
+                         gap: 16px; align-items: start; margin-top: 16px; }
+  .group-draft-preview img { width: 100%; border-radius: 8px; border: 1px solid var(--border); }
+  .caption-preview { white-space: pre-wrap; color: var(--text); background: var(--surface2);
+                     border: 1px solid var(--border); border-radius: 8px; padding: 12px;
+                     font-size: 0.82rem; line-height: 1.45; }
+
   /* ── Candidates panel ── */
   .candidates-section { margin-top: 32px; border-top: 1px solid var(--border); padding-top: 24px; }
   .candidates-header { display: flex; align-items: center; justify-content: space-between;
@@ -879,6 +893,18 @@ const HTML = /* html */`<!DOCTYPE html>
 
 <!-- Screen 1: Package Picker -->
 <div id="screen-pick" class="screen active">
+  <div class="standalone-draft">
+    <h2>Group Chat Screenshot</h2>
+    <p>Generate a single-image draft, review the image and caption, then approve it into the same Buffer Instagram/Facebook schedule.</p>
+    <div class="actions">
+      <button class="btn-generate" id="btn-group-chat-generate" ${BB_KEY ? '' : 'disabled title="No BB key"'}
+              onclick="generateGroupChatDraft()">Generate Group Chat Draft</button>
+      <button class="btn-approve" id="btn-group-chat-approve" disabled onclick="approveGroupChatDraft()">Approve to Buffer</button>
+    </div>
+    <div id="group-chat-draft"></div>
+    <div id="group-chat-msg"></div>
+  </div>
+
   <p class="page-sub">Select packages to build reels for, or click <strong>✕</strong> to remove ones you won't post.</p>
   <div class="pick-toolbar">
     <span class="pick-count" id="pick-count">Loading…</span>
@@ -935,8 +961,90 @@ let reviewList  = [];   // packages being reviewed (ordered by pick)
 let listSort    = 'date_asc';
 let cityFilter  = '';
 const selected  = {};   // { [reviewIdx]: { courseUrl, courseLabel, concertUrl, concertType, generated } }
+let groupChatDraft = null;
 
 if (!BB_ENABLED) document.getElementById('no-key-warn').style.display = '';
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+async function generateGroupChatDraft() {
+  const msgEl = document.getElementById('group-chat-msg');
+  const draftEl = document.getElementById('group-chat-draft');
+  const approveBtn = document.getElementById('btn-group-chat-approve');
+  const generateBtn = document.getElementById('btn-group-chat-generate');
+
+  groupChatDraft = null;
+  approveBtn.disabled = true;
+  generateBtn.disabled = true;
+  msgEl.innerHTML = '<div class="status-msg info">Generating Group Chat draft…</div>';
+
+  try {
+    const res = await fetch('/api/group-chat/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Generate failed');
+
+    groupChatDraft = data;
+    draftEl.innerHTML = \`
+      <div class="group-draft-preview">
+        <img src="\${escapeHtml(data.image_url)}" alt="Group Chat Screenshot draft">
+        <div>
+          <div class="section-label">Caption</div>
+          <div class="caption-preview">\${escapeHtml(data.caption)}</div>
+        </div>
+      </div>\`;
+    approveBtn.disabled = false;
+    msgEl.innerHTML = '<div class="status-msg ok">✓ Draft generated. Review it, regenerate if needed, or approve to Buffer.</div>';
+  } catch(e) {
+    draftEl.innerHTML = '';
+    msgEl.innerHTML = \`<div class="status-msg err">✗ \${escapeHtml(e.message)}</div>\`;
+  } finally {
+    generateBtn.disabled = !BB_ENABLED;
+  }
+}
+
+async function approveGroupChatDraft() {
+  const msgEl = document.getElementById('group-chat-msg');
+  const approveBtn = document.getElementById('btn-group-chat-approve');
+  if (!groupChatDraft?.image_url) {
+    msgEl.innerHTML = '<div class="status-msg err">Generate a Group Chat draft first.</div>';
+    return;
+  }
+
+  approveBtn.disabled = true;
+  msgEl.innerHTML = '<div class="status-msg info">Scheduling in Buffer…</div>';
+
+  try {
+    const res = await fetch('/api/group-chat/approve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        imageUrl: groupChatDraft.image_url,
+        caption: groupChatDraft.caption,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Approve failed');
+
+    const schedMsg = data.scheduledAt
+      ? \`IG \${new Date(data.scheduledAt).toLocaleString('en-US',{weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZone:'America/Chicago'})} CT\${data.facebookScheduledAt ? \` · FB \${new Date(data.facebookScheduledAt).toLocaleString('en-US',{weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZone:'America/Chicago'})} CT\` : ''}\`
+      : 'scheduled';
+    msgEl.innerHTML = \`<div class="status-msg ok">✓ Approved to Buffer — \${schedMsg}</div>\`;
+  } catch(e) {
+    approveBtn.disabled = false;
+    msgEl.innerHTML = \`<div class="status-msg err">✗ \${escapeHtml(e.message)}</div>\`;
+  }
+}
 
 function concertImageUrl(pkg) {
   return pkg.fanartv_background_url || pkg.spotify_image_url
@@ -1503,6 +1611,51 @@ const server = http.createServer(async (req, res) => {
       const body = await readBody(req);
       const result = await generateSlides(body);
       return json(res, 200, result);
+    }
+
+    // POST /api/group-chat/generate
+    if (method === "POST" && url.pathname === "/api/group-chat/generate") {
+      if (!BB_KEY) return json(res, 503, { error: "BANNERBEAR_API_KEY not set" });
+      const result = await renderGroupChatPost();
+      return json(res, 200, {
+        ...result,
+        caption: buildGroupChatCaption(),
+      });
+    }
+
+    // POST /api/group-chat/approve
+    if (method === "POST" && url.pathname === "/api/group-chat/approve") {
+      if (!BUFFER_TOKEN || !BUFFER_CHAN) {
+        return json(res, 503, { error: "Buffer credentials are not configured" });
+      }
+
+      const body = await readBody(req);
+      const imageUrl = String(body.imageUrl || "").trim();
+      const caption = String(body.caption || "").trim();
+
+      if (!imageUrl) return json(res, 400, { error: "imageUrl is required" });
+      if (!caption) return json(res, 400, { error: "caption is required" });
+
+      const result = await scheduleInstagramAndFacebook({
+        token:               BUFFER_TOKEN,
+        instagramChannelId:  BUFFER_CHAN,
+        facebookChannelId:   BUFFER_FB_CHAN || null,
+        slides:              [imageUrl],
+        caption,
+      });
+
+      console.log(`[group-chat] Instagram: ${result.instagramId} @ ${result.instagramAt.toISOString()}`);
+      if (result.facebookId) {
+        console.log(`[group-chat] Facebook: ${result.facebookId} @ ${result.facebookAt.toISOString()}`);
+      }
+
+      return json(res, 200, {
+        ok: true,
+        bufferId: result.instagramId,
+        facebookBufferId: result.facebookId,
+        scheduledAt: result.instagramAt?.toISOString() ?? null,
+        facebookScheduledAt: result.facebookAt?.toISOString() ?? null,
+      });
     }
 
     // POST /api/approve

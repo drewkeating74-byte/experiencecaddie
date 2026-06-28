@@ -1,10 +1,8 @@
 export const chatHeaders = [
   "The Group Chat",
   "Guys Trip 🏌️",
-  "The Annual Trip Chat",
   "Boys Weekend",
-  "\"We Should Do A Trip\" Chat",
-  "The Bachelor Party Chat",
+  "The Annual Trip Chat",
 ];
 
 export const eyebrowLabels = [
@@ -89,6 +87,27 @@ export const replyTitles = [
   "One Weekend. Done.",
 ];
 
+export const groupChatCaptions = [
+  [
+    "Every group chat has the guy who says \"we should do a trip.\" Be the guy who actually does it. 🏌️‍♂️🎸",
+    "",
+    "Pick the show. We'll build the golf weekend — hotel, tee time, and concert in one plan, in minutes.",
+    "",
+    "Tag the friend who needs to see this. 👇",
+    "",
+    "#golftrip #guystrip #golfweekend #livemusic #weekendtrip #golflife #bucketlisttrip #roadtrip #concertweekend #golfsquad #fairwaysandencores #experiencecaddie",
+  ].join("\n"),
+  [
+    "Five years of \"we should get the guys together.\" Zero trips booked. Sound familiar? 😅",
+    "",
+    "We build golf + concert weekends in minutes — you just pick the show.",
+    "",
+    "Send this to the chat that never books anything. 👇",
+    "",
+    "#guysweekend #golftravel #livemusic #golftrip #weekendgetaway #thegroupchat #golfsquad #experiencecaddie #fairwaysandencores",
+  ].join("\n"),
+];
+
 export const REPLY_URL = "experiencecaddie.com";
 export const CARD_IMAGE_URL = "https://experiencecaddie.com/hero-image.jpg";
 
@@ -115,4 +134,8 @@ export function buildGroupChatModifications() {
     { name: "reply_url", text: REPLY_URL },
     { name: "brand_reply", text: chatSet.brandReply },
   ];
+}
+
+export function buildGroupChatCaption() {
+  return pickRandom(groupChatCaptions);
 }
