@@ -258,8 +258,13 @@ async function seedFromEvents(supabase: any, startDate: string, endDate: string)
 }
 
 const DEFAULT_BACKFILL_ARTISTS = [
-  "Widespread Panic", "AJR", "Eric Church", "String Cheese Incident", "Sombr",
-  "Parker McCollum", "Dead & Company", "Dave Matthews Band", "Billy Strings",
+  "Zach Bryan", "Chris Stapleton", "Luke Combs", "Morgan Wallen", "Foo Fighters",
+  "Pearl Jam", "Dave Matthews Band", "Billy Strings", "Eric Church",
+  "Parker McCollum", "The Avett Brothers", "Widespread Panic", "Dead & Company",
+  "Tyler Childers", "Noah Kahan", "Hozier", "Kings of Leon", "The Lumineers",
+  "Jason Isbell", "Turnpike Troubadours", "AJR", "String Cheese Incident",
+  "Sombr", "Trey Anastasio", "Gov't Mule", "Kacey Musgraves", "Farm Aid",
+  "The Wood Brothers", "Trampled By Turtles", "Indigo Girls",
 ];
 
 async function backfillTargetArtists(
@@ -270,7 +275,7 @@ async function backfillTargetArtists(
   dryRun: boolean,
 ): Promise<Response> {
   const started = Date.now();
-  const list = (artists?.length ? artists : DEFAULT_BACKFILL_ARTISTS).slice(0, 20);
+  const list = (artists?.length ? artists : DEFAULT_BACKFILL_ARTISTS).slice(0, 40);
   const rows: DiscoveryShowRow[] = [];
   const errors: string[] = [];
 
@@ -300,7 +305,7 @@ async function backfillTargetArtists(
           image_url: o.image_url ? String(o.image_url) : null,
           min_price: typeof o.min_price === "number" ? o.min_price : null,
           max_price: typeof o.max_price === "number" ? o.max_price : null,
-          score: Math.max(Number(o._score ?? o.score ?? 160), 160),
+          score: Math.round(Math.max(Number(o._score ?? o.score ?? 160), 160)),
         });
       }
     } catch (err) {
@@ -322,7 +327,12 @@ async function backfillTargetArtists(
 
   const runIso = new Date().toISOString();
   let upserted = 0;
-  const payload = rows.map((r) => ({ ...r, active: true, refreshed_at: runIso, updated_at: runIso }));
+  const byEventId = new Map<string, DiscoveryShowRow>();
+  for (const row of rows) {
+    const existing = byEventId.get(row.tm_event_id);
+    if (!existing || row.score > existing.score) byEventId.set(row.tm_event_id, row);
+  }
+  const payload = [...byEventId.values()].map((r) => ({ ...r, active: true, refreshed_at: runIso, updated_at: runIso }));
   for (let i = 0; i < payload.length; i += 100) {
     const chunk = payload.slice(i, i + 100);
     const { error } = await supabase.from("discovery_shows").upsert(chunk, { onConflict: "tm_event_id" });
@@ -334,6 +344,7 @@ async function backfillTargetArtists(
     mode: "backfill_artists",
     artists: list,
     fetched: rows.length,
+    deduped: payload.length,
     upserted,
     errors,
     elapsed_ms: Date.now() - started,

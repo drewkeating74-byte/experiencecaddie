@@ -115,29 +115,53 @@ export const FEATURED_CITIES = [
 ];
 
 export const TARGET_AUDIENCE_ARTISTS = [
-  "Widespread Panic",
-  "AJR",
-  "The Avett Brothers",
+  "Zach Bryan",
+  "Chris Stapleton",
+  "Luke Combs",
+  "Morgan Wallen",
+  "Foo Fighters",
+  "Pearl Jam",
+  "Dave Matthews Band",
+  "Billy Strings",
   "Eric Church",
+  "Parker McCollum",
+  "The Avett Brothers",
+  "Widespread Panic",
+  "Dead & Company",
+  "Tyler Childers",
+  "Noah Kahan",
+  "Hozier",
+  "Kings of Leon",
+  "The Lumineers",
+  "Jason Isbell",
+  "Turnpike Troubadours",
+  "AJR",
   "String Cheese Incident",
   "Sombr",
-  "Parker McCollum",
-  "Dead & Company",
-  "Dave Matthews Band",
-  "Luke Combs",
-  "Chris Stapleton",
-  "Zach Bryan",
-  "Billy Strings",
   "Trey Anastasio",
   "Gov't Mule",
+  "Kacey Musgraves",
+  "Farm Aid",
+  "The Wood Brothers",
+  "Trampled By Turtles",
+  "Indigo Girls",
 ];
 
 export function audienceGenreSql(column = "genre") {
-  return `LOWER(COALESCE(${column}, '')) IN (${sqlGenreList(AUDIENCE_GENRES)})`;
+  return sqlGenreMatch(column, AUDIENCE_GENRES);
+}
+
+export function audienceArtistSql(column = "artist") {
+  return `LOWER(COALESCE(${column}, '')) IN (${sqlGenreList(TARGET_AUDIENCE_ARTISTS.map((artist) => artist.toLowerCase()))})`;
 }
 
 function sqlGenreList(genres) {
   return genres.map((g) => `'${g.replace(/'/g, "''")}'`).join(", ");
+}
+
+function sqlGenreMatch(column, genres) {
+  const normalized = `LOWER(COALESCE(${column}, ''))`;
+  return `(${genres.map((g) => `${normalized} LIKE '%${g.replace(/'/g, "''").toLowerCase()}%'`).join(" OR ")})`;
 }
 
 export function audienceGenreLabel() {
@@ -151,17 +175,15 @@ export function audienceGenreLabel() {
 }
 
 export function audienceScoreSql(column = "ds.score", genreColumn = "ds.genre") {
-  const preferred = sqlGenreList(AUDIENCE_GENRES);
-  const lowScore = sqlGenreList(AUDIENCE_GENRES_LOW_SCORE);
   return `(
     ${column} >= ${AUDIENCE_SCORE_DEFAULT}
     OR (
       ${column} >= ${AUDIENCE_SCORE_PREFERRED}
-      AND LOWER(COALESCE(${genreColumn}, '')) IN (${preferred})
+      AND ${sqlGenreMatch(genreColumn, AUDIENCE_GENRES)}
     )
     OR (
       ${column} >= ${AUDIENCE_SCORE_ALT_INDIE}
-      AND LOWER(COALESCE(${genreColumn}, '')) IN (${lowScore})
+      AND ${sqlGenreMatch(genreColumn, AUDIENCE_GENRES_LOW_SCORE)}
     )
   )`;
 }

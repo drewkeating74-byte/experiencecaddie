@@ -27,8 +27,8 @@ import pg from "pg";
 import sharp from "sharp";
 import {
   audienceGenreLabel,
+  audienceArtistSql,
   audienceGenreSql,
-  audienceScoreSql,
   AUDIENCE_GENRES,
   FEATURED_CITIES,
   marketingGolfCourseOrderBySql,
@@ -38,6 +38,7 @@ import {
   MARKETING_MIN_QUALITY_SCORE,
   MARKETING_MIN_RATING,
   scoreDerivedGolfTier,
+  TARGET_AUDIENCE_ARTISTS,
 } from "./audience-filters.mjs";
 import { scheduleInstagramAndFacebook } from "./buffer-schedule.mjs";
 import {
@@ -206,6 +207,8 @@ const PACKAGE_PICKER_SELECT = `
     p.image_url                 AS package_image_url,
     a.fanartv_background_url,
     a.spotify_image_url,
+    iq.status                   AS queue_status,
+    iq.created_at               AS queue_created_at,
     gc.marketing_image_url,
     gc.image_brightness_score   AS course_brightness,
     gc.image_url,    gc.image_url_2,  gc.image_url_3,
@@ -216,7 +219,14 @@ const PACKAGE_PICKER_SELECT = `
   JOIN public.events       e  ON e.id  = p.event_id
   JOIN public.artists      a  ON a.id  = e.artist_id
   JOIN public.golf_courses gc ON gc.id = p.golf_course_id
-  LEFT JOIN public.venues  v  ON v.id  = e.venue_id`;
+  LEFT JOIN public.venues  v  ON v.id  = e.venue_id
+  LEFT JOIN LATERAL (
+    SELECT status, created_at
+    FROM public.instagram_queue
+    WHERE package_id = p.id
+    ORDER BY created_at DESC
+    LIMIT 1
+  ) iq ON true`;
 
 async function fetchPackageById(packageId) {
   const { rows } = await pool.query(`
@@ -226,7 +236,7 @@ async function fetchPackageById(packageId) {
   return rows[0] ?? null;
 }
 
-async function fetchPackages(limit = 50, sort = "date_asc", city = "") {
+async function fetchPackages(limit = 50, sort = "date_asc", city = "", queueMode = "fresh") {
   const order = sort === "date_desc" ? "DESC" : "ASC";
   const params = [limit];
   let cityClause = "";
@@ -234,7 +244,13 @@ async function fetchPackages(limit = 50, sort = "date_asc", city = "") {
     params.push(city);
     cityClause = `AND LOWER(gc.city) = LOWER($${params.length})`;
   }
-  // Exclude packages already in the queue (pending or posted)
+  const queueClause = {
+    fresh: "AND iq.status IS NULL",
+    all: "",
+    scheduled: "AND iq.status = 'scheduled'",
+    skipped: "AND iq.status = 'skipped'",
+  }[queueMode] ?? "AND iq.status IS NULL";
+
   const { rows } = await pool.query(`
     ${PACKAGE_PICKER_SELECT}
     WHERE p.active = true
@@ -246,10 +262,7 @@ async function fetchPackages(limit = 50, sort = "date_asc", city = "") {
                            AND CURRENT_DATE + INTERVAL '180 days'
       AND ${audienceGenreSql("a.genre")}
       ${cityClause}
-      AND p.id NOT IN (
-        SELECT package_id FROM public.instagram_queue
-        WHERE package_id IS NOT NULL
-      )
+      ${queueClause}
     ORDER BY e.event_date::date ${order}, a.name ASC
     LIMIT $1
   `, params);
@@ -295,6 +308,40 @@ function formatCourseOptionLabel(course) {
   return `${course.name} (${tier}, ${holes}, ${rating}${qs ? `, ${qs}` : ""})`;
 }
 
+function normalizedName(value) {
+  return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+const TARGET_AUDIENCE_ARTIST_NAMES = new Set(TARGET_AUDIENCE_ARTISTS.map(normalizedName));
+
+function marketingCandidateScore({ show, course }) {
+  const artist = normalizedName(show.artist);
+  const genre = normalizedName(show.genre);
+  const tmScore = Number(show.score) || 0;
+  const courseQuality = Number(course.normalized_quality_score) || 0;
+  const courseRating = Number(course.rating) || 0;
+
+  let score = tmScore;
+
+  if (TARGET_AUDIENCE_ARTIST_NAMES.has(artist)) score += 90;
+  else if ([...TARGET_AUDIENCE_ARTIST_NAMES].some((target) => artist.includes(target) || target.includes(artist))) score += 55;
+
+  if (genre.includes("classic rock")) score += 32;
+  else if (genre.includes("rock")) score += 24;
+  if (genre.includes("country")) score += 22;
+  if (genre.includes("jam band") || genre.includes("bluegrass")) score += 16;
+  if (genre.includes("americana")) score += 12;
+  if (genre.includes("folk")) score += 4;
+  if (genre.includes("indie folk")) score -= 10;
+
+  if (FEATURED_CITIES.includes(resolveCity(show.metro_slug, show.city))) score += 8;
+  score += Math.min(18, Math.max(0, courseQuality - MARKETING_MIN_QUALITY_SCORE) * 0.6);
+  if (courseRating >= 4.5) score += 5;
+  else if (courseRating >= 4.2) score += 3;
+
+  return Math.round(score);
+}
+
 async function fetchCandidates({ offset = 0, limit = 15, sort = "score", city = "" } = {}) {
   const { rows: shows } = await pool.query(`
     SELECT * FROM (
@@ -307,8 +354,7 @@ async function fetchCandidates({ offset = 0, limit = 15, sort = "score", city = 
       WHERE ds.active = true
       AND ds.event_date >= CURRENT_DATE + INTERVAL '30 days'
       AND ds.event_date <= CURRENT_DATE + INTERVAL '210 days'
-      AND ${audienceScoreSql("ds.score", "ds.genre")}
-      AND ${audienceGenreSql("ds.genre")}
+      AND (${audienceGenreSql("ds.genre")} OR ${audienceArtistSql("ds.artist")})
         AND ds.artist NOT ILIKE '%tribute%'
         AND ds.artist NOT ILIKE '%revisited%'
         AND ds.event_name NOT ILIKE '%tribute%'
@@ -367,7 +413,9 @@ async function fetchCandidates({ offset = 0, limit = 15, sort = "score", city = 
     const courses = rawCourses.filter((c) => marketingCourseRecordIsPlayable(c));
     if (!courses.length) continue;
 
-    const dedupeKey = `${show.artist.toLowerCase().trim()}::${lookupCity.toLowerCase()}`;
+    const dedupeKey = city
+      ? `${show.artist.toLowerCase().trim()}::${lookupCity.toLowerCase()}`
+      : show.artist.toLowerCase().trim();
     const entry = {
       show,
       course: courses[0],
@@ -385,6 +433,7 @@ async function fetchCandidates({ offset = 0, limit = 15, sort = "score", city = 
       })),
       lookupCity,
     };
+    entry.marketingFitScore = marketingCandidateScore(entry);
     const prev = byArtistCity.get(dedupeKey);
     if (!prev) {
       byArtistCity.set(dedupeKey, entry);
@@ -392,8 +441,8 @@ async function fetchCandidates({ offset = 0, limit = 15, sort = "score", city = 
     }
     const date = String(show.event_date).slice(0, 10);
     const prevDate = String(prev.show.event_date).slice(0, 10);
-    const score = Number(show.score) || 0;
-    const prevScore = Number(prev.show.score) || 0;
+    const score = Number(entry.marketingFitScore) || 0;
+    const prevScore = Number(prev.marketingFitScore) || 0;
     if (sort === "date_desc") {
       if (date > prevDate) byArtistCity.set(dedupeKey, entry);
     } else if (sort === "date_asc") {
@@ -413,7 +462,7 @@ async function fetchCandidates({ offset = 0, limit = 15, sort = "score", city = 
     all.sort((a, b) => byDate(b, a));
   } else {
     all.sort((a, b) =>
-      (Number(b.show.score) - Number(a.show.score)) || byDate(a, b)
+      (Number(b.marketingFitScore) - Number(a.marketingFitScore)) || byDate(a, b)
     );
   }
 
@@ -777,6 +826,12 @@ const HTML = /* html */`<!DOCTYPE html>
   .pkg-card.picked .pick-badge { display: inline-block; }
   .pick-hint { font-size: 0.75rem; color: var(--muted); }
   .pkg-card.picked .pick-hint { display: none; }
+  .queue-badge { position: absolute; top: 8px; left: 8px; z-index: 2;
+                 font-size: 0.68rem; font-weight: 800; letter-spacing: 0.04em;
+                 text-transform: uppercase; border-radius: 999px; padding: 4px 8px;
+                 background: rgba(0,0,0,0.75); border: 1px solid var(--border); color: var(--muted); }
+  .queue-badge.scheduled { background: rgba(45,125,70,0.9); color: #fff; border-color: var(--green); }
+  .queue-badge.skipped { background: rgba(80,80,80,0.9); color: #ddd; border-color: #666; }
   .btn-pkg-remove { position: absolute; top: 8px; right: 8px; z-index: 2;
                     width: 28px; height: 28px; border-radius: 50%;
                     background: rgba(0,0,0,0.72); color: #ccc; border: 1px solid var(--border);
@@ -914,6 +969,14 @@ const HTML = /* html */`<!DOCTYPE html>
           <option value="">All cities</option>
         </select>
       </label>
+      <label class="sort-control">Package visibility
+        <select id="queue-mode" onchange="setQueueMode(this.value)">
+          <option value="fresh">Fresh only</option>
+          <option value="all">Show all eligible</option>
+          <option value="scheduled">Scheduled only</option>
+          <option value="skipped">Skipped only</option>
+        </select>
+      </label>
       <label class="sort-control">Sort
         <select id="list-sort" onchange="setListSort(this.value)">
           <option value="date_asc">Date — soonest</option>
@@ -960,6 +1023,7 @@ let pickedIds   = new Set();  // package IDs the user has selected
 let reviewList  = [];   // packages being reviewed (ordered by pick)
 let listSort    = 'date_asc';
 let cityFilter  = '';
+let queueMode   = 'fresh';
 const selected  = {};   // { [reviewIdx]: { courseUrl, courseLabel, concertUrl, concertType, generated } }
 let groupChatDraft = null;
 
@@ -1093,7 +1157,8 @@ function goToPick() {
 async function load() {
   try {
     const cityQs = cityFilter ? \`&city=\${encodeURIComponent(cityFilter)}\` : '';
-    const res  = await fetch(\`/api/packages?sort=\${listSort}\${cityQs}\`);
+    const queueQs = \`&queue=\${encodeURIComponent(queueMode)}\`;
+    const res  = await fetch(\`/api/packages?sort=\${listSort}\${cityQs}\${queueQs}\`);
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || \`HTTP \${res.status}\`);
     if (!Array.isArray(data)) throw new Error('Unexpected response from /api/packages');
@@ -1114,7 +1179,7 @@ function renderPickScreen() {
     return;
   }
   document.getElementById('pick-count').innerHTML =
-    \`<strong>\${allPackages.length}</strong> packages available\`;
+    \`<strong>\${allPackages.length}</strong> packages available\${queueMode === 'fresh' ? '' : \` <span style="color:var(--muted)">(\${queueMode.replace('_',' ')})</span>\`}\`;
   grid.innerHTML = allPackages.map(renderPickCard).join('');
   pickedIds.forEach(id => {
     const el = document.getElementById(\`pkgcard-\${id}\`);
@@ -1138,6 +1203,13 @@ function setCityFilter(value) {
   loadCandidates();
 }
 
+function setQueueMode(value) {
+  queueMode = value || 'fresh';
+  const sel = document.getElementById('queue-mode');
+  if (sel) sel.value = queueMode;
+  load();
+}
+
 function tierLabel(hint, qs) {
   if (qs != null && qs >= 70) return 'gold';
   if (qs != null && qs >= 50) return 'silver';
@@ -1150,8 +1222,12 @@ function renderPickCard(pkg) {
     ? \`<img class="pkg-thumb" src="\${thumb}" alt="\${pkg.artist_name}" loading="lazy">\`
     : \`<div class="pkg-thumb-placeholder">♪</div>\`;
   const tier = tierLabel(pkg.course_tier_hint, pkg.course_quality_score);
+  const queueBadge = pkg.queue_status
+    ? \`<span class="queue-badge \${pkg.queue_status}">\${pkg.queue_status}</span>\`
+    : '';
   return \`
   <div class="pkg-card" id="pkgcard-\${pkg.id}" onclick="togglePick('\${pkg.id}')">
+    \${queueBadge}
     <button type="button" class="btn-pkg-remove" title="Remove from list"
             onclick="event.stopPropagation(); dismissPackage('\${pkg.id}', this)">×</button>
     \${thumbHtml}
@@ -1469,6 +1545,7 @@ function renderCandCard(c) {
       <span class="date">\${show.event_date_fmt}</span>
       &nbsp;·&nbsp;\${show.city}
       &nbsp;·&nbsp;\${show.genre}
+      &nbsp;·&nbsp;Fit \${c.marketingFitScore ?? show.score}
     </div>
     \${optionsHtml}
     <button class="btn-add" id="btn-add-\${id}"
@@ -1584,7 +1661,8 @@ const server = http.createServer(async (req, res) => {
     if (method === "GET" && url.pathname === "/api/packages") {
       const sort = url.searchParams.get("sort") || "date_asc";
       const city = url.searchParams.get("city") || "";
-      const rows = await fetchPackages(50, sort, city);
+      const queueMode = url.searchParams.get("queue") || "fresh";
+      const rows = await fetchPackages(50, sort, city, queueMode);
       return json(res, 200, rows);
     }
 
