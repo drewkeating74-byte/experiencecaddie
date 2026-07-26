@@ -160,8 +160,12 @@ function genreMatchNeedles(raw: string): string[] {
   return [...needles].filter((n) => n.length > 1);
 }
 
-/** TM often tags jam acts as Rock/Country; match by headliner when the chip is Jam Band. */
-const JAM_BAND_ARTIST_NAMES = [
+/**
+ * TM rarely exposes a real "Jam Band" classification — most jam acts are tagged
+ * Rock/Country/Folk. Match and discover by headliner name instead.
+ * Exported so Stage 1 discovery can keyword-search these when the chip is Jam Band.
+ */
+export const KNOWN_JAM_BAND_ARTISTS = [
   "Widespread Panic",
   "Dead & Company",
   "Dave Matthews Band",
@@ -171,7 +175,37 @@ const JAM_BAND_ARTIST_NAMES = [
   "Gov't Mule",
   "Trey Anastasio",
   "Umphrey's McGee",
+  "Goose",
+  "My Morning Jacket",
+  "The Disco Biscuits",
+  "Lettuce",
+  "Greensky Bluegrass",
+  "Moe.",
+  "Lotus",
+  "Twiddle",
+  "Pigeons Playing Ping Pong",
+  "The Wood Brothers",
+  "Trampled By Turtles",
+  "Kitchen Dwellers",
+  "Railroad Earth",
+  "Yonder Mountain String Band",
+  "The Infamous Stringdusters",
+  "JRAD",
+  "Joe Russo's Almost Dead",
+  "Billy & The Kids",
+  "Bob Weir",
+  "Oteil & Friends",
+  "Dopapod",
+  "Spafford",
+  "Eggy",
 ];
+
+/** @deprecated use KNOWN_JAM_BAND_ARTISTS */
+const JAM_BAND_ARTIST_NAMES = KNOWN_JAM_BAND_ARTISTS;
+
+export function genreTokensRequestJamBand(genreTokens: string[]): boolean {
+  return genreTokens.some(genreTokenIsJamBandLike);
+}
 
 function blobContainsToken(blob: string, token: string): boolean {
   const t = token.trim().toLowerCase();
@@ -735,18 +769,25 @@ async function fetchDiscoveryGenreEvents(params: {
   dmaId?: number | null;
   genreTokens: string[];
 }): Promise<TMEvent[]> {
-  const keywordQueries = Array.from(
-    new Set(
-      params.genreTokens.flatMap((g) =>
-        g
-          .toLowerCase()
-          .split(/\s*\/\s*|,\s*/)
-          .flatMap((part) => genreMatchNeedles(part))
-          .filter((part) => part.length > 2 && !part.includes("/"))
-      )
-    )
-  ).slice(0, 4);
-  const classificationQueries = keywordQueries.slice(0, 3);
+  // "Jam Band" is not a reliable TM classification — search known headliners instead
+  // of keyword "jam band", which returns almost nothing useful.
+  const jamMode = genreTokensRequestJamBand(params.genreTokens);
+  const keywordQueries = jamMode
+    ? KNOWN_JAM_BAND_ARTISTS.slice(0, 12)
+    : Array.from(
+        new Set(
+          params.genreTokens.flatMap((g) =>
+            g
+              .toLowerCase()
+              .split(/\s*\/\s*|,\s*/)
+              .flatMap((part) => genreMatchNeedles(part))
+              .filter((part) => part.length > 2 && !part.includes("/"))
+          )
+        )
+      ).slice(0, 4);
+  const classificationQueries = jamMode
+    ? ["Rock", "Country", "Folk"]
+    : keywordQueries.slice(0, 3);
   const requests = [
     fetchTicketmasterEventsPage({ ...params, size: 50, page: 0 }),
     fetchTicketmasterEventsPage({ ...params, size: 50, page: 1 }),
@@ -886,12 +927,27 @@ export async function fetchNationwideDiscoveryShows(params: {
   const { metros, startDate, endDate, genreTokens } = params;
   const pagesPerGenre = params.pagesPerGenre ?? 4;
   const genreList = (genreTokens.length > 0 ? genreTokens : ["Music"]).slice(0, 12);
-  const reqs: Array<{ classificationName: string; page: number }> = [];
-  for (const g of genreList) for (let page = 0; page < pagesPerGenre; page++) reqs.push({ classificationName: g, page });
+  const jamMode = genreTokensRequestJamBand(genreList);
+  // Classification "Jam Band" is unreliable on TM — keep a light classification
+  // attempt, then fill via known jam headliner keyword pages.
+  type NationwideReq = { classificationName?: string; artist?: string; page: number };
+  const reqs: NationwideReq[] = [];
+  for (const g of genreList) {
+    for (let page = 0; page < pagesPerGenre; page++) {
+      reqs.push({ classificationName: g, page });
+    }
+  }
+  if (jamMode) {
+    for (const artist of KNOWN_JAM_BAND_ARTISTS.slice(0, 20)) {
+      reqs.push({ artist, page: 0 });
+      reqs.push({ artist, page: 1 });
+    }
+  }
 
   const pages = await mapWithConcurrency(reqs, 3, (r) =>
     fetchTicketmasterEventsPage({
       classificationName: r.classificationName,
+      artist: r.artist,
       startDate,
       endDate,
       size: 199,
@@ -915,6 +971,7 @@ export async function fetchNationwideDiscoveryShows(params: {
     params.stats.rejected = rejected;
     params.stats.distinctEvents = byId.size;
     params.stats.firstError = firstError;
+    params.stats.jamMode = jamMode;
   }
 
   const rows: DiscoveryShowRow[] = [];
@@ -1092,11 +1149,22 @@ export async function discoverConcertsFromCatalogMetros(params: {
     // across 40+ metros, tripping TM's 5 req/sec spike-arrest limit and silently
     // dropping most fetches, which starved the pool and broke "Show different options".
     const genreList = (genreTokens.length > 0 ? genreTokens : ["Music"]).slice(0, 6);
-    const reqs: Array<{ classificationName: string; page: number }> = [];
-    for (const g of genreList) for (let page = 0; page < 3; page++) reqs.push({ classificationName: g, page });
+    const jamMode = !artistKeyword && genreTokensRequestJamBand(genreList);
+    type NationwideReq = { classificationName?: string; artist?: string; page: number };
+    const reqs: NationwideReq[] = [];
+    for (const g of genreList) {
+      for (let page = 0; page < 3; page++) reqs.push({ classificationName: g, page });
+    }
+    // Jam Band chip: TM classification is empty/noisy — keyword known headliners.
+    if (jamMode) {
+      for (const artist of KNOWN_JAM_BAND_ARTISTS.slice(0, 14)) {
+        reqs.push({ artist, page: 0 });
+      }
+    }
     const pages = await mapWithConcurrency(reqs, 4, (r) =>
       fetchTicketmasterEventsPage({
         classificationName: r.classificationName,
+        artist: r.artist,
         startDate,
         endDate,
         size: 199,
