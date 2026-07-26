@@ -376,7 +376,7 @@ function marketingCandidateScore({ show, course, hot = null }) {
   if (hot) {
     const heat = Number(hot.heat_score) || 0;
     const sources = Number(hot.source_count) || 1;
-    score += Math.round(50 + heat * 22 + Math.max(0, sources - 1) * 14);
+    score += Math.round(80 + heat * 28 + Math.max(0, sources - 1) * 18);
   }
 
   if (genre.includes("classic rock")) score += 32;
@@ -395,10 +395,75 @@ function marketingCandidateScore({ show, course, hot = null }) {
   return Math.round(score);
 }
 
+const SHOW_EXCLUSION_SQL = `
+  AND ds.artist NOT ILIKE '%tribute%'
+  AND ds.artist NOT ILIKE '%revisited%'
+  AND ds.event_name NOT ILIKE '%tribute%'
+  AND ds.event_name NOT ILIKE '% vs %'
+  AND ds.artist NOT ILIKE '%fab four%'
+  AND ds.artist NOT ILIKE '%petty kings%'
+  AND ds.artist NOT ILIKE '%symphonic celebration%'
+  AND ds.artist NOT ILIKE '%changes in latitudes%'
+  AND ds.artist NOT ILIKE '%get the led out%'
+  AND ds.event_name NOT ILIKE '%symphonic%'
+  AND ds.artist NOT ILIKE '%brit floyd%'
+  AND ds.artist NOT ILIKE '%forrest frank%'
+  AND ds.artist NOT ILIKE '%max mcnown%'
+  AND ds.artist NOT ILIKE '%super diamond%'
+  AND ds.artist NOT ILIKE '%yacht rock%'
+  AND ds.artist NOT ILIKE '%zeppelin%'
+  AND ds.artist NOT ILIKE '%dokken%'
+  AND ds.artist NOT ILIKE '%boiler room%'
+  AND ds.artist NOT ILIKE '%mon laferte%'
+  AND ds.artist NOT ILIKE '%arrolladora%'
+  AND ds.artist NOT ILIKE '%banda%'
+  AND ds.artist NOT ILIKE '%gipsy kings%'
+  AND NOT EXISTS (
+    SELECT 1 FROM public.packages p
+    JOIN public.events e ON e.id = p.event_id
+    WHERE e.source_id = ds.tm_event_id AND p.active = true
+  )
+`;
+
+/** Dedicated hot pull — not capped by TM score ranking that buries culturally hot acts. */
+async function fetchHotDiscoveryShows() {
+  try {
+    const { rows } = await pool.query(`
+      SELECT DISTINCT ON (ds.tm_event_id)
+        ds.tm_event_id, ds.artist, ds.city, ds.genre,
+        ds.event_date::text AS event_date,
+        to_char(ds.event_date::date, 'Mon DD, YYYY') AS event_date_fmt,
+        ds.image_url, ds.ticket_url, ds.score, ds.venue, ds.metro_slug,
+        ha.heat_score AS hot_heat_score,
+        ha.source_count AS hot_source_count
+      FROM public.discovery_shows ds
+      JOIN public.hot_artists ha ON ha.active = true
+        AND length(trim(ha.artist_name)) >= 4
+        AND (
+          ha.artist_key = regexp_replace(lower(trim(ds.artist)), '[^a-z0-9]+', ' ', 'g')
+          OR lower(trim(ds.artist)) = lower(trim(ha.artist_name))
+          OR lower(ds.artist) LIKE '%' || lower(ha.artist_name) || '%'
+          OR (length(trim(ds.artist)) >= 4 AND lower(ha.artist_name) LIKE '%' || lower(ds.artist) || '%')
+        )
+      WHERE ds.active = true
+        AND ds.event_date >= CURRENT_DATE + INTERVAL '14 days'
+        AND ds.event_date <= CURRENT_DATE + INTERVAL '270 days'
+        ${SHOW_EXCLUSION_SQL}
+      ORDER BY ds.tm_event_id, ha.heat_score DESC, ds.score DESC
+      LIMIT 300
+    `);
+    return rows;
+  } catch (err) {
+    console.warn("[review-tool] hot discovery pull failed:", err.message);
+    return [];
+  }
+}
+
 async function fetchCandidates({ offset = 0, limit = 15, sort = "score", city = "" } = {}) {
   const hotByName = await loadHotArtistLookup();
+  const hotShows = await fetchHotDiscoveryShows();
 
-  const { rows: shows } = await pool.query(`
+  const { rows: generalShows } = await pool.query(`
     SELECT * FROM (
       SELECT DISTINCT ON (ds.tm_event_id)
         ds.tm_event_id, ds.artist, ds.city, ds.genre,
@@ -418,47 +483,37 @@ async function fetchCandidates({ offset = 0, limit = 15, sort = "score", city = 
             AND (
               ha.artist_key = regexp_replace(lower(trim(ds.artist)), '[^a-z0-9]+', ' ', 'g')
               OR lower(trim(ds.artist)) = lower(trim(ha.artist_name))
+              OR lower(ds.artist) LIKE '%' || lower(ha.artist_name) || '%'
             )
         )
       )
-        AND ds.artist NOT ILIKE '%tribute%'
-        AND ds.artist NOT ILIKE '%revisited%'
-        AND ds.event_name NOT ILIKE '%tribute%'
-        AND ds.event_name NOT ILIKE '% vs %'
-        AND ds.artist NOT ILIKE '%fab four%'
-      AND ds.artist NOT ILIKE '%petty kings%'
-      AND ds.artist NOT ILIKE '%symphonic celebration%'
-      AND ds.artist NOT ILIKE '%changes in latitudes%'
-      AND ds.artist NOT ILIKE '%get the led out%'
-      AND ds.event_name NOT ILIKE '%symphonic%'
-      AND ds.artist NOT ILIKE '%brit floyd%'
-      AND ds.artist NOT ILIKE '%forrest frank%'
-      AND ds.artist NOT ILIKE '%max mcnown%'
-      AND ds.artist NOT ILIKE '%super diamond%'
-      AND ds.artist NOT ILIKE '%yacht rock%'
-      AND ds.artist NOT ILIKE '%zeppelin%'
-      AND ds.artist NOT ILIKE '%dokken%'
-      AND ds.artist NOT ILIKE '%boiler room%'
-      AND ds.artist NOT ILIKE '%mon laferte%'
-      AND ds.artist NOT ILIKE '%arrolladora%'
-      AND ds.artist NOT ILIKE '%banda%'
-      AND ds.artist NOT ILIKE '%gipsy kings%'
-        AND NOT EXISTS (
-          SELECT 1 FROM public.packages p
-          JOIN public.events e ON e.id = p.event_id
-          WHERE e.source_id = ds.tm_event_id AND p.active = true
-        )
+      ${SHOW_EXCLUSION_SQL}
       ORDER BY ds.tm_event_id, ds.score DESC
     ) sub
     ORDER BY score DESC, event_date ASC
     LIMIT 500
   `);
 
+  // Hot shows first so course-pairing budget isn't spent only on cold TM-score leaders.
+  const seenIds = new Set();
+  const shows = [];
+  for (const row of [...hotShows, ...generalShows]) {
+    const id = String(row.tm_event_id || "");
+    if (!id || seenIds.has(id)) continue;
+    seenIds.add(id);
+    shows.push(row);
+  }
+
   const byArtistCity = new Map();
+  // Cap golf lookups; prioritize walking hot shows so more Hot cards make the cut.
+  const MAX_COURSE_LOOKUPS = 220;
+  let courseLookups = 0;
   for (const show of shows) {
+    if (courseLookups >= MAX_COURSE_LOOKUPS) break;
     const lookupCity = resolveCity(show.metro_slug, show.city);
     if (!lookupCity) continue;
     if (city && lookupCity.toLowerCase() !== city.toLowerCase()) continue;
+    courseLookups++;
     const { rows: rawCourses } = await pool.query(`
       SELECT id, name, city, state, rating, holes, user_rating_count,
              marketing_image_url, tier_hint, normalized_quality_score, image_brightness_score
@@ -479,9 +534,8 @@ async function fetchCandidates({ offset = 0, limit = 15, sort = "score", city = 
     const courses = rawCourses.filter((c) => marketingCourseRecordIsPlayable(c));
     if (!courses.length) continue;
 
-    const dedupeKey = city
-      ? `${show.artist.toLowerCase().trim()}::${lookupCity.toLowerCase()}`
-      : show.artist.toLowerCase().trim();
+    // Always keep artist×city variants so hot tours surface in multiple markets.
+    const dedupeKey = `${show.artist.toLowerCase().trim()}::${lookupCity.toLowerCase()}`;
     const hot = findHotArtistMatch(show.artist, hotByName);
     const entry = {
       show,
@@ -535,9 +589,13 @@ async function fetchCandidates({ offset = 0, limit = 15, sort = "score", city = 
   } else if (sort === "date_desc") {
     all.sort((a, b) => byDate(b, a));
   } else {
-    all.sort((a, b) =>
-      (Number(b.marketingFitScore) - Number(a.marketingFitScore)) || byDate(a, b)
-    );
+    // Default Fit sort: Hot artists first, then Fit score.
+    all.sort((a, b) => {
+      const ah = a.hot ? 1 : 0;
+      const bh = b.hot ? 1 : 0;
+      if (ah !== bh) return bh - ah;
+      return (Number(b.marketingFitScore) - Number(a.marketingFitScore)) || byDate(a, b);
+    });
   }
 
   const safeOffset = Math.max(0, Number(offset) || 0);
