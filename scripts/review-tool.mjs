@@ -260,7 +260,7 @@ async function fetchPackages(limit = 50, sort = "date_asc", city = "", queueMode
       -- AND COALESCE(a.fanartv_background_url, a.spotify_image_url) IS NOT NULL
       AND e.event_date BETWEEN CURRENT_DATE + INTERVAL '30 days'
                            AND CURRENT_DATE + INTERVAL '180 days'
-      AND ${audienceGenreSql("a.genre")}
+      AND (${audienceGenreSql("a.genre")} OR ${audienceArtistSql("a.name")})
       ${cityClause}
       ${queueClause}
     ORDER BY e.event_date::date ${order}, a.name ASC
@@ -314,7 +314,53 @@ function normalizedName(value) {
 
 const TARGET_AUDIENCE_ARTIST_NAMES = new Set(TARGET_AUDIENCE_ARTISTS.map(normalizedName));
 
-function marketingCandidateScore({ show, course }) {
+/** Weekly What's Hot cache → Map(normalized artist → heat row). Soft-fails if table missing. */
+let hotArtistCache = { loadedAt: 0, byName: new Map() };
+const HOT_ARTIST_CACHE_MS = 5 * 60 * 1000;
+
+async function loadHotArtistLookup() {
+  const now = Date.now();
+  if (now - hotArtistCache.loadedAt < HOT_ARTIST_CACHE_MS) {
+    return hotArtistCache.byName;
+  }
+  try {
+    const { rows } = await pool.query(`
+      SELECT artist_name, artist_key, heat_score, source_count, genres
+      FROM public.hot_artists
+      WHERE active = true
+      ORDER BY heat_score DESC
+      LIMIT 80
+    `);
+    const byName = new Map();
+    for (const row of rows) {
+      const key = normalizedName(row.artist_name) || normalizedName(row.artist_key);
+      if (!key) continue;
+      byName.set(key, {
+        artist_name: row.artist_name,
+        heat_score: Number(row.heat_score) || 0,
+        source_count: Number(row.source_count) || 1,
+        genres: Array.isArray(row.genres) ? row.genres : [],
+      });
+    }
+    hotArtistCache = { loadedAt: now, byName };
+  } catch (err) {
+    console.warn("[review-tool] hot_artists load failed:", err.message);
+    hotArtistCache = { loadedAt: now, byName: new Map() };
+  }
+  return hotArtistCache.byName;
+}
+
+function findHotArtistMatch(artistName, hotByName) {
+  const key = normalizedName(artistName);
+  if (!key || !hotByName?.size) return null;
+  if (hotByName.has(key)) return hotByName.get(key);
+  for (const [hotKey, row] of hotByName) {
+    if (key.includes(hotKey) || hotKey.includes(key)) return row;
+  }
+  return null;
+}
+
+function marketingCandidateScore({ show, course, hot = null }) {
   const artist = normalizedName(show.artist);
   const genre = normalizedName(show.genre);
   const tmScore = Number(show.score) || 0;
@@ -325,6 +371,13 @@ function marketingCandidateScore({ show, course }) {
 
   if (TARGET_AUDIENCE_ARTIST_NAMES.has(artist)) score += 90;
   else if ([...TARGET_AUDIENCE_ARTIST_NAMES].some((target) => artist.includes(target) || target.includes(artist))) score += 55;
+
+  // Culturally hot (weekly media scan) — strong boost so review tool prioritizes them.
+  if (hot) {
+    const heat = Number(hot.heat_score) || 0;
+    const sources = Number(hot.source_count) || 1;
+    score += Math.round(50 + heat * 22 + Math.max(0, sources - 1) * 14);
+  }
 
   if (genre.includes("classic rock")) score += 32;
   else if (genre.includes("rock")) score += 24;
@@ -343,6 +396,8 @@ function marketingCandidateScore({ show, course }) {
 }
 
 async function fetchCandidates({ offset = 0, limit = 15, sort = "score", city = "" } = {}) {
+  const hotByName = await loadHotArtistLookup();
+
   const { rows: shows } = await pool.query(`
     SELECT * FROM (
       SELECT DISTINCT ON (ds.tm_event_id)
@@ -354,7 +409,18 @@ async function fetchCandidates({ offset = 0, limit = 15, sort = "score", city = 
       WHERE ds.active = true
       AND ds.event_date >= CURRENT_DATE + INTERVAL '30 days'
       AND ds.event_date <= CURRENT_DATE + INTERVAL '210 days'
-      AND (${audienceGenreSql("ds.genre")} OR ${audienceArtistSql("ds.artist")})
+      AND (
+        ${audienceGenreSql("ds.genre")}
+        OR ${audienceArtistSql("ds.artist")}
+        OR EXISTS (
+          SELECT 1 FROM public.hot_artists ha
+          WHERE ha.active = true
+            AND (
+              ha.artist_key = regexp_replace(lower(trim(ds.artist)), '[^a-z0-9]+', ' ', 'g')
+              OR lower(trim(ds.artist)) = lower(trim(ha.artist_name))
+            )
+        )
+      )
         AND ds.artist NOT ILIKE '%tribute%'
         AND ds.artist NOT ILIKE '%revisited%'
         AND ds.event_name NOT ILIKE '%tribute%'
@@ -416,6 +482,7 @@ async function fetchCandidates({ offset = 0, limit = 15, sort = "score", city = 
     const dedupeKey = city
       ? `${show.artist.toLowerCase().trim()}::${lookupCity.toLowerCase()}`
       : show.artist.toLowerCase().trim();
+    const hot = findHotArtistMatch(show.artist, hotByName);
     const entry = {
       show,
       course: courses[0],
@@ -432,6 +499,13 @@ async function fetchCandidates({ offset = 0, limit = 15, sort = "score", city = 
         label: formatCourseOptionLabel(c),
       })),
       lookupCity,
+      hot: hot
+        ? {
+            heat_score: hot.heat_score,
+            source_count: hot.source_count,
+            genres: hot.genres,
+          }
+        : null,
     };
     entry.marketingFitScore = marketingCandidateScore(entry);
     const prev = byArtistCity.get(dedupeKey);
@@ -818,6 +892,10 @@ const HTML = /* html */`<!DOCTYPE html>
   .pkg-course { font-size: 0.82rem; color: var(--muted); }
   .pkg-meta { display: flex; gap: 10px; font-size: 0.78rem; color: var(--muted); flex-wrap: wrap; margin-top: 2px; }
   .pkg-meta .date { color: var(--orange); font-weight: 600; }
+  .hot-badge { display: inline-block; font-size: 0.68rem; font-weight: 800; letter-spacing: 0.04em;
+               text-transform: uppercase; border-radius: 999px; padding: 2px 8px; margin-left: 6px;
+               background: rgba(249, 115, 22, 0.2); color: #fb923c; border: 1px solid rgba(249, 115, 22, 0.45);
+               vertical-align: middle; }
 
   .pkg-footer { padding: 10px 14px; border-top: 1px solid var(--border);
                 display: flex; align-items: center; justify-content: space-between; }
@@ -1538,9 +1616,12 @@ function renderCandCard(c) {
          \`).join('')}
        </select>\`
     : \`<div class="cand-course">⛳ \${course.name} · \${tierLabel(course.tier_hint, course.normalized_quality_score)}+\${course.holes ? \` · \${course.holes}h\` : ''}\${course.rating ? \` · ★\${course.rating}\` : ''}</div>\`;
+  const hotBadge = c.hot
+    ? \`<span class="hot-badge" title="What's Hot · heat \${c.hot.heat_score} · \${c.hot.source_count} source(s)">Hot</span>\`
+    : "";
   return \`
   <div class="cand-card" id="cand-\${id}" data-course-id="\${course.id}">
-    <div class="cand-artist">\${show.artist}</div>
+    <div class="cand-artist">\${show.artist}\${hotBadge}</div>
     <div class="cand-meta">
       <span class="date">\${show.event_date_fmt}</span>
       &nbsp;·&nbsp;\${show.city}
@@ -1722,9 +1803,9 @@ const server = http.createServer(async (req, res) => {
         caption,
       });
 
-      console.log(`[group-chat] Instagram: ${result.instagramId} @ ${result.instagramAt.toISOString()}`);
+      console.log(`[group-chat] Instagram: ${result.instagramId} @ ${result.instagramAt?.toISOString() ?? "Buffer queue"}`);
       if (result.facebookId) {
-        console.log(`[group-chat] Facebook: ${result.facebookId} @ ${result.facebookAt.toISOString()}`);
+        console.log(`[group-chat] Facebook: ${result.facebookId} @ ${result.facebookAt?.toISOString() ?? "Buffer queue"}`);
       }
 
       return json(res, 200, {
@@ -1771,9 +1852,9 @@ const server = http.createServer(async (req, res) => {
           facebookScheduledAt = result.facebookAt;
           facebookBufferPostId = result.facebookId;
           status = "scheduled";
-          console.log(`[approve] Instagram: ${bufferPostId} @ ${scheduledAt.toISOString()}`);
+          console.log(`[approve] Instagram: ${bufferPostId} @ ${scheduledAt?.toISOString() ?? "Buffer queue"}`);
           if (facebookBufferPostId) {
-            console.log(`[approve] Facebook: ${facebookBufferPostId} @ ${facebookScheduledAt.toISOString()}`);
+            console.log(`[approve] Facebook: ${facebookBufferPostId} @ ${facebookScheduledAt?.toISOString() ?? "Buffer queue"}`);
           }
         } catch (e) {
           console.error(`[approve] Buffer scheduling failed: ${e.message} — saving as pending`);
