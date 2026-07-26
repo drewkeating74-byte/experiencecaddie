@@ -15,8 +15,10 @@
  *   POST /functions/v1/refresh-discovery
  *   Authorization: Bearer <SUPABASE_SERVICE_ROLE_KEY>
  *   Body (optional): { "dry_run": true, "pages": 4 }
+ *   Modes: default TM genre refresh | backfill_artists | backfill_hot_artists | seed_from_events
  *
  * CADENCE: daily (GitHub Actions cron → see .github/workflows/refresh-discovery.yml)
+ *          Daily tm mode also backfills audience headliners + active hot_artists.
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -95,6 +97,16 @@ Deno.serve(async (req: Request) => {
       startDate,
       endDate,
       body.artists,
+      dryRun,
+    );
+  }
+
+  // Weekly hot_artists list → keep discovery_shows inventory warm for review tool + planner.
+  if (body.mode === "backfill_hot_artists") {
+    return await backfillHotArtists(
+      createClient(supabaseUrl, serviceRoleKey),
+      startDate,
+      endDate,
       dryRun,
     );
   }
@@ -267,15 +279,67 @@ const DEFAULT_BACKFILL_ARTISTS = [
   "The Wood Brothers", "Trampled By Turtles", "Indigo Girls",
 ];
 
+async function backfillHotArtists(
+  supabase: ReturnType<typeof createClient>,
+  startDate: string,
+  endDate: string,
+  dryRun: boolean,
+): Promise<Response> {
+  const { data, error } = await supabase
+    .from("hot_artists")
+    .select("artist_name, heat_score")
+    .eq("active", true)
+    .order("heat_score", { ascending: false })
+    .limit(30);
+
+  if (error) {
+    return json({
+      mode: "backfill_hot_artists",
+      error: error.message,
+      kept_prior: true,
+    }, 500);
+  }
+
+  const artists = (data ?? [])
+    .map((r: { artist_name?: string }) => String(r.artist_name || "").trim())
+    .filter(Boolean);
+
+  if (!artists.length) {
+    return json({
+      mode: "backfill_hot_artists",
+      skipped: true,
+      reason: "no_active_hot_artists",
+    });
+  }
+
+  // Empty genre filter — hot list spans Pop/EDM/Latin/etc., not just country/rock.
+  return backfillTargetArtists(supabase, startDate, endDate, artists, dryRun, {
+    modeLabel: "backfill_hot_artists",
+    genreTokens: [],
+    maxReturn: 10,
+    maxArtists: 30,
+  });
+}
+
 async function backfillTargetArtists(
   supabase: ReturnType<typeof createClient>,
   startDate: string,
   endDate: string,
   artists: string[] | undefined,
   dryRun: boolean,
+  opts?: {
+    modeLabel?: string;
+    genreTokens?: string[];
+    maxReturn?: number;
+    maxArtists?: number;
+  },
 ): Promise<Response> {
   const started = Date.now();
-  const list = (artists?.length ? artists : DEFAULT_BACKFILL_ARTISTS).slice(0, 40);
+  const modeLabel = opts?.modeLabel ?? "backfill_artists";
+  const genreTokens = opts?.genreTokens ?? ["Country", "Rock", "Jam Band", "Americana"];
+  const maxReturn = opts?.maxReturn ?? 12;
+  const maxArtists = opts?.maxArtists ?? 40;
+  const list = (artists?.length ? artists : DEFAULT_BACKFILL_ARTISTS).slice(0, maxArtists);
   const rows: DiscoveryShowRow[] = [];
   const errors: string[] = [];
 
@@ -286,8 +350,8 @@ async function backfillTargetArtists(
         startDate,
         endDate,
         artistKeyword: artist,
-        genreTokens: ["Country", "Rock", "Jam Band", "Americana"],
-        maxReturn: 12,
+        genreTokens,
+        maxReturn,
       });
       for (const o of options) {
         const tmId = String(o.tm_event_id ?? o.id ?? "").trim();
@@ -315,7 +379,7 @@ async function backfillTargetArtists(
 
   if (dryRun) {
     return json({
-      mode: "backfill_artists",
+      mode: modeLabel,
       dry_run: true,
       artists: list,
       fetched: rows.length,
@@ -341,7 +405,7 @@ async function backfillTargetArtists(
   }
 
   return json({
-    mode: "backfill_artists",
+    mode: modeLabel,
     artists: list,
     fetched: rows.length,
     deduped: payload.length,

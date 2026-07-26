@@ -11,13 +11,14 @@ on:
   workflow_dispatch:        # Allow manual trigger from GitHub Actions tab
     inputs:
       mode:
-        description: "Refresh mode: 'tm' (live Ticketmaster + headliner backfill), 'backfill_artists', or 'seed_from_events'"
+        description: "Refresh mode: 'tm' (TM + audience + hot backfill), 'backfill_artists', 'backfill_hot_artists', or 'seed_from_events'"
         required: false
         default: "tm"
         type: choice
         options:
           - tm
           - backfill_artists
+          - backfill_hot_artists
           - seed_from_events
 
 jobs:
@@ -27,17 +28,20 @@ jobs:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
-      - name: Run refresh-discovery edge function
-        env:
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          MODE: ${{ github.event.inputs.mode || 'tm' }}
-        run: |
+    - name: Run refresh-discovery edge function
+      env:
+        SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        MODE: ${{ github.event.inputs.mode || 'tm' }}
+      run: |
           if [ "$MODE" = "seed_from_events" ]; then
             PAYLOADS=('{"mode":"seed_from_events"}')
           elif [ "$MODE" = "backfill_artists" ]; then
             PAYLOADS=('{"mode":"backfill_artists"}')
+          elif [ "$MODE" = "backfill_hot_artists" ]; then
+            PAYLOADS=('{"mode":"backfill_hot_artists"}')
           else
-            PAYLOADS=('{}' '{"mode":"backfill_artists"}')
+            # Daily: genre pages → audience headliners → weekly What's Hot artists
+            PAYLOADS=('{}' '{"mode":"backfill_artists"}' '{"mode":"backfill_hot_artists"}')
           fi
           echo "Dispatch mode: $MODE"
 
