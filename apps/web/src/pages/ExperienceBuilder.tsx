@@ -526,6 +526,15 @@ export default function ExperienceBuilder() {
   };
 
   const handleGenerate = async () => {
+    if (!selectedEntry) {
+      toast.error("Choose what you're looking for");
+      return;
+    }
+    if (selectedEntry === "artist" && !eventInput.trim()) {
+      toast.error("Enter an artist or band name");
+      return;
+    }
+
     // Non-blocking funnel event
     logEvent({
       event_type: "package_generate_click",
@@ -1149,33 +1158,82 @@ export default function ExperienceBuilder() {
             <p className="mt-1 text-muted-foreground">
               Everything here is optional — we'll work with whatever you give us.
             </p>
-            {selectedEntry === "artist" && eventInput.trim() && (
-              <div className="mt-3 rounded-lg border border-accent/30 bg-accent/10 px-3 py-2">
-                <p className="text-sm">
-                  <span className="text-muted-foreground">Looking for:</span>{" "}
-                  <span className="font-semibold text-foreground">{eventInput.trim()}</span>
-                </p>
+          </div>
+
+          {/* Mode / artist / genres — editable here so Back from concert picks doesn't force a full restart */}
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <Music className="h-4 w-4 text-muted-foreground" />
+              <Label className="text-base font-medium">What you&apos;re looking for</Label>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {ENTRY_OPTIONS.map((opt) => {
+                const active = selectedEntry === opt.id;
+                const shortLabel =
+                  opt.id === "artist" ? "Specific artist" : opt.id === "find_concert" ? "Discover shows" : "Surprise me";
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedEntry(opt.id);
+                      if (opt.id !== "artist") setEventInput("");
+                      if (opt.id === "artist") setSelectedGenres([]);
+                    }}
+                    className={`rounded-full border px-4 py-2 text-sm transition-all min-h-[44px] sm:min-h-0 ${
+                      active
+                        ? "border-primary bg-primary/10 text-foreground font-medium"
+                        : "border-border text-muted-foreground hover:border-primary/30"
+                    }`}
+                  >
+                    {shortLabel}
+                  </button>
+                );
+              })}
+            </div>
+
+            {selectedEntry === "artist" && (
+              <div className="space-y-2 animate-fade-in">
+                <Label htmlFor="details-artist-input">Artist or band</Label>
+                <Input
+                  id="details-artist-input"
+                  placeholder="e.g. Morgan Wallen, Kendrick Lamar, The Killers"
+                  value={eventInput}
+                  onChange={(e) => setEventInput(e.target.value)}
+                />
               </div>
             )}
-            {selectedEntry === "find_concert" && (
-              <div className="mt-3 rounded-lg border border-accent/30 bg-accent/10 px-3 py-2">
-                <p className="text-sm">
-                  <span className="text-muted-foreground">Mode:</span>{" "}
-                  <span className="font-semibold text-foreground">Discover shows</span>
-                  {selectedGenres.length > 0 ? (
-                    <span className="text-muted-foreground">{` • Genres: ${selectedGenres.join(", ")}`}</span>
-                  ) : null}
-                </p>
-              </div>
-            )}
-            {selectedEntry === "surprise" && (
-              <div className="mt-3 rounded-lg border border-accent/30 bg-accent/10 px-3 py-2">
-                <p className="text-sm">
-                  <span className="text-muted-foreground">Mode:</span>{" "}
-                  <span className="font-semibold text-foreground">Surprise me</span>
-                  {selectedGenres.length > 0 ? (
-                    <span className="text-muted-foreground">{` • Genres: ${selectedGenres.join(", ")}`}</span>
-                  ) : null}
+
+            {(selectedEntry === "find_concert" || selectedEntry === "surprise") && (
+              <div className="space-y-2 animate-fade-in">
+                <Label>Genres</Label>
+                <div className="flex flex-wrap gap-2">
+                  {CONCERT_GENRES.map((genre) => {
+                    const active = selectedGenres.includes(genre);
+                    return (
+                      <button
+                        key={genre}
+                        type="button"
+                        onClick={() =>
+                          setSelectedGenres((prev) =>
+                            active ? prev.filter((g) => g !== genre) : [...prev, genre]
+                          )
+                        }
+                        className={`rounded-full border px-3 py-2 sm:py-1.5 text-sm transition-all min-h-[44px] sm:min-h-0 ${
+                          active
+                            ? "border-primary bg-primary/10 text-foreground"
+                            : "border-border text-muted-foreground hover:border-primary/30"
+                        }`}
+                      >
+                        {genre}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {selectedGenres.length > 0
+                    ? `Selected: ${selectedGenres.join(", ")}`
+                    : "Pick as many as you like, or leave blank for anything."}
                 </p>
               </div>
             )}
