@@ -22,9 +22,13 @@
  *   BANNERBEAR_API_KEY   (optional — generate button disabled if missing)
  */
 import http from "http";
-import { exec } from "child_process";
+import { exec, spawn } from "child_process";
+import path from "path";
+import { fileURLToPath } from "url";
 import pg from "pg";
 import sharp from "sharp";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import {
   audienceGenreLabel,
   audienceArtistSql,
@@ -1961,6 +1965,34 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+/** Backfill Ticketmaster dates for hot artists missing from discovery_shows. */
+function startHotArtistDiscoveryBackfill() {
+  const script = path.join(__dirname, "backfill-discovery-artists.mjs");
+  const envFile = path.join(__dirname, "..", ".env");
+  console.log("  Hot  : backfilling missing hot_artists into discovery_shows…");
+  const child = spawn(
+    process.execPath,
+    [`--env-file=${envFile}`, script, "--from-hot", "--missing-only"],
+    { cwd: path.join(__dirname, ".."), stdio: ["ignore", "pipe", "pipe"] },
+  );
+  let tail = "";
+  const onChunk = (buf) => {
+    const text = buf.toString();
+    process.stdout.write(text);
+    tail = (tail + text).slice(-500);
+  };
+  child.stdout.on("data", onChunk);
+  child.stderr.on("data", onChunk);
+  child.on("close", (code) => {
+    hotArtistCache.loadedAt = 0; // refresh Hot badges on next candidates load
+    if (code === 0) {
+      console.log("  Hot  : ✓ discovery backfill finished — refresh candidates to see more Hot cards\n");
+    } else {
+      console.warn(`  Hot  : backfill exited ${code}${tail ? ` — ${tail.trim()}` : ""}\n`);
+    }
+  });
+}
+
 server.listen(PORT, "127.0.0.1", () => {
   const addr = `http://localhost:${PORT}`;
   console.log(`\n  Experience Caddie Review Tool`);
@@ -1971,6 +2003,8 @@ server.listen(PORT, "127.0.0.1", () => {
   console.log(`  FB   : ${BUFFER_FB_CHAN ? "✓ Buffer Facebook (+1 day)" : "○ Facebook not configured"}`);
   console.log(`  DB   : ${process.env.PGHOST}`);
   console.log(`\n  Press Ctrl+C to stop.\n`);
+
+  startHotArtistDiscoveryBackfill();
 
   // Try to open browser (Windows needs cmd /c start with an empty window title)
   const cmd = process.platform === "win32"

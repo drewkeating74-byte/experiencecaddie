@@ -6,11 +6,15 @@
  *   node --env-file=.env scripts/backfill-discovery-artists.mjs --dry-run
  *   node --env-file=.env scripts/backfill-discovery-artists.mjs
  *   node --env-file=.env scripts/backfill-discovery-artists.mjs --artist "Eric Church"
+ *   node --env-file=.env scripts/backfill-discovery-artists.mjs --from-hot
+ *   node --env-file=.env scripts/backfill-discovery-artists.mjs --from-hot --missing-only
  */
 import pg from "pg";
 import { TARGET_AUDIENCE_ARTISTS } from "./audience-filters.mjs";
 
 const DRY_RUN = process.argv.includes("--dry-run");
+const FROM_HOT = process.argv.includes("--from-hot");
+const MISSING_ONLY = process.argv.includes("--missing-only");
 const artistFlagIdx = process.argv.indexOf("--artist");
 const SINGLE_ARTIST = artistFlagIdx !== -1 ? process.argv[artistFlagIdx + 1] : null;
 
@@ -166,14 +170,61 @@ function lookupShowCity(rawCity, index) {
   return null;
 }
 
+async function loadHotArtistNames({ missingOnly = false } = {}) {
+  if (missingOnly) {
+    const { rows } = await pool.query(`
+      SELECT ha.artist_name
+      FROM public.hot_artists ha
+      WHERE ha.active = true
+        AND NOT EXISTS (
+          SELECT 1 FROM public.discovery_shows ds
+          WHERE ds.active = true
+            AND ds.event_date >= CURRENT_DATE + INTERVAL '14 days'
+            AND ds.event_date <= CURRENT_DATE + INTERVAL '270 days'
+            AND (
+              ha.artist_key = regexp_replace(lower(trim(ds.artist)), '[^a-z0-9]+', ' ', 'g')
+              OR lower(trim(ds.artist)) = lower(trim(ha.artist_name))
+              OR lower(ds.artist) LIKE '%' || lower(ha.artist_name) || '%'
+            )
+        )
+      ORDER BY ha.heat_score DESC
+      LIMIT 40
+    `);
+    return rows.map((r) => r.artist_name).filter(Boolean);
+  }
+  const { rows } = await pool.query(`
+    SELECT artist_name
+    FROM public.hot_artists
+    WHERE active = true
+    ORDER BY heat_score DESC
+    LIMIT 40
+  `);
+  return rows.map((r) => r.artist_name).filter(Boolean);
+}
+
 async function main() {
   const today = new Date();
   const startDate = ymd(today);
   const endDate = ymd(addMonths(today, 6));
   const cityToMetro = await loadCityIndex();
-  const artists = SINGLE_ARTIST ? [SINGLE_ARTIST] : TARGET_AUDIENCE_ARTISTS;
+  let artists;
+  if (SINGLE_ARTIST) {
+    artists = [SINGLE_ARTIST];
+  } else if (FROM_HOT) {
+    artists = await loadHotArtistNames({ missingOnly: MISSING_ONLY });
+    if (!artists.length) {
+      console.log("No hot artists to backfill.");
+      await pool.end();
+      return;
+    }
+  } else {
+    artists = TARGET_AUDIENCE_ARTISTS;
+  }
 
-  console.log(`${DRY_RUN ? "[DRY RUN] " : ""}Backfilling ${artists.length} artists (${startDate} → ${endDate})\n`);
+  console.log(
+    `${DRY_RUN ? "[DRY RUN] " : ""}Backfilling ${artists.length} artists` +
+      `${FROM_HOT ? " (from hot_artists)" : ""} (${startDate} → ${endDate})\n`,
+  );
 
   const rows = [];
   for (const artist of artists) {
