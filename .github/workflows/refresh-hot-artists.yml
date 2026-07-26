@@ -1,0 +1,40 @@
+name: Weekly Hot Artists Refresh
+
+# Runs every Monday at 08:00 UTC.
+# Calls the refresh-hot-artists edge function which scans music media via
+# Perplexity and upserts public.hot_artists. Genre / surprise discovery uses
+# that cache to seed and re-rank Ticketmaster inventory checks.
+on:
+  schedule:
+    - cron: "0 8 * * 1"   # Weekly Monday 08:00 UTC
+  workflow_dispatch:       # Allow manual trigger from GitHub Actions tab
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+    steps:
+    - name: Run refresh-hot-artists edge function
+      env:
+        SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      run: |
+        RESPONSE=$(curl -s -w "\n%{http_code}" \
+          -X POST \
+          "https://kxibaydbhquospzoefva.supabase.co/functions/v1/refresh-hot-artists" \
+          -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+          -H "Content-Type: application/json" \
+          -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+          -d '{}')
+
+        HTTP_BODY=$(echo "$RESPONSE" | head -n -1)
+        HTTP_STATUS=$(echo "$RESPONSE" | tail -n 1)
+
+        echo "Status: $HTTP_STATUS"
+        echo "Response: $HTTP_BODY"
+
+        if [ "$HTTP_STATUS" -lt 200 ] || [ "$HTTP_STATUS" -ge 300 ]; then
+          echo "::error::refresh-hot-artists returned HTTP $HTTP_STATUS"
+          exit 1
+        fi

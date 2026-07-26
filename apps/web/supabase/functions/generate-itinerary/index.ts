@@ -166,12 +166,93 @@ async function topUpConcertOptionsFromPackages(
     .slice(0, maxReturn);
 }
 
+type HotArtistRow = {
+  artist_name: string;
+  artist_key: string;
+  genres: string[];
+  heat_score: number;
+  source_count: number;
+};
+
+function normalizeArtistKey(name: string): string {
+  return name
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s&'-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function artistMatchesHotName(artist: string, hotName: string): boolean {
+  const a = normalizeArtistKey(artist);
+  const h = normalizeArtistKey(hotName);
+  if (!a || !h) return false;
+  return a === h || a.includes(h) || h.includes(a);
+}
+
+function findHotMatch(
+  artist: string,
+  hotArtists: HotArtistRow[],
+): HotArtistRow | null {
+  for (const hot of hotArtists) {
+    if (artistMatchesHotName(artist, hot.artist_name)) return hot;
+  }
+  return null;
+}
+
+/** Additive boost so culturally hot + touring-available ranks above plain cache score. */
+function hotScoreBoost(hot: HotArtistRow): number {
+  return Math.round(Number(hot.heat_score) * 10 + Number(hot.source_count) * 5);
+}
+
+/**
+ * Load weekly hot_artists cache, filtered to request genres when present.
+ * Soft-fails to [] if the table is empty/missing so discovery still works.
+ */
+async function loadHotArtists(
+  supabase: any,
+  genreTokens: string[],
+  limit = 40,
+): Promise<HotArtistRow[]> {
+  try {
+    const { data, error } = await supabase
+      .from("hot_artists")
+      .select("artist_name,artist_key,genres,heat_score,source_count")
+      .eq("active", true)
+      .order("heat_score", { ascending: false })
+      .limit(80);
+    if (error || !Array.isArray(data)) {
+      if (error) console.warn("[HOT] load failed:", error.message);
+      return [];
+    }
+    const rows = (data as HotArtistRow[]).filter((r) => r?.artist_name);
+    if (!genreTokens.length) return rows.slice(0, limit);
+    const matched = rows.filter((r) =>
+      catalogRowMatchesGenreTokens(
+        {
+          genre: Array.isArray(r.genres) ? r.genres.join(" ") : null,
+          artist: r.artist_name,
+        },
+        genreTokens,
+      ),
+    );
+    return matched.slice(0, limit);
+  } catch (err) {
+    console.warn("[HOT] load exception:", err instanceof Error ? err.message : String(err));
+    return [];
+  }
+}
+
 /**
  * Genre / "best upcoming shows" / surprise discovery served from the cached
  * discovery_shows table (refreshed daily by refresh-discovery) instead of live
  * Ticketmaster. Applies metro + date + genre + exclude filters, then picks a
  * date- and metro/city/artist-diverse set so "Show different options" rotates
  * deeply. Returns options shaped like the live TM discovery output.
+ *
+ * When preferredArtists (What's Hot) is provided, those headliners are sorted
+ * and picked first — still subject to metro/date/weekend inventory in cache.
  */
 async function discoverFromCache(
   supabase: any,
@@ -182,6 +263,7 @@ async function discoverFromCache(
     genreTokens: string[];
     excludeIds: string[];
     maxReturn: number;
+    preferredArtists?: string[];
   },
 ): Promise<Array<Record<string, unknown>>> {
   const { data, error } = await supabase
@@ -199,6 +281,9 @@ async function discoverFromCache(
 
   const metroSet = new Set(opts.metroSlugs);
   const exclude = new Set(opts.excludeIds);
+  const preferred = opts.preferredArtists ?? [];
+  const isPreferred = (artist: string) =>
+    preferred.some((name) => artistMatchesHotName(artist, name));
   const matchesGenre = (row: Record<string, unknown>) =>
     catalogRowMatchesGenreTokens(
       {
@@ -212,7 +297,13 @@ async function discoverFromCache(
   const pool = (data as Array<Record<string, unknown>>)
     .filter((r) => metroSet.size === 0 || metroSet.has(String(r.metro_slug)))
     .filter((r) => !exclude.has(String(r.tm_event_id)))
-    .filter(matchesGenre);
+    .filter(matchesGenre)
+    .sort((a, b) => {
+      const ap = isPreferred(String(a.artist || "")) ? 1 : 0;
+      const bp = isPreferred(String(b.artist || "")) ? 1 : 0;
+      if (ap !== bp) return bp - ap;
+      return Number(b.score ?? 0) - Number(a.score ?? 0);
+    });
 
   const picked: Array<Record<string, unknown>> = [];
   const usedMetros = new Set<string>();
@@ -224,6 +315,8 @@ async function discoverFromCache(
   const cityOf = (r: Record<string, unknown>) => String(r.city || "").toLowerCase();
 
   const passes: Array<(r: Record<string, unknown>) => boolean> = [
+    // Prefer culturally hot artists that have inventory in-cache.
+    (r) => isPreferred(String(r.artist || "")) && !usedArtists.has(artistOf(r)) && !usedMonths.has(monthOf(r)),
     (r) => !usedMetros.has(String(r.metro_slug)) && !usedArtists.has(artistOf(r)) && !usedMonths.has(monthOf(r)),
     (r) => !usedCities.has(cityOf(r)) && !usedArtists.has(artistOf(r)) && !usedMonths.has(monthOf(r)),
     (r) => !usedMetros.has(String(r.metro_slug)) && !usedArtists.has(artistOf(r)),
@@ -517,7 +610,8 @@ serve(async (req) => {
         // Artist search → live Ticketmaster (single nationwide call, accurate).
         // Genre / "best upcoming shows" / surprise → served from the cached
         // discovery_shows table (refreshed daily) so we never hit TM's rate/quota
-        // limits and the pool is deep + instant to rotate.
+        // limits and the pool is deep + instant to rotate. Weekly hot_artists
+        // seeds / re-ranks that path; TM still proves nearby inventory.
         let opts: Array<Record<string, unknown>>;
         if (artistSearch) {
           opts = await discoverConcertsFromCatalogMetros({
@@ -531,6 +625,12 @@ serve(async (req) => {
             _weekdayDropRef: weekdayDropRef,
           });
         } else {
+          const hotArtists = await loadHotArtists(supabase, genreTokens, 40);
+          console.log(
+            `[HOT] loaded=${hotArtists.length} genres=${genreTokens.join("|") || "any"} ` +
+              `top=${hotArtists.slice(0, 5).map((h) => h.artist_name).join(", ") || "(none)"}`,
+          );
+
           opts = await discoverFromCache(supabase, {
             metroSlugs: targetMetros.map((m) => m.slug),
             startYmd: discStart,
@@ -538,6 +638,18 @@ serve(async (req) => {
             genreTokens,
             excludeIds: excludeEventIds,
             maxReturn: MAX_RETURN,
+            preferredArtists: hotArtists.map((h) => h.artist_name),
+          });
+
+          // Boost culturally hot shows that already have cache inventory.
+          opts = opts.map((o) => {
+            const hot = findHotMatch(String(o.artist || ""), hotArtists);
+            if (!hot) return o;
+            return {
+              ...o,
+              _score: Number(o._score ?? 0) + hotScoreBoost(hot),
+              _hot: true,
+            };
           });
 
           // Genre-specific picks are not in the daily cache for every chip (e.g. Classic Rock).
@@ -555,6 +667,36 @@ serve(async (req) => {
               ],
             });
             opts = mergeDiscoverOptions(opts, liveOpts, MAX_RETURN);
+          }
+
+          // Bounded TM keyword top-up for hottest artists missing from cache.
+          // Caps API spend; geography/date still enforced by discoverConcertsFromCatalogMetros.
+          if (opts.length < MAX_RETURN && hotArtists.length > 0) {
+            const HOT_TM_TOPUP = 4;
+            const unmatchedHot = hotArtists
+              .filter((h) => !opts.some((o) => artistMatchesHotName(String(o.artist || ""), h.artist_name)))
+              .slice(0, HOT_TM_TOPUP);
+            for (const hot of unmatchedHot) {
+              if (opts.length >= MAX_RETURN) break;
+              const liveHot = await discoverConcertsFromCatalogMetros({
+                metros: targetMetros,
+                startDate: discStart,
+                endDate: maxDiscoveryEnd,
+                artistKeyword: hot.artist_name,
+                genreTokens,
+                maxReturn: 2,
+                excludeEventIds: [
+                  ...excludeEventIds,
+                  ...opts.map((o) => String(o.id || "").trim()).filter(Boolean),
+                ],
+              });
+              const boosted = liveHot.map((o) => ({
+                ...o,
+                _score: Number(o._score ?? 0) + hotScoreBoost(hot),
+                _hot: true,
+              }));
+              opts = mergeDiscoverOptions(opts, boosted, MAX_RETURN);
+            }
           }
         }
 

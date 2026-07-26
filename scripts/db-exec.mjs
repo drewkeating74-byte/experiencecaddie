@@ -45,6 +45,30 @@ const SQL = {
     CREATE INDEX IF NOT EXISTS idx_discovery_shows_score  ON public.discovery_shows (score DESC);
     ALTER TABLE public.discovery_shows ENABLE ROW LEVEL SECURITY;
   `,
+  create_hot_artists: `
+    CREATE TABLE IF NOT EXISTS public.hot_artists (
+      id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      artist_key    text NOT NULL UNIQUE,
+      artist_name   text NOT NULL,
+      genres        text[] NOT NULL DEFAULT '{}',
+      sources       text[] NOT NULL DEFAULT '{}',
+      signal_types  text[] NOT NULL DEFAULT '{}',
+      source_count  integer NOT NULL DEFAULT 1,
+      heat_score    numeric NOT NULL DEFAULT 0,
+      evidence      jsonb NOT NULL DEFAULT '[]'::jsonb,
+      active        boolean NOT NULL DEFAULT true,
+      refreshed_at  timestamptz NOT NULL DEFAULT now(),
+      created_at    timestamptz NOT NULL DEFAULT now(),
+      updated_at    timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_hot_artists_active_heat
+      ON public.hot_artists (active, heat_score DESC);
+    CREATE INDEX IF NOT EXISTS idx_hot_artists_genres
+      ON public.hot_artists USING gin (genres);
+    COMMENT ON TABLE public.hot_artists IS
+      'Weekly culturally-hot artist cache from music media. Seeds genre/surprise discovery; Ticketmaster proves nearby tour dates.';
+    ALTER TABLE public.hot_artists ENABLE ROW LEVEL SECURITY;
+  `,
   role_caps: `
     SELECT rolname, rolsuper, rolcreaterole, rolbypassrls
     FROM pg_roles

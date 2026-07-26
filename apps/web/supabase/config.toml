@@ -27,6 +27,9 @@ verify_jwt = true
 [functions.refresh-discovery]
 verify_jwt = true
 
+[functions.refresh-hot-artists]
+verify_jwt = true
+
 [functions.verify-packages]
 verify_jwt = true
 
