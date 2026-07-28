@@ -49,11 +49,16 @@ import {
   buildGroupChatCaption,
   buildGroupChatModifications,
 } from "../src/marketing/groupChatBank.js";
+import {
+  buildExcuseCaption,
+  buildExcuseModifications,
+} from "../src/marketing/excuseBank.js";
 
 const PORT = 3000;
 const BB_KEY        = process.env.BANNERBEAR_API_KEY;
 const BB_TEMPLATE   = "8D6okAWQ2BNrnNmXPl"; // Collection template set UID
 const BB_GROUP_CHAT_TEMPLATE = "ok0l2K5mM9Lv53j1Yx";
+const BB_EXCUSE_TEMPLATE = "wvgMNmDoE6dnZyARK0";
 const SUPABASE_URL  = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
 const SERVICE_KEY   = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const BUFFER_TOKEN  = process.env.BUFFER_ACCESS_TOKEN;
@@ -877,6 +882,35 @@ async function renderGroupChatPost() {
   };
 }
 
+async function renderExcusePost() {
+  if (!BB_KEY) throw new Error("BANNERBEAR_API_KEY is not set");
+
+  const createRes = await fetch("https://sync.api.bannerbear.com/v2/images", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${BB_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      template: BB_EXCUSE_TEMPLATE,
+      modifications: buildExcuseModifications(),
+    }),
+  });
+
+  if (!createRes.ok) {
+    const body = await createRes.text();
+    throw new Error(`BannerBear ${createRes.status}: ${body.slice(0, 300)}`);
+  }
+
+  const result = await createRes.json();
+  console.log(`Excuse image_url: ${result.image_url ?? ""}`);
+
+  return {
+    uid: result.uid,
+    image_url: result.image_url ?? null,
+  };
+}
+
 // ── HTTP request body parser ──────────────────────────────────────────────────
 function readBody(req) {
   return new Promise((resolve, reject) => {
@@ -1100,6 +1134,18 @@ const HTML = /* html */`<!DOCTYPE html>
     <div id="group-chat-msg"></div>
   </div>
 
+  <div class="standalone-draft">
+    <h2>The Excuse</h2>
+    <p>Generate a single-image emotional draft, review the image and caption, then approve it into the same Buffer Instagram/Facebook schedule.</p>
+    <div class="actions">
+      <button class="btn-generate" id="btn-excuse-generate" ${BB_KEY ? '' : 'disabled title="No BB key"'}
+              onclick="generateExcuseDraft()">Generate Excuse Draft</button>
+      <button class="btn-approve" id="btn-excuse-approve" disabled onclick="approveExcuseDraft()">Approve to Buffer</button>
+    </div>
+    <div id="excuse-draft"></div>
+    <div id="excuse-msg"></div>
+  </div>
+
   <p class="page-sub">Select packages to build reels for, or click <strong>✕</strong> to remove ones you won't post.</p>
   <div class="pick-toolbar">
     <span class="pick-count" id="pick-count">Loading…</span>
@@ -1166,6 +1212,7 @@ let cityFilter  = '';
 let queueMode   = 'fresh';
 const selected  = {};   // { [reviewIdx]: { courseUrl, courseLabel, concertUrl, concertType, generated } }
 let groupChatDraft = null;
+let excuseDraft = null;
 
 if (!BB_ENABLED) document.getElementById('no-key-warn').style.display = '';
 
@@ -1235,6 +1282,78 @@ async function approveGroupChatDraft() {
       body: JSON.stringify({
         imageUrl: groupChatDraft.image_url,
         caption: groupChatDraft.caption,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Approve failed');
+
+    const schedMsg = data.scheduledAt
+      ? \`IG \${new Date(data.scheduledAt).toLocaleString('en-US',{weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZone:'America/Chicago'})} CT\${data.facebookScheduledAt ? \` · FB \${new Date(data.facebookScheduledAt).toLocaleString('en-US',{weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZone:'America/Chicago'})} CT\` : ''}\`
+      : 'scheduled';
+    msgEl.innerHTML = \`<div class="status-msg ok">✓ Approved to Buffer — \${schedMsg}</div>\`;
+  } catch(e) {
+    approveBtn.disabled = false;
+    msgEl.innerHTML = \`<div class="status-msg err">✗ \${escapeHtml(e.message)}</div>\`;
+  }
+}
+
+async function generateExcuseDraft() {
+  const msgEl = document.getElementById('excuse-msg');
+  const draftEl = document.getElementById('excuse-draft');
+  const approveBtn = document.getElementById('btn-excuse-approve');
+  const generateBtn = document.getElementById('btn-excuse-generate');
+
+  excuseDraft = null;
+  approveBtn.disabled = true;
+  generateBtn.disabled = true;
+  msgEl.innerHTML = '<div class="status-msg info">Generating Excuse draft…</div>';
+
+  try {
+    const res = await fetch('/api/excuse/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Generate failed');
+
+    excuseDraft = data;
+    draftEl.innerHTML = \`
+      <div class="group-draft-preview">
+        <img src="\${escapeHtml(data.image_url)}" alt="The Excuse draft">
+        <div>
+          <div class="section-label">Caption</div>
+          <div class="caption-preview">\${escapeHtml(data.caption)}</div>
+        </div>
+      </div>\`;
+    approveBtn.disabled = false;
+    msgEl.innerHTML = '<div class="status-msg ok">✓ Draft generated. Review it, regenerate if needed, or approve to Buffer.</div>';
+  } catch(e) {
+    draftEl.innerHTML = '';
+    msgEl.innerHTML = \`<div class="status-msg err">✗ \${escapeHtml(e.message)}</div>\`;
+  } finally {
+    generateBtn.disabled = !BB_ENABLED;
+  }
+}
+
+async function approveExcuseDraft() {
+  const msgEl = document.getElementById('excuse-msg');
+  const approveBtn = document.getElementById('btn-excuse-approve');
+  if (!excuseDraft?.image_url) {
+    msgEl.innerHTML = '<div class="status-msg err">Generate an Excuse draft first.</div>';
+    return;
+  }
+
+  approveBtn.disabled = true;
+  msgEl.innerHTML = '<div class="status-msg info">Scheduling in Buffer…</div>';
+
+  try {
+    const res = await fetch('/api/excuse/approve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        imageUrl: excuseDraft.image_url,
+        caption: excuseDraft.caption,
       }),
     });
     const data = await res.json();
@@ -1868,6 +1987,51 @@ const server = http.createServer(async (req, res) => {
       console.log(`[group-chat] Instagram: ${result.instagramId} @ ${result.instagramAt?.toISOString() ?? "Buffer queue"}`);
       if (result.facebookId) {
         console.log(`[group-chat] Facebook: ${result.facebookId} @ ${result.facebookAt?.toISOString() ?? "Buffer queue"}`);
+      }
+
+      return json(res, 200, {
+        ok: true,
+        bufferId: result.instagramId,
+        facebookBufferId: result.facebookId,
+        scheduledAt: result.instagramAt?.toISOString() ?? null,
+        facebookScheduledAt: result.facebookAt?.toISOString() ?? null,
+      });
+    }
+
+    // POST /api/excuse/generate
+    if (method === "POST" && url.pathname === "/api/excuse/generate") {
+      if (!BB_KEY) return json(res, 503, { error: "BANNERBEAR_API_KEY not set" });
+      const result = await renderExcusePost();
+      return json(res, 200, {
+        ...result,
+        caption: buildExcuseCaption(),
+      });
+    }
+
+    // POST /api/excuse/approve
+    if (method === "POST" && url.pathname === "/api/excuse/approve") {
+      if (!BUFFER_TOKEN || !BUFFER_CHAN) {
+        return json(res, 503, { error: "Buffer credentials are not configured" });
+      }
+
+      const body = await readBody(req);
+      const imageUrl = String(body.imageUrl || "").trim();
+      const caption = String(body.caption || "").trim();
+
+      if (!imageUrl) return json(res, 400, { error: "imageUrl is required" });
+      if (!caption) return json(res, 400, { error: "caption is required" });
+
+      const result = await scheduleInstagramAndFacebook({
+        token:               BUFFER_TOKEN,
+        instagramChannelId:  BUFFER_CHAN,
+        facebookChannelId:   BUFFER_FB_CHAN || null,
+        slides:              [imageUrl],
+        caption,
+      });
+
+      console.log(`[excuse] Instagram: ${result.instagramId} @ ${result.instagramAt?.toISOString() ?? "Buffer queue"}`);
+      if (result.facebookId) {
+        console.log(`[excuse] Facebook: ${result.facebookId} @ ${result.facebookAt?.toISOString() ?? "Buffer queue"}`);
       }
 
       return json(res, 200, {
