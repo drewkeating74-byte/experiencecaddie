@@ -46,13 +46,17 @@ import {
 } from "./audience-filters.mjs";
 import { scheduleInstagramAndFacebook } from "./buffer-schedule.mjs";
 import {
-  buildGroupChatCaption,
-  buildGroupChatModifications,
+  buildGroupChatPost,
+  chatSets,
 } from "../src/marketing/groupChatBank.js";
 import {
-  buildExcuseCaption,
-  buildExcuseModifications,
+  buildExcusePost,
+  mainHooks,
 } from "../src/marketing/excuseBank.js";
+import {
+  formatUsedDate,
+  recordSocialUsage,
+} from "../src/marketing/recordSocialUsage.js";
 
 const PORT = 3000;
 const BB_KEY        = process.env.BANNERBEAR_API_KEY;
@@ -197,6 +201,69 @@ async function supabaseInsert(table, row) {
   return res.json();
 }
 
+async function recordUsageSafe(payload) {
+  if (!SUPABASE_URL || !SERVICE_KEY) {
+    console.warn("[usage] Supabase not configured — skipped usage write");
+    return null;
+  }
+  try {
+    return await recordSocialUsage({
+      supabaseUrl: SUPABASE_URL,
+      serviceKey: SERVICE_KEY,
+      ...payload,
+    });
+  } catch (err) {
+    console.error(`[usage] Failed to record ${payload.templateType}: ${err.message}`);
+    return null;
+  }
+}
+
+async function fetchUsageByType(templateType) {
+  const { rows } = await pool.query(
+    `
+    SELECT DISTINCT ON (variant_key)
+      variant_key,
+      label,
+      image_url,
+      used_at,
+      metadata
+    FROM public.social_post_usage
+    WHERE template_type = $1
+    ORDER BY variant_key, used_at DESC
+    `,
+    [templateType],
+  );
+  return rows.map((r) => ({
+    variantKey: r.variant_key,
+    label: r.label,
+    imageUrl: r.image_url,
+    usedAt: r.used_at?.toISOString?.() ?? r.used_at,
+    usedAtLabel: formatUsedDate(r.used_at),
+    metadata: r.metadata || {},
+  }));
+}
+
+async function fetchLastUsedAt(templateType, variantKey) {
+  if (!variantKey) return null;
+  const { rows } = await pool.query(
+    `
+    SELECT used_at
+    FROM public.social_post_usage
+    WHERE template_type = $1 AND variant_key = $2
+    ORDER BY used_at DESC
+    LIMIT 1
+    `,
+    [templateType, String(variantKey)],
+  );
+  const usedAt = rows[0]?.used_at ?? null;
+  return usedAt
+    ? {
+        usedAt: usedAt.toISOString?.() ?? usedAt,
+        usedAtLabel: formatUsedDate(usedAt),
+      }
+    : null;
+}
+
 // ── Package query ─────────────────────────────────────────────────────────────
 const PACKAGE_PICKER_SELECT = `
   SELECT
@@ -218,6 +285,7 @@ const PACKAGE_PICKER_SELECT = `
     a.spotify_image_url,
     iq.status                   AS queue_status,
     iq.created_at               AS queue_created_at,
+    iq.posted_at                AS queue_posted_at,
     gc.marketing_image_url,
     gc.image_brightness_score   AS course_brightness,
     gc.image_url,    gc.image_url_2,  gc.image_url_3,
@@ -230,7 +298,7 @@ const PACKAGE_PICKER_SELECT = `
   JOIN public.golf_courses gc ON gc.id = p.golf_course_id
   LEFT JOIN public.venues  v  ON v.id  = e.venue_id
   LEFT JOIN LATERAL (
-    SELECT status, created_at
+    SELECT status, created_at, posted_at
     FROM public.instagram_queue
     WHERE package_id = p.id
     ORDER BY created_at DESC
@@ -856,6 +924,7 @@ async function generateSlides({ packageId, coursePhoto, concertPhoto, artistName
 async function renderGroupChatPost() {
   if (!BB_KEY) throw new Error("BANNERBEAR_API_KEY is not set");
 
+  const draft = buildGroupChatPost();
   const createRes = await fetch("https://sync.api.bannerbear.com/v2/images", {
     method: "POST",
     headers: {
@@ -864,7 +933,7 @@ async function renderGroupChatPost() {
     },
     body: JSON.stringify({
       template: BB_GROUP_CHAT_TEMPLATE,
-      modifications: buildGroupChatModifications(),
+      modifications: draft.modifications,
     }),
   });
 
@@ -876,15 +945,24 @@ async function renderGroupChatPost() {
   const result = await createRes.json();
   console.log(`Group Chat image_url: ${result.image_url ?? ""}`);
 
+  const prior = await fetchLastUsedAt("group_chat", draft.variantKey);
+
   return {
     uid: result.uid,
     image_url: result.image_url ?? null,
+    caption: draft.caption,
+    variantKey: draft.variantKey,
+    variantId: draft.variantId,
+    label: draft.label,
+    previouslyUsedAt: prior?.usedAt ?? null,
+    previouslyUsedAtLabel: prior?.usedAtLabel ?? null,
   };
 }
 
 async function renderExcusePost() {
   if (!BB_KEY) throw new Error("BANNERBEAR_API_KEY is not set");
 
+  const draft = buildExcusePost();
   const createRes = await fetch("https://sync.api.bannerbear.com/v2/images", {
     method: "POST",
     headers: {
@@ -893,7 +971,7 @@ async function renderExcusePost() {
     },
     body: JSON.stringify({
       template: BB_EXCUSE_TEMPLATE,
-      modifications: buildExcuseModifications(),
+      modifications: draft.modifications,
     }),
   });
 
@@ -905,9 +983,17 @@ async function renderExcusePost() {
   const result = await createRes.json();
   console.log(`Excuse image_url: ${result.image_url ?? ""}`);
 
+  const prior = await fetchLastUsedAt("excuse", draft.variantKey);
+
   return {
     uid: result.uid,
     image_url: result.image_url ?? null,
+    caption: draft.caption,
+    variantKey: draft.variantKey,
+    label: draft.label,
+    selection: draft.selection,
+    previouslyUsedAt: prior?.usedAt ?? null,
+    previouslyUsedAtLabel: prior?.usedAtLabel ?? null,
   };
 }
 
@@ -1003,9 +1089,24 @@ const HTML = /* html */`<!DOCTYPE html>
   .queue-badge { position: absolute; top: 8px; left: 8px; z-index: 2;
                  font-size: 0.68rem; font-weight: 800; letter-spacing: 0.04em;
                  text-transform: uppercase; border-radius: 999px; padding: 4px 8px;
-                 background: rgba(0,0,0,0.75); border: 1px solid var(--border); color: var(--muted); }
+                 background: rgba(0,0,0,0.75); border: 1px solid var(--border); color: var(--muted);
+                 max-width: calc(100% - 48px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .queue-badge.scheduled { background: rgba(45,125,70,0.9); color: #fff; border-color: var(--green); }
   .queue-badge.skipped { background: rgba(80,80,80,0.9); color: #ddd; border-color: #666; }
+  .queue-badge.pending { background: rgba(180,120,40,0.92); color: #fff; border-color: #d4a017; }
+  .usage-panel { margin-top: 12px; padding: 12px 14px; background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; }
+  .usage-panel h3 { margin: 0 0 8px; font-size: 0.85rem; color: var(--muted); font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.04em; }
+  .usage-list { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+  .usage-list li { display: flex; justify-content: space-between; gap: 12px; font-size: 0.86rem;
+    color: var(--text); }
+  .usage-list .used-flag { color: #f0b35a; font-weight: 600; white-space: nowrap; }
+  .usage-list .fresh-flag { color: var(--green); font-weight: 600; white-space: nowrap; }
+  .draft-used-banner { margin: 10px 0 0; padding: 8px 10px; border-radius: 8px;
+    background: rgba(240,179,90,0.15); border: 1px solid rgba(240,179,90,0.35);
+    color: #f0b35a; font-size: 0.88rem; font-weight: 600; }
+  .draft-meta { margin-top: 8px; font-size: 0.85rem; color: var(--muted); }
   .btn-pkg-remove { position: absolute; top: 8px; right: 8px; z-index: 2;
                     width: 28px; height: 28px; border-radius: 50%;
                     background: rgba(0,0,0,0.72); color: #ccc; border: 1px solid var(--border);
@@ -1132,6 +1233,10 @@ const HTML = /* html */`<!DOCTYPE html>
     </div>
     <div id="group-chat-draft"></div>
     <div id="group-chat-msg"></div>
+    <div class="usage-panel">
+      <h3>Variant usage</h3>
+      <ul class="usage-list" id="group-chat-usage-list"><li>Loading…</li></ul>
+    </div>
   </div>
 
   <div class="standalone-draft">
@@ -1144,6 +1249,10 @@ const HTML = /* html */`<!DOCTYPE html>
     </div>
     <div id="excuse-draft"></div>
     <div id="excuse-msg"></div>
+    <div class="usage-panel">
+      <h3>Hook usage</h3>
+      <ul class="usage-list" id="excuse-usage-list"><li>Loading…</li></ul>
+    </div>
   </div>
 
   <p class="page-sub">Select packages to build reels for, or click <strong>✕</strong> to remove ones you won't post.</p>
@@ -1246,16 +1355,23 @@ async function generateGroupChatDraft() {
     if (!res.ok) throw new Error(data.error || 'Generate failed');
 
     groupChatDraft = data;
+    const usedBanner = data.previouslyUsedAtLabel
+      ? \`<div class="draft-used-banner">⚠ Used previously · \${escapeHtml(data.previouslyUsedAtLabel)}</div>\`
+      : '';
     draftEl.innerHTML = \`
       <div class="group-draft-preview">
         <img src="\${escapeHtml(data.image_url)}" alt="Group Chat Screenshot draft">
         <div>
           <div class="section-label">Caption</div>
           <div class="caption-preview">\${escapeHtml(data.caption)}</div>
+          <div class="draft-meta">Variant: \${escapeHtml(data.label || data.variantKey || 'unknown')}</div>
+          \${usedBanner}
         </div>
       </div>\`;
     approveBtn.disabled = false;
-    msgEl.innerHTML = '<div class="status-msg ok">✓ Draft generated. Review it, regenerate if needed, or approve to Buffer.</div>';
+    msgEl.innerHTML = data.previouslyUsedAtLabel
+      ? '<div class="status-msg info">Draft generated — this variant was used before. Regenerate for a fresh one, or approve anyway.</div>'
+      : '<div class="status-msg ok">✓ Draft generated. Review it, regenerate if needed, or approve to Buffer.</div>';
   } catch(e) {
     draftEl.innerHTML = '';
     msgEl.innerHTML = \`<div class="status-msg err">✗ \${escapeHtml(e.message)}</div>\`;
@@ -1282,6 +1398,8 @@ async function approveGroupChatDraft() {
       body: JSON.stringify({
         imageUrl: groupChatDraft.image_url,
         caption: groupChatDraft.caption,
+        variantKey: groupChatDraft.variantKey,
+        label: groupChatDraft.label,
       }),
     });
     const data = await res.json();
@@ -1291,6 +1409,7 @@ async function approveGroupChatDraft() {
       ? \`IG \${new Date(data.scheduledAt).toLocaleString('en-US',{weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZone:'America/Chicago'})} CT\${data.facebookScheduledAt ? \` · FB \${new Date(data.facebookScheduledAt).toLocaleString('en-US',{weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZone:'America/Chicago'})} CT\` : ''}\`
       : 'scheduled';
     msgEl.innerHTML = \`<div class="status-msg ok">✓ Approved to Buffer — \${schedMsg}</div>\`;
+    loadUsagePanels();
   } catch(e) {
     approveBtn.disabled = false;
     msgEl.innerHTML = \`<div class="status-msg err">✗ \${escapeHtml(e.message)}</div>\`;
@@ -1318,16 +1437,24 @@ async function generateExcuseDraft() {
     if (!res.ok) throw new Error(data.error || 'Generate failed');
 
     excuseDraft = data;
+    const usedBanner = data.previouslyUsedAtLabel
+      ? \`<div class="draft-used-banner">⚠ Hook used previously · \${escapeHtml(data.previouslyUsedAtLabel)}</div>\`
+      : '';
+    const bgName = (data.selection?.bgImage || '').split('/').pop() || '';
     draftEl.innerHTML = \`
       <div class="group-draft-preview">
         <img src="\${escapeHtml(data.image_url)}" alt="The Excuse draft">
         <div>
           <div class="section-label">Caption</div>
           <div class="caption-preview">\${escapeHtml(data.caption)}</div>
+          <div class="draft-meta">Hook: \${escapeHtml(data.label || '')}\${bgName ? \` · BG: \${escapeHtml(bgName)}\` : ''}</div>
+          \${usedBanner}
         </div>
       </div>\`;
     approveBtn.disabled = false;
-    msgEl.innerHTML = '<div class="status-msg ok">✓ Draft generated. Review it, regenerate if needed, or approve to Buffer.</div>';
+    msgEl.innerHTML = data.previouslyUsedAtLabel
+      ? '<div class="status-msg info">Draft generated — this hook was used before. Regenerate for a fresh one, or approve anyway.</div>'
+      : '<div class="status-msg ok">✓ Draft generated. Review it, regenerate if needed, or approve to Buffer.</div>';
   } catch(e) {
     draftEl.innerHTML = '';
     msgEl.innerHTML = \`<div class="status-msg err">✗ \${escapeHtml(e.message)}</div>\`;
@@ -1354,6 +1481,9 @@ async function approveExcuseDraft() {
       body: JSON.stringify({
         imageUrl: excuseDraft.image_url,
         caption: excuseDraft.caption,
+        variantKey: excuseDraft.variantKey,
+        label: excuseDraft.label,
+        selection: excuseDraft.selection || null,
       }),
     });
     const data = await res.json();
@@ -1363,11 +1493,48 @@ async function approveExcuseDraft() {
       ? \`IG \${new Date(data.scheduledAt).toLocaleString('en-US',{weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZone:'America/Chicago'})} CT\${data.facebookScheduledAt ? \` · FB \${new Date(data.facebookScheduledAt).toLocaleString('en-US',{weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZone:'America/Chicago'})} CT\` : ''}\`
       : 'scheduled';
     msgEl.innerHTML = \`<div class="status-msg ok">✓ Approved to Buffer — \${schedMsg}</div>\`;
+    loadUsagePanels();
   } catch(e) {
     approveBtn.disabled = false;
     msgEl.innerHTML = \`<div class="status-msg err">✗ \${escapeHtml(e.message)}</div>\`;
   }
 }
+
+async function loadUsagePanels() {
+  try {
+    const res = await fetch('/api/usage');
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to load usage');
+
+    const groupByKey = Object.fromEntries((data.group_chat || []).map(u => [u.variantKey, u]));
+    const groupList = document.getElementById('group-chat-usage-list');
+    if (groupList) {
+      const variants = __GROUP_CHAT_VARIANTS__;
+      groupList.innerHTML = variants.map(v => {
+        const used = groupByKey[v.id];
+        return \`<li><span>\${escapeHtml(v.label)}</span><span class="\${used ? 'used-flag' : 'fresh-flag'}">\${used ? \`Used · \${escapeHtml(used.usedAtLabel || '')}\` : 'Fresh'}</span></li>\`;
+      }).join('');
+    }
+
+    const excuseByKey = Object.fromEntries((data.excuse || []).map(u => [u.variantKey, u]));
+    const excuseList = document.getElementById('excuse-usage-list');
+    if (excuseList) {
+      const hooks = __EXCUSE_HOOKS__;
+      excuseList.innerHTML = hooks.map(hook => {
+        const used = excuseByKey[hook];
+        return \`<li><span>\${escapeHtml(hook)}</span><span class="\${used ? 'used-flag' : 'fresh-flag'}">\${used ? \`Used · \${escapeHtml(used.usedAtLabel || '')}\` : 'Fresh'}</span></li>\`;
+      }).join('');
+    }
+  } catch (e) {
+    const groupList = document.getElementById('group-chat-usage-list');
+    const excuseList = document.getElementById('excuse-usage-list');
+    if (groupList) groupList.innerHTML = \`<li class="used-flag">\${escapeHtml(e.message)}</li>\`;
+    if (excuseList) excuseList.innerHTML = \`<li class="used-flag">\${escapeHtml(e.message)}</li>\`;
+  }
+}
+
+loadUsagePanels();
+
 
 function concertImageUrl(pkg) {
   return pkg.fanartv_background_url || pkg.spotify_image_url
@@ -1481,9 +1648,16 @@ function renderPickCard(pkg) {
     ? \`<img class="pkg-thumb" src="\${thumb}" alt="\${pkg.artist_name}" loading="lazy">\`
     : \`<div class="pkg-thumb-placeholder">♪</div>\`;
   const tier = tierLabel(pkg.course_tier_hint, pkg.course_quality_score);
-  const queueBadge = pkg.queue_status
-    ? \`<span class="queue-badge \${pkg.queue_status}">\${pkg.queue_status}</span>\`
+  const usedWhen = pkg.queue_posted_at || pkg.queue_created_at;
+  const usedLabel = usedWhen
+    ? new Date(usedWhen).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'America/Chicago' })
     : '';
+  let queueBadge = '';
+  if (pkg.queue_status === 'scheduled' || pkg.queue_status === 'posted' || pkg.queue_status === 'pending') {
+    queueBadge = \`<span class="queue-badge \${pkg.queue_status}" title="Previously used">Used\${usedLabel ? \` · \${usedLabel}\` : ''}</span>\`;
+  } else if (pkg.queue_status === 'skipped') {
+    queueBadge = \`<span class="queue-badge skipped" title="Skipped">Skipped\${usedLabel ? \` · \${usedLabel}\` : ''}</span>\`;
+  }
   return \`
   <div class="pkg-card" id="pkgcard-\${pkg.id}" onclick="togglePick('\${pkg.id}')">
     \${queueBadge}
@@ -1790,13 +1964,13 @@ function renderCandCard(c) {
   const { show, course, courseOptions = [] } = c;
   const id = show.tm_event_id;
   const optionsHtml = courseOptions.length > 1
-    ? \`<label class="section-label" style="margin-top:8px;display:block;font-size:0.72rem;color:var(--muted)">Golf course (silver+ only)</label>
+    ? \`<label class="section-label" style="margin-top:8px;display:block;font-size:0.72rem;color:var(--muted)">Golf course</label>
        <select class="cand-course-select" id="cand-course-\${id}" onchange="onCandidateCourseChange('\${id}')">
          \${courseOptions.map((opt) => \`
            <option value="\${opt.id}" \${opt.id === course.id ? 'selected' : ''}>\${opt.label}</option>
          \`).join('')}
        </select>\`
-    : \`<div class="cand-course">⛳ \${course.name} · \${tierLabel(course.tier_hint, course.normalized_quality_score)}+\${course.holes ? \` · \${course.holes}h\` : ''}\${course.rating ? \` · ★\${course.rating}\` : ''}</div>\`;
+    : \`<div class="cand-course">⛳ \${course.name} · \${tierLabel(course.tier_hint, course.normalized_quality_score)}\${course.holes ? \` · \${course.holes}h\` : ''}\${course.rating ? \` · ★\${course.rating}\` : ''}</div>\`;
   const hotBadge = c.hot
     ? \`<span class="hot-badge" title="What's Hot · heat \${c.hot.heat_score} · \${c.hot.source_count} source(s)">Hot</span>\`
     : "";
@@ -1904,7 +2078,12 @@ function initCityFilter() {
 const serveHTML = HTML
   .replace("__BB_ENABLED__", BB_KEY ? "true" : "false")
   .replace("__FEATURED_CITIES__", JSON.stringify(FEATURED_CITIES))
-  .replace("__AUDIENCE_GENRE_LABEL__", audienceGenreLabel());
+  .replace("__AUDIENCE_GENRE_LABEL__", audienceGenreLabel())
+  .replace(
+    "__GROUP_CHAT_VARIANTS__",
+    JSON.stringify(chatSets.map((c) => ({ id: c.id, label: c.chatHeader }))),
+  )
+  .replace("__EXCUSE_HOOKS__", JSON.stringify(mainHooks));
 
 // ── HTTP server ───────────────────────────────────────────────────────────────
 const server = http.createServer(async (req, res) => {
@@ -1945,6 +2124,16 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, result);
     }
 
+    // GET /api/usage — previously used variants for Group Chat / Excuse / carousel
+    if (method === "GET" && url.pathname === "/api/usage") {
+      const [group_chat, excuse, carousel] = await Promise.all([
+        fetchUsageByType("group_chat"),
+        fetchUsageByType("excuse"),
+        fetchUsageByType("carousel"),
+      ]);
+      return json(res, 200, { group_chat, excuse, carousel });
+    }
+
     // POST /api/generate
     if (method === "POST" && url.pathname === "/api/generate") {
       if (!BB_KEY) return json(res, 503, { error: "BANNERBEAR_API_KEY not set" });
@@ -1957,10 +2146,7 @@ const server = http.createServer(async (req, res) => {
     if (method === "POST" && url.pathname === "/api/group-chat/generate") {
       if (!BB_KEY) return json(res, 503, { error: "BANNERBEAR_API_KEY not set" });
       const result = await renderGroupChatPost();
-      return json(res, 200, {
-        ...result,
-        caption: buildGroupChatCaption(),
-      });
+      return json(res, 200, result);
     }
 
     // POST /api/group-chat/approve
@@ -1972,9 +2158,12 @@ const server = http.createServer(async (req, res) => {
       const body = await readBody(req);
       const imageUrl = String(body.imageUrl || "").trim();
       const caption = String(body.caption || "").trim();
+      const variantKey = String(body.variantKey || "").trim();
+      const label = String(body.label || variantKey || "Group Chat").trim();
 
       if (!imageUrl) return json(res, 400, { error: "imageUrl is required" });
       if (!caption) return json(res, 400, { error: "caption is required" });
+      if (!variantKey) return json(res, 400, { error: "variantKey is required" });
 
       const result = await scheduleInstagramAndFacebook({
         token:               BUFFER_TOKEN,
@@ -1989,6 +2178,17 @@ const server = http.createServer(async (req, res) => {
         console.log(`[group-chat] Facebook: ${result.facebookId} @ ${result.facebookAt?.toISOString() ?? "Buffer queue"}`);
       }
 
+      await recordUsageSafe({
+        templateType: "group_chat",
+        variantKey,
+        label,
+        imageUrl,
+        caption,
+        bufferPostId: result.instagramId,
+        usedAt: result.instagramAt || new Date(),
+        metadata: { facebookBufferId: result.facebookId },
+      });
+
       return json(res, 200, {
         ok: true,
         bufferId: result.instagramId,
@@ -2002,10 +2202,7 @@ const server = http.createServer(async (req, res) => {
     if (method === "POST" && url.pathname === "/api/excuse/generate") {
       if (!BB_KEY) return json(res, 503, { error: "BANNERBEAR_API_KEY not set" });
       const result = await renderExcusePost();
-      return json(res, 200, {
-        ...result,
-        caption: buildExcuseCaption(),
-      });
+      return json(res, 200, result);
     }
 
     // POST /api/excuse/approve
@@ -2017,9 +2214,13 @@ const server = http.createServer(async (req, res) => {
       const body = await readBody(req);
       const imageUrl = String(body.imageUrl || "").trim();
       const caption = String(body.caption || "").trim();
+      const variantKey = String(body.variantKey || "").trim();
+      const label = String(body.label || variantKey || "The Excuse").trim();
+      const selection = body.selection && typeof body.selection === "object" ? body.selection : {};
 
       if (!imageUrl) return json(res, 400, { error: "imageUrl is required" });
       if (!caption) return json(res, 400, { error: "caption is required" });
+      if (!variantKey) return json(res, 400, { error: "variantKey is required" });
 
       const result = await scheduleInstagramAndFacebook({
         token:               BUFFER_TOKEN,
@@ -2033,6 +2234,20 @@ const server = http.createServer(async (req, res) => {
       if (result.facebookId) {
         console.log(`[excuse] Facebook: ${result.facebookId} @ ${result.facebookAt?.toISOString() ?? "Buffer queue"}`);
       }
+
+      await recordUsageSafe({
+        templateType: "excuse",
+        variantKey,
+        label,
+        imageUrl,
+        caption,
+        bufferPostId: result.instagramId,
+        usedAt: result.instagramAt || new Date(),
+        metadata: {
+          facebookBufferId: result.facebookId,
+          selection,
+        },
+      });
 
       return json(res, 200, {
         ok: true,
@@ -2058,9 +2273,10 @@ const server = http.createServer(async (req, res) => {
       let scheduledAt = null;
       let facebookScheduledAt = null;
       let status = "pending";
+      let captionText = null;
       if (BUFFER_TOKEN && BUFFER_CHAN && slides.length >= 2) {
         try {
-          const caption = buildCaption({
+          captionText = buildCaption({
             artistName:       body.artistName,
             courseCourseName: body.courseName,
             city:             body.city,
@@ -2071,7 +2287,7 @@ const server = http.createServer(async (req, res) => {
             instagramChannelId:  BUFFER_CHAN,
             facebookChannelId:   BUFFER_FB_CHAN || null,
             slides,
-            caption,
+            caption: captionText,
           });
           scheduledAt = result.instagramAt;
           bufferPostId = result.instagramId;
@@ -2102,6 +2318,26 @@ const server = http.createServer(async (req, res) => {
         posted_at: scheduledAt ?? null,
       };
       const inserted = await supabaseInsert("instagram_queue", row);
+
+      if (body.packageId) {
+        const label = [body.artistName, body.courseName].filter(Boolean).join(" · ") || String(body.packageId);
+        await recordUsageSafe({
+          templateType: "carousel",
+          variantKey: String(body.packageId),
+          label,
+          imageUrl: body.hookSlideUrl || null,
+          caption: captionText,
+          bufferPostId,
+          usedAt: scheduledAt || new Date(),
+          metadata: {
+            status,
+            facebookBufferId: facebookBufferPostId,
+            city: body.city || null,
+            eventDate: body.eventDate || null,
+          },
+        });
+      }
+
       return json(res, 200, {
         ok: true,
         id: inserted?.[0]?.id,

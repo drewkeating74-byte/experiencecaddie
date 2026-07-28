@@ -124,6 +124,8 @@ export function buildGroupChatPost() {
 
   return {
     variantId: chatSet.id,
+    variantKey: chatSet.id,
+    label: chatSet.chatHeader,
     modifications: [
       { name: "chat_header", text: chatSet.chatHeader },
       { name: "eyebrow_label", text: chatSet.eyebrowLabel },

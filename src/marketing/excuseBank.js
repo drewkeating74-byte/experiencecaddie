@@ -79,17 +79,61 @@ export function pickRandom(arr) {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
+let pendingExcusePost = null;
+
+export function buildExcusePost() {
+  const eyebrowLabel = pickRandom(eyebrowLabels);
+  const mainHook = pickRandom(mainHooks);
+  const supportingLine = pickRandom(supportingLines);
+  const ctaPill = pickRandom(ctaPills);
+  const bgImage = pickRandom(bgImages);
+  const caption = pickRandom(excuseCaptions);
+
+  return {
+    variantKey: mainHook,
+    label: mainHook,
+    selection: {
+      eyebrowLabel,
+      mainHook,
+      supportingLine,
+      ctaPill,
+      bgImage,
+    },
+    modifications: [
+      { name: "bg_image", image_url: bgImage },
+      { name: "eyebrow_label", text: eyebrowLabel },
+      { name: "main_hook", text: mainHook },
+      { name: "supporting_line", text: supportingLine },
+      { name: "cta_pill", text: ctaPill },
+      { name: "website_url", text: WEBSITE_URL },
+    ],
+    caption,
+  };
+}
+
+function getPendingExcusePost(part) {
+  if (!pendingExcusePost || pendingExcusePost[part]) {
+    pendingExcusePost = {
+      post: buildExcusePost(),
+      modifications: false,
+      caption: false,
+    };
+  }
+
+  pendingExcusePost[part] = true;
+  const post = pendingExcusePost.post;
+
+  if (pendingExcusePost.modifications && pendingExcusePost.caption) {
+    pendingExcusePost = null;
+  }
+
+  return post;
+}
+
 export function buildExcuseModifications() {
-  return [
-    { name: "bg_image", image_url: pickRandom(bgImages) },
-    { name: "eyebrow_label", text: pickRandom(eyebrowLabels) },
-    { name: "main_hook", text: pickRandom(mainHooks) },
-    { name: "supporting_line", text: pickRandom(supportingLines) },
-    { name: "cta_pill", text: pickRandom(ctaPills) },
-    { name: "website_url", text: WEBSITE_URL },
-  ];
+  return getPendingExcusePost("modifications").modifications;
 }
 
 export function buildExcuseCaption() {
-  return pickRandom(excuseCaptions);
+  return getPendingExcusePost("caption").caption;
 }

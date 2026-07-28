@@ -6,10 +6,8 @@
  *   node --env-file=.env scripts/schedule-excuse-post.mjs
  */
 
-import {
-  buildExcuseCaption,
-  buildExcuseModifications,
-} from "../src/marketing/excuseBank.js";
+import { buildExcusePost } from "../src/marketing/excuseBank.js";
+import { recordSocialUsage } from "../src/marketing/recordSocialUsage.js";
 import {
   formatCentralSchedule,
   scheduleInstagramAndFacebook,
@@ -19,10 +17,12 @@ const BB_KEY = process.env.BANNERBEAR_API_KEY;
 const BUFFER_TOKEN = process.env.BUFFER_ACCESS_TOKEN;
 const BUFFER_CHAN = process.env.BUFFER_CHANNEL_ID;
 const BUFFER_FB_CHAN = process.env.BUFFER_FACEBOOK_CHANNEL_ID;
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const BB_EXCUSE_TEMPLATE = "wvgMNmDoE6dnZyARK0";
 const DRY_RUN = process.argv.includes("--dry-run");
 
-async function renderExcusePost() {
+async function renderExcusePost(draft) {
   if (!BB_KEY) throw new Error("BANNERBEAR_API_KEY is not set");
 
   const createRes = await fetch("https://sync.api.bannerbear.com/v2/images", {
@@ -33,7 +33,7 @@ async function renderExcusePost() {
     },
     body: JSON.stringify({
       template: BB_EXCUSE_TEMPLATE,
-      modifications: buildExcuseModifications(),
+      modifications: draft.modifications,
     }),
   });
 
@@ -61,20 +61,22 @@ function requireEnv() {
 }
 
 async function main() {
-  const caption = buildExcuseCaption();
+  const draft = buildExcusePost();
 
   if (DRY_RUN) {
     console.log("Excuse schedule dry run");
+    console.log(`Hook: ${draft.label}`);
+    console.log(`BG:   ${draft.selection.bgImage}`);
     console.log("Instagram: next available Buffer queue slot");
     if (BUFFER_FB_CHAN) console.log("Facebook:  next available Buffer queue slot");
-    console.log(`Caption:\n${caption.split("\n").map((line) => `  ${line}`).join("\n")}`);
+    console.log(`Caption:\n${draft.caption.split("\n").map((line) => `  ${line}`).join("\n")}`);
     console.log("[DRY RUN - no Bannerbear or Buffer calls made]");
     return;
   }
 
   requireEnv();
 
-  const render = await renderExcusePost();
+  const render = await renderExcusePost(draft);
   if (!render.image_url) {
     throw new Error(`Bannerbear did not return an image_url for ${render.uid}`);
   }
@@ -86,8 +88,27 @@ async function main() {
     instagramChannelId: BUFFER_CHAN,
     facebookChannelId: BUFFER_FB_CHAN || null,
     slides: [render.image_url],
-    caption,
+    caption: draft.caption,
   });
+
+  if (SUPABASE_URL && SERVICE_KEY) {
+    await recordSocialUsage({
+      supabaseUrl: SUPABASE_URL,
+      serviceKey: SERVICE_KEY,
+      templateType: "excuse",
+      variantKey: draft.variantKey,
+      label: draft.label,
+      imageUrl: render.image_url,
+      caption: draft.caption,
+      bufferPostId: result.instagramId,
+      usedAt: result.instagramAt || new Date(),
+      metadata: {
+        facebookBufferId: result.facebookId,
+        selection: draft.selection,
+        source: "schedule-excuse-post",
+      },
+    });
+  }
 
   const igWhen = result.instagramAt
     ? `${formatCentralSchedule(result.instagramAt)} CT`
