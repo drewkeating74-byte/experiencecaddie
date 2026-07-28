@@ -1,12 +1,12 @@
 name: Post to Instagram
 
 # Runs Tuesday, Thursday, and Saturday at 2pm UTC (~9am Central).
-# Picks pending rows from instagram_queue, schedules them 4 hours ahead
-# (posts at ~1pm Central) so you can review + cancel in Meta Business Suite.
+# Picks pending rows from instagram_queue and adds them to Buffer's channel queue
+# so Buffer uses the posting schedule configured for each channel.
 #
 # Manual dispatch options:
 #   dry_run=true   → preview without posting
-#   post_now=true  → publish immediately (skip the 4-hour schedule)
+#   post_now=true  → custom schedule 30 minutes from now instead of queueing
 
 on:
   schedule:

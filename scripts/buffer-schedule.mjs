@@ -1,8 +1,8 @@
 /**
- * Buffer posting schedule — America/Chicago slots + API helpers.
+ * Buffer posting schedule helpers.
  *
- * Instagram: Tue 7:30 PM, Thu 12:15 PM, Sat 11:30 AM CT
- * Facebook:  same wall-clock time, next calendar day (Wed / Fri / Sun)
+ * Default behavior is to add posts to each Buffer channel's queue so Buffer uses
+ * the posting schedule configured in the Buffer UI for that channel.
  */
 
 const POST_SLOTS_CT = [
@@ -105,7 +105,7 @@ export async function scheduleCarouselInBuffer({
   platform,
   slides,
   caption,
-  scheduledAt,
+  scheduledAt = null,
 }) {
   if (!token || !channelId) return null;
 
@@ -115,6 +115,16 @@ export async function scheduleCarouselInBuffer({
       : { instagram: { type: "post", shouldShareToFeed: true } };
 
   const assets = slides.map((url) => ({ image: { url } }));
+  const input = {
+    channelId,
+    text: caption,
+    assets,
+    schedulingType: "automatic",
+    mode: scheduledAt ? "customScheduled" : "addToQueue",
+    metadata,
+  };
+  if (scheduledAt) input.dueAt = scheduledAt.toISOString();
+
   const res = await fetch(BUFFER_GQL, {
     method: "POST",
     headers: {
@@ -124,20 +134,12 @@ export async function scheduleCarouselInBuffer({
     body: JSON.stringify({
       query: `mutation CreatePost($input: CreatePostInput!) {
         createPost(input: $input) {
-          ... on PostActionSuccess { post { id } }
+          ... on PostActionSuccess { post { id dueAt } }
           ... on MutationError { message }
         }
       }`,
       variables: {
-        input: {
-          channelId,
-          text: caption,
-          assets,
-          schedulingType: "automatic",
-          dueAt: scheduledAt.toISOString(),
-          mode: "customScheduled",
-          metadata,
-        },
+        input,
       },
     }),
   });
@@ -146,19 +148,22 @@ export async function scheduleCarouselInBuffer({
   const post = data?.data?.createPost?.post;
   const err = data?.data?.createPost?.message;
   if (err) throw new Error(`Buffer (${platform}): ${err}`);
-  return post?.id ?? null;
+  return post
+    ? { id: post.id ?? null, dueAt: post.dueAt ? new Date(post.dueAt) : null }
+    : null;
 }
 
-/** Instagram at next slot; Facebook +1 day when facebookChannelId is set. */
+/** Add Instagram/Facebook posts to their channel queues. */
 export async function scheduleInstagramAndFacebook({
   token,
   instagramChannelId,
   facebookChannelId,
   slides,
   caption,
+  instagramAt = null,
+  facebookAt = null,
 }) {
-  const instagramAt = nextPostSlot();
-  const instagramId = await scheduleCarouselInBuffer({
+  const instagramPost = await scheduleCarouselInBuffer({
     token,
     channelId: instagramChannelId,
     platform: "instagram",
@@ -167,11 +172,9 @@ export async function scheduleInstagramAndFacebook({
     scheduledAt: instagramAt,
   });
 
-  let facebookAt = null;
-  let facebookId = null;
+  let facebookPost = null;
   if (facebookChannelId) {
-    facebookAt = facebookDayAfter(instagramAt);
-    facebookId = await scheduleCarouselInBuffer({
+    facebookPost = await scheduleCarouselInBuffer({
       token,
       channelId: facebookChannelId,
       platform: "facebook",
@@ -182,9 +185,9 @@ export async function scheduleInstagramAndFacebook({
   }
 
   return {
-    instagramAt,
-    instagramId,
-    facebookAt,
-    facebookId,
+    instagramAt: instagramPost?.dueAt ?? instagramAt,
+    instagramId: instagramPost?.id ?? null,
+    facebookAt: facebookPost?.dueAt ?? facebookAt,
+    facebookId: facebookPost?.id ?? null,
   };
 }

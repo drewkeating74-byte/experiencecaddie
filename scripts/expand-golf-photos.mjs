@@ -9,6 +9,8 @@
  *   1. Photo expansion — fetch up to 10 photo names from Google Places API
  *      and resolve new URLs for slots image_url_4 through image_url_10.
  *      Slots already populated are skipped (re-runnable).
+ *      Pass --refresh-existing to re-resolve all slots when stored Google
+ *      media URLs have expired / started returning 403.
  *   2. Brightness re-score — download all populated slots at w400-h400-c,
  *      compute average greyscale brightness via sharp, and update
  *      marketing_image_url + image_brightness_score to the darkest winner
@@ -19,6 +21,7 @@
  *
  * Usage:
  *   node --env-file=.env scripts/expand-golf-photos.mjs --dry-run
+ *   node --env-file=.env scripts/expand-golf-photos.mjs --dry-run --refresh-existing
  *   node --env-file=.env scripts/expand-golf-photos.mjs
  */
 import pg from "pg";
@@ -26,6 +29,7 @@ import sharp from "sharp";
 
 // ── CLI flags ─────────────────────────────────────────────────────────────────
 const DRY_RUN      = process.argv.includes("--dry-run");
+const REFRESH_EXISTING = process.argv.includes("--refresh-existing");
 const limitFlagIdx = process.argv.indexOf("--limit");
 const LIMIT        = limitFlagIdx !== -1 ? Number(process.argv[limitFlagIdx + 1]) : Infinity;
 
@@ -165,7 +169,8 @@ async function run() {
   const limited = courses.slice(0, LIMIT === Infinity ? undefined : LIMIT);
   console.log(
     `${DRY_RUN ? "[DRY RUN] " : ""}Active-package courses to process: ${limited.length}` +
-    (LIMIT !== Infinity ? ` (limit: ${LIMIT} of ${courses.length})` : "") + "\n"
+    (LIMIT !== Infinity ? ` (limit: ${LIMIT} of ${courses.length})` : "") +
+    (REFRESH_EXISTING ? " — refreshing existing slots" : "") + "\n"
   );
 
   const stats = {
@@ -190,7 +195,7 @@ async function run() {
     for (let i = 0; i < photoNames.length; i++) {
       const slot = SLOTS[i];
       if (!slot) break;
-      if (course[slot.col]) continue; // already stored — skip
+      if (course[slot.col] && !REFRESH_EXISTING) continue; // already stored — skip
 
       try {
         const uri = await resolvePhotoUri(photoNames[i]);

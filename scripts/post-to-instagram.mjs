@@ -2,14 +2,14 @@
  * post-to-instagram.mjs
  *
  * Posts pending instagram_queue rows to Instagram via Buffer's GraphQL API.
- * Posts are scheduled a few hours ahead so you can review + cancel in the
- * Buffer dashboard before they go live.
+ * Posts are added to each Buffer channel queue so Buffer uses the posting
+ * schedule configured in the Buffer dashboard.
  *
  * Usage:
  *   node --env-file=.env scripts/post-to-instagram.mjs [--dry-run] [--now]
  *
  *   --dry-run         Preview without calling Buffer or writing to DB
- *   --now             Schedule 30 minutes from now instead of default offset
+ *   --now             Schedule 30 minutes from now instead of adding to queue
  *   --list-channels   Print your Buffer channel IDs and exit
  *
  * Required env vars:
@@ -23,7 +23,6 @@ import pg from 'pg';
 import {
   facebookDayAfter,
   formatCentralSchedule,
-  nextPostSlot,
   scheduleCarouselInBuffer,
   scheduleInstagramAndFacebook,
 } from './buffer-schedule.mjs';
@@ -151,7 +150,7 @@ async function main() {
 
   console.log(`\n  Found ${queue.length} pending post(s).\n`);
 
-  // Scheduled time — next IG slot (+ FB +1 day when configured)
+  // Scheduled time — Buffer queue schedule by default; --now uses a custom time.
   let scheduledAt;
   let facebookScheduledAt = null;
 
@@ -176,16 +175,21 @@ async function main() {
 
     if (DRY_RUN) {
       if (!POST_SOON) {
-        scheduledAt = nextPostSlot();
-        facebookScheduledAt = FB_CHANNEL_ID ? facebookDayAfter(scheduledAt) : null;
+        scheduledAt = null;
+        facebookScheduledAt = null;
       } else {
         scheduledAt = new Date(Date.now() + 30 * 60_000);
         facebookScheduledAt = FB_CHANNEL_ID
           ? new Date(scheduledAt.getTime() + 86_400_000)
           : null;
       }
-      console.log(`  Instagram: ${formatCentralSchedule(scheduledAt)} CT`);
-      if (facebookScheduledAt) {
+      if (!POST_SOON) {
+        console.log(`  Instagram: next available Buffer queue slot`);
+        if (FB_CHANNEL_ID) console.log(`  Facebook:  next available Buffer queue slot`);
+      } else {
+        console.log(`  Instagram: ${formatCentralSchedule(scheduledAt)} CT`);
+      }
+      if (POST_SOON && facebookScheduledAt) {
         console.log(`  Facebook:  ${formatCentralSchedule(facebookScheduledAt)} CT (+1 day)`);
       }
       console.log(`  Caption:\n${caption.split('\n').map(l => '    ' + l).join('\n')}`);
@@ -198,7 +202,7 @@ async function main() {
     try {
       if (POST_SOON) {
         scheduledAt = new Date(Date.now() + 30 * 60_000);
-        const igId = await scheduleCarouselInBuffer({
+        const igPost = await scheduleCarouselInBuffer({
           token: ACCESS_TOKEN,
           channelId: CHANNEL_ID,
           platform: 'instagram',
@@ -206,10 +210,10 @@ async function main() {
           caption,
           scheduledAt,
         });
-        console.log(`  Instagram: ${formatCentralSchedule(scheduledAt)} CT — Buffer ${igId}`);
+        console.log(`  Instagram: ${formatCentralSchedule(scheduledAt)} CT — Buffer ${igPost?.id ?? 'unknown'}`);
         if (FB_CHANNEL_ID) {
           facebookScheduledAt = facebookDayAfter(scheduledAt);
-          const fbId = await scheduleCarouselInBuffer({
+          const fbPost = await scheduleCarouselInBuffer({
             token: ACCESS_TOKEN,
             channelId: FB_CHANNEL_ID,
             platform: 'facebook',
@@ -217,7 +221,7 @@ async function main() {
             caption,
             scheduledAt: facebookScheduledAt,
           });
-          console.log(`  Facebook:  ${formatCentralSchedule(facebookScheduledAt)} CT — Buffer ${fbId}`);
+          console.log(`  Facebook:  ${formatCentralSchedule(facebookScheduledAt)} CT — Buffer ${fbPost?.id ?? 'unknown'}`);
         }
       } else {
         const result = await scheduleInstagramAndFacebook({
@@ -229,9 +233,15 @@ async function main() {
         });
         scheduledAt = result.instagramAt;
         facebookScheduledAt = result.facebookAt;
-        console.log(`  Instagram: ${formatCentralSchedule(scheduledAt)} CT — Buffer ${result.instagramId}`);
+        const igWhen = scheduledAt
+          ? `${formatCentralSchedule(scheduledAt)} CT`
+          : "Buffer queue";
+        console.log(`  Instagram: ${igWhen} — Buffer ${result.instagramId}`);
         if (result.facebookId) {
-          console.log(`  Facebook:  ${formatCentralSchedule(facebookScheduledAt)} CT — Buffer ${result.facebookId}`);
+          const fbWhen = facebookScheduledAt
+            ? `${formatCentralSchedule(facebookScheduledAt)} CT`
+            : "Buffer queue";
+          console.log(`  Facebook:  ${fbWhen} — Buffer ${result.facebookId}`);
         }
       }
       console.log(`  → Review at buffer.com/calendar before they go live\n`);

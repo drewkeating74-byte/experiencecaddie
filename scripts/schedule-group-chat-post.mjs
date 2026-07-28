@@ -11,9 +11,7 @@ import {
   buildGroupChatModifications,
 } from "../src/marketing/groupChatBank.js";
 import {
-  facebookDayAfter,
   formatCentralSchedule,
-  nextPostSlot,
   scheduleInstagramAndFacebook,
 } from "./buffer-schedule.mjs";
 
@@ -64,15 +62,11 @@ function requireEnv() {
 
 async function main() {
   const caption = buildGroupChatCaption();
-  const instagramAt = nextPostSlot();
-  const facebookAt = BUFFER_FB_CHAN ? facebookDayAfter(instagramAt) : null;
 
   if (DRY_RUN) {
     console.log("Group Chat schedule dry run");
-    console.log(`Instagram: ${formatCentralSchedule(instagramAt)} CT`);
-    if (facebookAt) {
-      console.log(`Facebook:  ${formatCentralSchedule(facebookAt)} CT (+1 day)`);
-    }
+    console.log("Instagram: next available Buffer queue slot");
+    if (BUFFER_FB_CHAN) console.log("Facebook:  next available Buffer queue slot");
     console.log(`Caption:\n${caption.split("\n").map((line) => `  ${line}`).join("\n")}`);
     console.log("[DRY RUN - no Bannerbear or Buffer calls made]");
     return;
@@ -95,9 +89,15 @@ async function main() {
     caption,
   });
 
-  console.log(`Instagram: ${formatCentralSchedule(result.instagramAt)} CT - Buffer ${result.instagramId}`);
+  const igWhen = result.instagramAt
+    ? `${formatCentralSchedule(result.instagramAt)} CT`
+    : "Buffer queue";
+  console.log(`Instagram: ${igWhen} - Buffer ${result.instagramId}`);
   if (result.facebookId) {
-    console.log(`Facebook:  ${formatCentralSchedule(result.facebookAt)} CT - Buffer ${result.facebookId}`);
+    const fbWhen = result.facebookAt
+      ? `${formatCentralSchedule(result.facebookAt)} CT`
+      : "Buffer queue";
+    console.log(`Facebook:  ${fbWhen} - Buffer ${result.facebookId}`);
   }
   console.log("Review at buffer.com/calendar before it goes live.");
 }

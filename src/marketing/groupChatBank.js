@@ -85,9 +85,9 @@ export const chatSets = [
 
   {
     id: "bachelor_trip",
-    chatHeader: "Bachelor Trip",
+    chatHeader: "Bachelor Party Trip",
     eyebrowLabel: "NOBODY HAD TO PLAN IT",
-    line1: "Bachelor trip ideas?",
+    line1: "Bachelor Party trip ideas?",
     line2: "Golf has to happen.",
     line3: "Concert that night?",
     line4: "That's the weekend.",
