@@ -9,6 +9,7 @@
  *   or Authorization: Bearer <SUPABASE_SERVICE_ROLE_KEY>
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { askPerplexityJson } from "../_shared/perplexity.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -16,8 +17,31 @@ const corsHeaders = {
 };
 
 const REPORT_TO = "drew@experiencecaddie.com";
-const PERPLEXITY_MODEL = "sonar-pro";
 const MAX_PACKAGES_PER_RUN = 30;
+
+const PACKAGE_AUDIT_SCHEMA = {
+  name: "package_quality_audit",
+  schema: {
+    type: "object",
+    properties: {
+      golf_course_rating: { type: "string" },
+      internal_score: { type: "number" },
+      score_reasoning: { type: "string" },
+      drive_minutes: {
+        type: "object",
+        properties: {
+          golf_to_hotel: { anyOf: [{ type: "number" }, { type: "null" }] },
+          hotel_to_venue: { anyOf: [{ type: "number" }, { type: "null" }] },
+          golf_to_venue: { anyOf: [{ type: "number" }, { type: "null" }] },
+        },
+        required: ["golf_to_hotel", "hotel_to_venue", "golf_to_venue"],
+        additionalProperties: false,
+      },
+    },
+    required: ["golf_course_rating", "internal_score", "score_reasoning", "drive_minutes"],
+    additionalProperties: false,
+  },
+};
 
 type JsonRecord = Record<string, unknown>;
 
@@ -292,14 +316,6 @@ async function findGolfCourse(
   return rows.find((r) => normalizeName(r.name) === target || target.includes(normalizeName(r.name)) || normalizeName(r.name).includes(target)) ?? rows[0] ?? null;
 }
 
-function extractJsonObject(raw: string): JsonRecord {
-  let cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-  const start = cleaned.indexOf("{");
-  const end = cleaned.lastIndexOf("}");
-  if (start >= 0 && end > start) cleaned = cleaned.slice(start, end + 1);
-  return JSON.parse(cleaned) as JsonRecord;
-}
-
 async function askPerplexityForAudit(params: {
   apiKey: string;
   itinerary: ItineraryRow;
@@ -312,17 +328,11 @@ async function askPerplexityForAudit(params: {
   const golfName = str(params.golf?.name) || params.golfCourse?.name || "Unknown golf course";
   const prompt = `Audit this Experience Caddie golf + concert package.
 
-Return ONLY valid JSON with this shape:
-{
-  "golf_course_rating": "Golf Digest/GOLF Magazine/public rating or 'unrated: <brief reason>'",
-  "internal_score": 1-10,
-  "score_reasoning": "2-4 concise sentences explaining concert quality, golf quality, package coherence, and logistics",
-  "drive_minutes": {
-    "golf_to_hotel": number|null,
-    "hotel_to_venue": number|null,
-    "golf_to_venue": number|null
-  }
-}
+Return fields:
+- golf_course_rating: Golf Digest/GOLF Magazine/public rating or 'unrated: <brief reason>'
+- internal_score: 1-10
+- score_reasoning: 2-4 concise sentences explaining concert quality, golf quality, package coherence, and logistics
+- drive_minutes: golf_to_hotel, hotel_to_venue, golf_to_venue (numbers or null)
 
 Scoring rubric:
 - Concert quality: 3 points for notable artist/event, venue, demand/buzz
@@ -343,33 +353,24 @@ Known golf DB fields: ${JSON.stringify(params.golfCourse ?? {})}
 Package JSON excerpt: ${packageText(params.pkg)}
 `;
 
-  const res = await fetch("https://api.perplexity.ai/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${params.apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: PERPLEXITY_MODEL,
-      messages: [
-        { role: "system", content: "You are a strict package quality auditor. Return only valid JSON." },
-        { role: "user", content: prompt },
-      ],
-      temperature: 0.1,
-    }),
+  const parsed = await askPerplexityJson<{
+    golf_course_rating?: string;
+    internal_score?: number;
+    score_reasoning?: string;
+    drive_minutes?: LlmAudit["drive_minutes"];
+  }>({
+    apiKey: params.apiKey,
+    preset: "low",
+    legacyModel: "sonar-pro",
+    instructions: "You are a strict package quality auditor. Return only valid JSON.",
+    input: prompt,
+    schema: PACKAGE_AUDIT_SCHEMA,
+    temperature: 0.1,
   });
 
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Perplexity API error ${res.status}: ${text.slice(0, 200)}`);
-  }
-
-  const data = await res.json() as { choices?: Array<{ message?: { content?: string } }> };
-  const content = data.choices?.[0]?.message?.content ?? "{}";
-  const parsed = extractJsonObject(content);
   const score = Math.max(1, Math.min(10, Number(parsed.internal_score) || 6));
   const drive = parsed.drive_minutes && typeof parsed.drive_minutes === "object"
-    ? parsed.drive_minutes as LlmAudit["drive_minutes"]
+    ? parsed.drive_minutes
     : undefined;
   return {
     golf_course_rating: str(parsed.golf_course_rating) || "unrated: no public rating found",

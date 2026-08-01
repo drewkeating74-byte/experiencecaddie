@@ -50,7 +50,8 @@ Set in: Vercel → Project → Settings → Environment Variables (Production, P
 |--------|---------|---------|
 | `TICKETMASTER_API_KEY` | search | Real concert data (mock if missing) |
 | `GOOGLE_PLACES_API_KEY` | search | Geocoding + Places API for real golf discovery (mock if missing) |
-| `PERPLEXITY_API_KEY` | generate-itinerary | AI itinerary generation (required) |
+| `PERPLEXITY_API_KEY` | generate-itinerary, verify-*, package-quality-monitor, refresh-hot-artists | Perplexity Agent API (required for AI generation / verification) |
+| `PERPLEXITY_USE_AGENT_API` | same as above | Optional; default `true`. Set `false` to roll back to legacy Sonar chat completions |
 | `RESEND_API_KEY` | send-share-email | Share emails via Resend |
 | `FROM_EMAIL` | send-share-email | Sender email for share emails |
 | `AWIN_PUBLISHER_ID` or `AWIN_BOOKING_PUBLISHER_ID` | generate-itinerary | Your AWIN publisher ID for Booking.com affiliate links (optional; if set, lodging “Book” links are wrapped so clicks are tracked) |

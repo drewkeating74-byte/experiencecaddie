@@ -18,10 +18,37 @@
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { askPerplexityJson } from "../_shared/perplexity.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
+
+const HOT_ARTISTS_SCHEMA = {
+  name: "hot_artists_scan",
+  schema: {
+    type: "object",
+    properties: {
+      artists: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            artist: { type: "string" },
+            genres: { type: "array", items: { type: "string" } },
+            sources: { type: "array", items: { type: "string" } },
+            signal_types: { type: "array", items: { type: "string" } },
+            evidence: { type: "string" },
+          },
+          required: ["artist", "genres", "sources", "signal_types", "evidence"],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ["artists"],
+    additionalProperties: false,
+  },
 };
 
 function json(data: unknown, status = 200) {
@@ -210,22 +237,6 @@ function mergeArtist(into: HotArtistRow, from: HotArtistRow): HotArtistRow {
   };
 }
 
-function parseHotList(rawContent: string): RawHotArtist[] {
-  let cleaned = rawContent.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-  if (!cleaned.startsWith("[") && !cleaned.startsWith("{")) {
-    const sArr = cleaned.indexOf("[");
-    const eArr = cleaned.lastIndexOf("]");
-    const sObj = cleaned.indexOf("{");
-    const eObj = cleaned.lastIndexOf("}");
-    if (sArr !== -1 && eArr > sArr) cleaned = cleaned.slice(sArr, eArr + 1);
-    else if (sObj !== -1 && eObj > sObj) cleaned = cleaned.slice(sObj, eObj + 1);
-  }
-  const parsed = JSON.parse(cleaned);
-  if (Array.isArray(parsed)) return parsed as RawHotArtist[];
-  if (parsed && Array.isArray(parsed.artists)) return parsed.artists as RawHotArtist[];
-  return [];
-}
-
 function toRow(raw: RawHotArtist, nowIso: string): HotArtistRow | null {
   const name = String(raw.artist_name || raw.artist || "").trim();
   if (!name || name.length < 2) return null;
@@ -273,54 +284,31 @@ Return artists that are culturally hot RIGHT NOW in a way that matters for live 
 Cover a mix of genres relevant to these chips: ${genreList}.
 Use Pitchfork for Indie/Alternative, Resident Advisor for EDM, Billboard/Rolling Stone/Spin for mainstream Pop/Rock/Country, NPR Music for broad critical coverage.
 
-Return ONLY valid JSON (no markdown) as an array of 25-40 objects:
-[
-  {
-    "artist": "Exact artist name",
-    "genres": ["Indie"],
-    "sources": ["pitchfork", "npr_music"],
-    "signal_types": ["tour_album", "critical"],
-    "evidence": "One short sentence citing the buzz"
-  }
-]
+Return 25-40 artists in the artists array. Each object:
+- artist: Exact artist name
+- genres: chip genres from the list above
+- sources: from rolling_stone, spin, billboard, pitchfork, npr_music, resident_advisor
+- signal_types: from tour_album, chart, critical, award, viral
+- evidence: One short sentence citing the buzz
 
 Rules:
-- sources must be from: rolling_stone, spin, billboard, pitchfork, npr_music, resident_advisor
-- signal_types must be from: tour_album, chart, critical, award, viral
-- genres must map to the chip list above
 - Prefer artists that appear on multiple outlets when possible
-- US-relevant touring acts only`;
+- US-relevant touring acts only
+- Never invent outlet attributions`;
 
-  const res = await fetch("https://api.perplexity.ai/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "sonar-pro",
-      messages: [
-        {
-          role: "system",
-          content:
-            "You are a music-culture research assistant. Return only valid JSON arrays. Never invent outlet attributions.",
-        },
-        { role: "user", content: prompt },
-      ],
-      temperature: 0.2,
-      max_tokens: 4096,
-    }),
+  const parsed = await askPerplexityJson<{ artists?: RawHotArtist[] }>({
+    apiKey,
+    preset: "low",
+    legacyModel: "sonar-pro",
+    instructions:
+      "You are a music-culture research assistant. Return only valid JSON. Never invent outlet attributions.",
+    input: prompt,
+    schema: HOT_ARTISTS_SCHEMA,
+    temperature: 0.2,
+    maxOutputTokens: 4096,
   });
 
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`Perplexity HTTP ${res.status}: ${body.slice(0, 200)}`);
-  }
-
-  const data = await res.json();
-  const content = String(data.choices?.[0]?.message?.content || "").trim();
-  if (!content) throw new Error("Perplexity returned empty content");
-  return parseHotList(content);
+  return Array.isArray(parsed.artists) ? parsed.artists : [];
 }
 
 Deno.serve(async (req: Request) => {

@@ -51,7 +51,8 @@ Configure in Supabase Dashboard → Edge Functions → Secrets:
 | `TICKETMASTER_API_KEY` | search | Ticketmaster Discovery API |
 | `RESEND_API_KEY` | send-share-email | Send share emails |
 | `FROM_EMAIL` | send-share-email | Sender address |
-| `PERPLEXITY_API_KEY` | generate-itinerary | AI itinerary generation |
+| `PERPLEXITY_API_KEY` | generate-itinerary, verify-*, package-quality-monitor, refresh-hot-artists | Perplexity Agent API for itinerary generation and verification jobs |
+| `PERPLEXITY_USE_AGENT_API` | same as above | Optional; default `true`. Set `false` to use legacy Sonar chat completions |
 
 ---
 
@@ -74,7 +75,7 @@ Configure in Supabase Dashboard → Edge Functions → Secrets:
 
 3. **Generate:** The frontend POSTs to `generate-itinerary` with user input and search results.
 
-4. **generate-itinerary:** Uses Perplexity for concert discovery and itinerary generation, writes to the DB, returns `share_slug`.
+4. **generate-itinerary:** Uses Perplexity Agent API for concert verification and itinerary generation, writes to the DB, returns `share_slug`.
 
 5. **Redirect:** Frontend navigates to `/share/{share_slug}`.
 

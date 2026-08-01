@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { reportError } from "../_shared/monitoring.ts";
+import { askPerplexityJson, PerplexityApiError } from "../_shared/perplexity.ts";
 import {
   buildGoogleTicketsSearchUrl,
   catalogRowMatchesGenreTokens,
@@ -19,6 +20,139 @@ import {
   minTripStartYmdForTimezone,
   normalizeClientTimeZone,
 } from "../_shared/tripWindow.ts";
+
+const CONCERT_SECONDARY_VERIFY_SCHEMA = {
+  name: "concert_secondary_verification",
+  schema: {
+    type: "object",
+    properties: {
+      confirmed: { type: "boolean" },
+      date: { anyOf: [{ type: "string" }, { type: "null" }] },
+      venue: { anyOf: [{ type: "string" }, { type: "null" }] },
+    },
+    required: ["confirmed", "date", "venue"],
+    additionalProperties: false,
+  },
+};
+
+const lodgingItemSchema = {
+  type: "object",
+  properties: {
+    name: { type: "string" },
+    type: { type: "string", enum: ["hotel", "vacation_rental", "golf_resort"] },
+    area: { type: "string" },
+    price_per_night: { type: "string" },
+    url: { type: "string" },
+    why: { type: "string" },
+  },
+  required: ["name", "type", "area", "price_per_night", "url", "why"],
+  additionalProperties: false,
+};
+
+const eventItemSchema = {
+  type: "object",
+  properties: {
+    name: { type: "string" },
+    venue: { type: "string" },
+    date_time: { type: "string" },
+    url: { type: "string" },
+    price_range: { type: "string" },
+  },
+  required: ["name", "venue", "date_time", "url", "price_range"],
+  additionalProperties: false,
+};
+
+const golfItemSchema = {
+  type: "object",
+  properties: {
+    name: { type: "string" },
+    why: { type: "string" },
+    url: { type: "string" },
+    green_fee: { type: "string" },
+  },
+  required: ["name", "why", "url", "green_fee"],
+  additionalProperties: false,
+};
+
+const extraItemSchema = {
+  type: "object",
+  properties: {
+    name: { type: "string" },
+    type: { type: "string", enum: ["restaurant", "bar", "experience", "attraction"] },
+    url: { type: "string" },
+    why: { type: "string" },
+  },
+  required: ["name", "type", "url", "why"],
+  additionalProperties: false,
+};
+
+const dayPlanSchema = {
+  type: "object",
+  properties: {
+    day: { type: "string" },
+    plan: { type: "array", items: { type: "string" } },
+  },
+  required: ["day", "plan"],
+  additionalProperties: false,
+};
+
+const packageItemSchema = {
+  type: "object",
+  properties: {
+    tier: { type: "string", enum: ["BRONZE", "SILVER", "GOLD"] },
+    estimated_total_usd: {
+      type: "array",
+      items: { type: "number" },
+      minItems: 2,
+      maxItems: 2,
+    },
+    lodging: { type: "array", items: lodgingItemSchema },
+    events: { type: "array", items: eventItemSchema },
+    golf: { type: "array", items: golfItemSchema },
+    extras: { type: "array", items: extraItemSchema },
+    itinerary: { type: "array", items: dayPlanSchema },
+    safety_notes: { type: "string" },
+  },
+  required: [
+    "tier",
+    "estimated_total_usd",
+    "lodging",
+    "events",
+    "golf",
+    "extras",
+    "itinerary",
+    "safety_notes",
+  ],
+  additionalProperties: false,
+};
+
+const ITINERARY_PACKAGES_SCHEMA = {
+  name: "itinerary_packages",
+  schema: {
+    type: "object",
+    properties: {
+      summary: {
+        type: "object",
+        properties: {
+          title: { type: "string" },
+          vibe: { type: "string" },
+          estimated_total_range_usd: {
+            type: "array",
+            items: { type: "number" },
+            minItems: 2,
+            maxItems: 2,
+          },
+          assumptions: { type: "array", items: { type: "string" } },
+        },
+        required: ["title", "vibe", "estimated_total_range_usd", "assumptions"],
+        additionalProperties: false,
+      },
+      packages: { type: "array", items: packageItemSchema },
+    },
+    required: ["summary", "packages"],
+    additionalProperties: false,
+  },
+};
 
 /** Cities user selected must all map to catalog metros, or we fan out to all 40. */
 function resolveDiscoverTargetMetros(cityList: string[]): MetroConfig[] {
@@ -428,35 +562,26 @@ async function resolveOrVerifyConcert(
     : `between ${startDate} and ${endDate}`;
   const verifyPrompt = `Is "${artist}" performing in ${city} ${dateContext}?
 
-Return ONLY valid JSON. No markdown, no extra text:
-If confirmed with a source: {"confirmed":true,"date":"YYYY-MM-DD","venue":"exact venue name"}
-If not confirmed: {"confirmed":false}
+If confirmed with a source: set confirmed=true with date YYYY-MM-DD and exact venue name.
+If not confirmed: set confirmed=false (date and venue may be null).
 
 IMPORTANT: Return confirmed=true ONLY if you have a reliable web source for this specific date. Do not guess.`;
 
   try {
-    const res = await fetch("https://api.perplexity.ai/chat/completions", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${PERPLEXITY_API_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "sonar-pro",
-        messages: [
-          { role: "system", content: "Concert verification assistant. Return only valid JSON. Never guess dates." },
-          { role: "user", content: verifyPrompt },
-        ],
-        temperature: 0.1,
-        max_tokens: 128,
-      }),
+    const parsed = await askPerplexityJson<{
+      confirmed?: boolean;
+      date?: string | null;
+      venue?: string | null;
+    }>({
+      apiKey: PERPLEXITY_API_KEY,
+      preset: "low",
+      legacyModel: "sonar-pro",
+      instructions: "Concert verification assistant. Return only valid JSON. Never guess dates.",
+      input: verifyPrompt,
+      schema: CONCERT_SECONDARY_VERIFY_SCHEMA,
+      temperature: 0.1,
+      maxOutputTokens: 128,
     });
-    if (!res.ok) return null;
-    const data = await res.json();
-    const raw = (data.choices?.[0]?.message?.content || "").trim();
-    let cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-    if (!cleaned.startsWith("{")) {
-      const s = cleaned.indexOf("{"); const e = cleaned.lastIndexOf("}");
-      if (s !== -1 && e > s) cleaned = cleaned.slice(s, e + 1);
-    }
-    const parsed = JSON.parse(cleaned);
     if (!parsed.confirmed || !parsed.date) return null;
 
     const ymd = parseFlexibleDateToYmd(String(parsed.date));
@@ -1442,118 +1567,65 @@ LODGING RULES (mandatory):
 - In each package, include at least one lodging that is a well-known chain or large property (e.g. Marriott, Hilton, Hyatt, IHG) so users have an option likely to show availability for the dates.
 
 In "assumptions", include one short line that ticket and hotel availability are subject to change and users should confirm on the linked site.
+Keep assumptions to 2 short items max. Create exactly 3 packages (BRONZE, SILVER, GOLD).`;
 
-Return ONLY valid JSON matching this exact structure (no markdown, no explanation). Keep assumptions to 2 short items max:
-{
-  "summary": {
-    "title": "string - catchy trip title",
-    "vibe": "string - 1-2 sentence vibe",
-    "estimated_total_range_usd": [min_number, max_number],
-    "assumptions": ["short string", "short string"]
-  },
-  "packages": [
-    {
-      "tier": "BRONZE" | "SILVER" | "GOLD",
-      "estimated_total_usd": [min, max],
-      "lodging": [
-        { "name": "string - official property name only (e.g. Hotel Van Zandt)", "type": "hotel" | "vacation_rental" | "golf_resort", "area": "string - neighborhood or area", "price_per_night": "string", "url": "string", "why": "string" }
-      ],
-      "events": [
-        { "name": "string", "venue": "string", "date_time": "string", "url": "string", "price_range": "string" }
-      ],
-      "golf": [
-        { "name": "string", "why": "string", "url": "string", "green_fee": "string" }
-      ],
-      "extras": [
-        { "name": "string", "type": "restaurant" | "bar" | "experience" | "attraction", "url": "string", "why": "string" }
-      ],
-      "itinerary": [
-        { "day": "string (e.g. Friday)", "plan": ["string array of activities"] }
-      ],
-      "safety_notes": "string"
-    }
-  ]
-}`;
-
-    const response = await fetch("https://api.perplexity.ai/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${PERPLEXITY_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "sonar",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
+    let parsedResult: any;
+    try {
+      parsedResult = await askPerplexityJson({
+        apiKey: PERPLEXITY_API_KEY,
+        preset: "fast",
+        legacyModel: "sonar",
+        instructions: systemPrompt,
+        input: userPrompt,
+        schema: ITINERARY_PACKAGES_SCHEMA,
         temperature: 0.7,
-        max_tokens: 16384,
-      }),
-    });
+        maxOutputTokens: 16384,
+      });
+    } catch (err) {
+      if (err instanceof PerplexityApiError) {
+        console.error("Perplexity API error:", err.status, err.bodySnippet);
 
-    if (!response.ok) {
-      const errText = await response.text();
-      console.error("Perplexity API error:", response.status, errText);
+        if (err.status === 429) {
+          if (!isRefreshMode) await supabase.from("itineraries").update({ status: "error" }).eq("id", itinerary_id);
+          return new Response(JSON.stringify({ error: "Rate limited. Please try again in a moment." }), {
+            status: 429,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        if (err.status === 401 || err.status === 402) {
+          if (!isRefreshMode) await supabase.from("itineraries").update({ status: "error" }).eq("id", itinerary_id);
+          return new Response(JSON.stringify({ error: "Perplexity API key invalid or quota exceeded." }), {
+            status: 502,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
 
-      if (response.status === 429) {
+        let errMsg = "Failed to generate itinerary";
+        try {
+          const errJson = JSON.parse(err.bodySnippet);
+          errMsg = errJson?.error?.message || errJson?.error || errMsg;
+        } catch { /* use default */ }
         if (!isRefreshMode) await supabase.from("itineraries").update({ status: "error" }).eq("id", itinerary_id);
-        return new Response(JSON.stringify({ error: "Rate limited. Please try again in a moment." }), {
-          status: 429,
+        return new Response(JSON.stringify({ error: errMsg }), {
+          status: 500,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      if (response.status === 401 || response.status === 402) {
-        if (!isRefreshMode) await supabase.from("itineraries").update({ status: "error" }).eq("id", itinerary_id);
-        return new Response(JSON.stringify({ error: "Perplexity API key invalid or quota exceeded." }), {
-          status: 502,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
 
-      let errMsg = "Failed to generate itinerary";
-      try {
-        const errJson = JSON.parse(errText);
-        errMsg = errJson?.error?.message || errJson?.error || errMsg;
-      } catch { /* use default */ }
+      console.error("Failed to parse AI JSON:", err instanceof Error ? err.message : String(err));
       if (!isRefreshMode) await supabase.from("itineraries").update({ status: "error" }).eq("id", itinerary_id);
-      return new Response(JSON.stringify({ error: errMsg }), {
+      return new Response(JSON.stringify({ error: "AI returned invalid format. Please try again." }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const aiResult = await response.json();
-    const content = aiResult.choices?.[0]?.message?.content;
-
-    if (!content) {
+    if (!parsedResult || typeof parsedResult !== "object") {
       if (!isRefreshMode) await supabase.from("itineraries").update({ status: "error" }).eq("id", itinerary_id);
       return new Response(JSON.stringify({ error: "Empty AI response" }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
-    }
-
-    // Parse JSON from the response (handle markdown code blocks)
-    let parsedResult: any;
-    try {
-      const cleaned = content.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-      parsedResult = JSON.parse(cleaned);
-    } catch {
-      try {
-        const jsonMatch = content.match(/\{[\s\S]*\}/);
-        if (jsonMatch) parsedResult = JSON.parse(jsonMatch[0]);
-      } catch {
-        /* fall through to error */
-      }
-      if (!parsedResult) {
-        console.error("Failed to parse AI JSON:", content.substring(0, 500));
-        if (!isRefreshMode) await supabase.from("itineraries").update({ status: "error" }).eq("id", itinerary_id);
-        return new Response(JSON.stringify({ error: "AI returned invalid format. Please try again." }), {
-          status: 500,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
     }
 
     // Rule 3 enforcement: if no events were verified (neither TM nor Perplexity secondary),

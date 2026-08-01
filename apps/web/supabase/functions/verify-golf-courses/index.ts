@@ -23,7 +23,7 @@
  *   That is the wrong default for a trust-critical product. Ambiguous
  *   courses are now escalated so the LLM pass examines them.
  *
- * PASS 2 — LLM-assisted via Perplexity sonar (cost-controlled)
+ * PASS 2 — LLM-assisted via Perplexity Agent API (cost-controlled)
  *   Processes up to MAX_LLM_PER_RUN courses where verification_status = 'needs_review'.
  *   (Previously also filtered by public_access_confidence, which left
  *   likely_public + needs_review courses stuck in limbo — neither pass
@@ -58,13 +58,37 @@
  */
 
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { askPerplexityJson } from "../_shared/perplexity.ts";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const MAX_RULE_BASED_PER_RUN = 50;
 const MAX_LLM_PER_RUN = 50;
 const VERIFIER_VERSION = "verify-golf-courses-v1";
-const PERPLEXITY_MODEL = "sonar";
+
+const GOLF_VERIFY_SCHEMA = {
+  name: "golf_course_verification",
+  schema: {
+    type: "object",
+    properties: {
+      verification_status: { type: "string", enum: ["verified", "needs_review", "excluded"] },
+      access_type: {
+        type: "string",
+        enum: ["public", "municipal", "resort", "semi_private", "private", "military", "unknown"],
+      },
+      confidence: { type: "string", enum: ["high", "medium", "low"] },
+      evidence: { type: "string" },
+      excluded_reason: {
+        anyOf: [
+          { type: "string", enum: ["private_club", "members_only", "no_public_access", "invitation_only"] },
+          { type: "null" },
+        ],
+      },
+    },
+    required: ["verification_status", "access_type", "confidence", "evidence", "excluded_reason"],
+    additionalProperties: false,
+  },
+};
 
 // Patterns used in rule-based pass for editorial text analysis
 const PRIVATE_EDITORIAL_RE =
@@ -314,19 +338,6 @@ function sanitiseAccessType(raw: string | undefined): string {
   return allowed.includes(v) ? v : "unknown";
 }
 
-/**
- * Strip markdown fences and extract the first {...} JSON block from LLM output.
- */
-function extractJson(raw: string): string {
-  let s = raw.replace(/```json\n?/gi, "").replace(/```\n?/g, "").trim();
-  if (!s.startsWith("{")) {
-    const start = s.indexOf("{");
-    const end = s.lastIndexOf("}");
-    if (start !== -1 && end > start) s = s.slice(start, end + 1);
-  }
-  return s;
-}
-
 // ── Supabase DB update helper ──────────────────────────────────────────────────
 
 async function updateCourse(
@@ -530,32 +541,17 @@ Deno.serve(async (req: Request) => {
 
     let llmResult: LlmVerificationResult | null = null;
     try {
-      const resp = await fetch("https://api.perplexity.ai/chat/completions", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${perplexityKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: PERPLEXITY_MODEL,
-          messages: [
-            { role: "system", content: VERIFIER_SYSTEM_PROMPT },
-            { role: "user", content: `Verify the following golf course:\n\n${userMessage}` },
-          ],
-          temperature: 0.1,
-          max_tokens: 512,
-        }),
-        signal: AbortSignal.timeout(30000),
+      llmResult = await askPerplexityJson<LlmVerificationResult>({
+        apiKey: perplexityKey,
+        preset: "fast",
+        legacyModel: "sonar",
+        instructions: VERIFIER_SYSTEM_PROMPT,
+        input: `Verify the following golf course:\n\n${userMessage}`,
+        schema: GOLF_VERIFY_SCHEMA,
+        temperature: 0.1,
+        maxOutputTokens: 512,
+        timeoutMs: 30000,
       });
-
-      if (!resp.ok) {
-        const errText = await resp.text();
-        throw new Error(`Perplexity ${resp.status}: ${errText.slice(0, 200)}`);
-      }
-
-      const data = await resp.json();
-      const raw = data.choices?.[0]?.message?.content ?? "";
-      llmResult = JSON.parse(extractJson(raw)) as LlmVerificationResult;
 
       // Validate required fields
       if (!["verified", "needs_review", "excluded"].includes(llmResult.verification_status)) {

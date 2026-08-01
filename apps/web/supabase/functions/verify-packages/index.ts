@@ -20,6 +20,7 @@
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { METROS, getMetroByCity } from "../_shared/golfCities.ts";
+import { askPerplexityJson } from "../_shared/perplexity.ts";
 import {
   buildGoogleTicketsSearchUrl,
   eventVenueBelongsToMetro,
@@ -33,7 +34,22 @@ import {
 } from "../_shared/ticketmaster.ts";
 
 const FAILURE_THRESHOLD = 2;
-const PERPLEXITY_MODEL = "sonar-pro";
+
+const CONCERT_VERIFY_SCHEMA = {
+  name: "concert_date_verification",
+  schema: {
+    type: "object",
+    properties: {
+      confirmed: { type: "boolean" },
+      date: { anyOf: [{ type: "string" }, { type: "null" }] },
+      venue: { anyOf: [{ type: "string" }, { type: "null" }] },
+      url: { anyOf: [{ type: "string" }, { type: "null" }] },
+      evidence: { type: "string" },
+    },
+    required: ["confirmed", "date", "venue", "url", "evidence"],
+    additionalProperties: false,
+  },
+};
 const BACKFILL_TARGET_ACTIVE_CURATED = 25;
 const BACKFILL_MAX_CANDIDATES_PER_METRO = 40;
 const BACKFILL_GENRES = ["country", "rock", "classic rock", "pop", "americana"];
@@ -79,16 +95,6 @@ function toYmd(val: unknown): string | null {
   if (val == null) return null;
   const s = String(val).trim().slice(0, 10);
   return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
-}
-
-function extractJson(raw: string): string {
-  let cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-  if (!cleaned.startsWith("{")) {
-    const s = cleaned.indexOf("{");
-    const e = cleaned.lastIndexOf("}");
-    if (s !== -1 && e > s) cleaned = cleaned.slice(s, e + 1);
-  }
-  return cleaned;
 }
 
 /** True if at least one significant token overlaps (catches wrong venue on same night). */
@@ -292,46 +298,30 @@ City/market: ${params.city}
 Requested date: ${params.eventYmd}
 ${venueLine}
 
-Return ONLY valid JSON. No markdown, no extra text.
-If confirmed by a reliable source: {"confirmed":true,"date":"YYYY-MM-DD","venue":"exact venue name or Venue TBD","url":"source URL","evidence":"short source summary"}
-If not confirmed on that exact date: {"confirmed":false,"evidence":"short reason"}
+If confirmed by a reliable source: set confirmed=true with date YYYY-MM-DD, venue, source url, and short evidence.
+If not confirmed on that exact date: set confirmed=false (date/venue/url may be null) with short evidence.
 
 Rules:
 - confirmed=true only when the same artist/event is happening in that city/market on the requested date.
 - Do not guess or infer dates.
 - A different date means confirmed=false.`;
 
-  const res = await fetch("https://api.perplexity.ai/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${params.apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: PERPLEXITY_MODEL,
-      messages: [
-        { role: "system", content: "Concert verification assistant. Return only valid JSON and never guess dates." },
-        { role: "user", content: prompt },
-      ],
-      temperature: 0.1,
-      max_tokens: 256,
-    }),
-    signal: AbortSignal.timeout(30000),
-  });
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Perplexity ${res.status}: ${text.slice(0, 200)}`);
-  }
-
-  const data = await res.json();
-  const raw = String(data.choices?.[0]?.message?.content ?? "");
-  const parsed = JSON.parse(extractJson(raw)) as {
+  const parsed = await askPerplexityJson<{
     confirmed?: boolean;
-    date?: string;
-    venue?: string;
-    url?: string;
-  };
+    date?: string | null;
+    venue?: string | null;
+    url?: string | null;
+  }>({
+    apiKey: params.apiKey,
+    preset: "low",
+    legacyModel: "sonar-pro",
+    instructions: "Concert verification assistant. Return only valid JSON and never guess dates.",
+    input: prompt,
+    schema: CONCERT_VERIFY_SCHEMA,
+    temperature: 0.1,
+    maxOutputTokens: 256,
+    timeoutMs: 30000,
+  });
 
   if (!parsed.confirmed) return null;
   const ymd = parseFlexibleDateToYmd(parsed.date ?? "");
