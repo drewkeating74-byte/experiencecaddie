@@ -200,11 +200,79 @@ export const KNOWN_JAM_BAND_ARTISTS = [
   "Eggy",
 ];
 
+/**
+ * Mainstream / radio-country headliners for the Country chip.
+ * TM often tags bluegrass/jam acts as Country — seed these names so the picker
+ * surfaces Combs/Wallen-style inventory instead of jam crossover.
+ */
+export const KNOWN_COUNTRY_ARTISTS = [
+  "Morgan Wallen",
+  "Luke Combs",
+  "Zach Bryan",
+  "Chris Stapleton",
+  "Cody Johnson",
+  "Kane Brown",
+  "Jelly Roll",
+  "Lainey Wilson",
+  "Bailey Zimmerman",
+  "Megan Moroney",
+  "HARDY",
+  "Eric Church",
+  "Parker McCollum",
+  "Koe Wetzel",
+  "Luke Bryan",
+  "Thomas Rhett",
+  "Jason Aldean",
+  "Carrie Underwood",
+  "Kacey Musgraves",
+  "Tyler Childers",
+  "Riley Green",
+  "Zach Top",
+  "Ella Langley",
+  "Shaboozey",
+  "Post Malone",
+  "Brooks & Dunn",
+  "George Strait",
+  "Tim McGraw",
+  "Keith Urban",
+  "Dierks Bentley",
+  "Jordan Davis",
+  "Old Dominion",
+  "Dan + Shay",
+  "Sam Hunt",
+  "Brett Young",
+  "Chase Rice",
+  "Tucker Wetmore",
+];
+
 /** @deprecated use KNOWN_JAM_BAND_ARTISTS */
 const JAM_BAND_ARTIST_NAMES = KNOWN_JAM_BAND_ARTISTS;
 
 export function genreTokensRequestJamBand(genreTokens: string[]): boolean {
   return genreTokens.some(genreTokenIsJamBandLike);
+}
+
+function genreTokenIsCountryLike(raw: string): boolean {
+  return genreMatchNeedles(raw).some((n) => n === "country");
+}
+
+export function genreTokensRequestCountry(genreTokens: string[]): boolean {
+  return genreTokens.some(genreTokenIsCountryLike);
+}
+
+/** Country chip alone should not surface jam/bluegrass headliners TM mis-tags as Country. */
+function shouldExcludeJamFromCountry(genreTokens: string[]): boolean {
+  return genreTokensRequestCountry(genreTokens) && !genreTokensRequestJamBand(genreTokens);
+}
+
+function countryArtistMatchesName(artist: string | null | undefined): boolean {
+  const hay = (artist ?? "").toLowerCase().trim();
+  if (!hay) return false;
+  return KNOWN_COUNTRY_ARTISTS.some((name) => hay.includes(name.toLowerCase()));
+}
+
+function looksLikeBluegrassCrossover(blob: string): boolean {
+  return /\bbluegrass\b|\bjamband\b|\bjam band\b/.test(blob);
 }
 
 function blobContainsToken(blob: string, token: string): boolean {
@@ -274,13 +342,18 @@ function eventLooksLikePerformingArtsNoise(event: TMEvent): boolean {
 export function tmEventMatchesGenreTokens(event: TMEvent, genreTokens: string[]): boolean {
   if (!genreTokens.length) return true;
   if (genreTokensRequestEdm(genreTokens) && eventLooksLikePerformingArtsNoise(event)) return false;
+  const artist = event._embedded?.attractions?.[0]?.name ?? event.name ?? "";
+  if (shouldExcludeJamFromCountry(genreTokens)) {
+    if (jamBandArtistMatchesName(artist) && !countryArtistMatchesName(artist)) return false;
+  }
   const classificationBlob = eventClassificationBlob(event);
   const blob = `${classificationBlob} ${event.name ?? ""}`.toLowerCase().replace(/\s+/g, " ");
-  if (genreTokens.some((raw) => catalogGenreBlobMatchesToken(blob, raw))) return true;
-  if (genreTokens.some(genreTokenIsJamBandLike)) {
-    const artist = event._embedded?.attractions?.[0]?.name ?? event.name ?? "";
-    if (jamBandArtistMatchesName(artist)) return true;
+  if (shouldExcludeJamFromCountry(genreTokens) && looksLikeBluegrassCrossover(blob) && !countryArtistMatchesName(artist)) {
+    return false;
   }
+  if (genreTokens.some((raw) => catalogGenreBlobMatchesToken(blob, raw))) return true;
+  if (genreTokens.some(genreTokenIsJamBandLike) && jamBandArtistMatchesName(artist)) return true;
+  if (genreTokensRequestCountry(genreTokens) && countryArtistMatchesName(artist)) return true;
   return false;
 }
 
@@ -299,8 +372,13 @@ export function catalogRowMatchesGenreTokens(
     .toLowerCase()
     .replace(/\//g, " ")
     .replace(/\s+/g, " ");
+  if (shouldExcludeJamFromCountry(genreTokens)) {
+    if (jamBandArtistMatchesName(row.artist) && !countryArtistMatchesName(row.artist)) return false;
+    if (looksLikeBluegrassCrossover(blob) && !countryArtistMatchesName(row.artist)) return false;
+  }
   if (genreTokens.some((raw) => catalogGenreBlobMatchesToken(blob, raw))) return true;
   if (genreTokens.some(genreTokenIsJamBandLike) && jamBandArtistMatchesName(row.artist)) return true;
+  if (genreTokensRequestCountry(genreTokens) && countryArtistMatchesName(row.artist)) return true;
   return false;
 }
 
@@ -771,9 +849,14 @@ async function fetchDiscoveryGenreEvents(params: {
 }): Promise<TMEvent[]> {
   // "Jam Band" is not a reliable TM classification — search known headliners instead
   // of keyword "jam band", which returns almost nothing useful.
+  // Country also seeds headliner keywords so mainstream radio country outranks
+  // bluegrass/jam acts TM often classifies as Country.
   const jamMode = genreTokensRequestJamBand(params.genreTokens);
+  const countryMode = genreTokensRequestCountry(params.genreTokens) && !jamMode;
   const keywordQueries = jamMode
     ? KNOWN_JAM_BAND_ARTISTS.slice(0, 12)
+    : countryMode
+    ? KNOWN_COUNTRY_ARTISTS.slice(0, 12)
     : Array.from(
         new Set(
           params.genreTokens.flatMap((g) =>
@@ -787,6 +870,8 @@ async function fetchDiscoveryGenreEvents(params: {
       ).slice(0, 4);
   const classificationQueries = jamMode
     ? ["Rock", "Country", "Folk"]
+    : countryMode
+    ? ["Country"]
     : keywordQueries.slice(0, 3);
   const requests = [
     fetchTicketmasterEventsPage({ ...params, size: 50, page: 0 }),
@@ -928,8 +1013,10 @@ export async function fetchNationwideDiscoveryShows(params: {
   const pagesPerGenre = params.pagesPerGenre ?? 4;
   const genreList = (genreTokens.length > 0 ? genreTokens : ["Music"]).slice(0, 12);
   const jamMode = genreTokensRequestJamBand(genreList);
+  const countryMode = genreTokensRequestCountry(genreList) && !jamMode;
   // Classification "Jam Band" is unreliable on TM — keep a light classification
   // attempt, then fill via known jam headliner keyword pages.
+  // Country seeds mainstream headliners so cache isn't dominated by bluegrass/jam.
   type NationwideReq = { classificationName?: string; artist?: string; page: number };
   const reqs: NationwideReq[] = [];
   for (const g of genreList) {
@@ -939,6 +1026,11 @@ export async function fetchNationwideDiscoveryShows(params: {
   }
   if (jamMode) {
     for (const artist of KNOWN_JAM_BAND_ARTISTS.slice(0, 20)) {
+      reqs.push({ artist, page: 0 });
+      reqs.push({ artist, page: 1 });
+    }
+  } else if (countryMode) {
+    for (const artist of KNOWN_COUNTRY_ARTISTS.slice(0, 16)) {
       reqs.push({ artist, page: 0 });
       reqs.push({ artist, page: 1 });
     }
@@ -972,6 +1064,7 @@ export async function fetchNationwideDiscoveryShows(params: {
     params.stats.distinctEvents = byId.size;
     params.stats.firstError = firstError;
     params.stats.jamMode = jamMode;
+    params.stats.countryMode = countryMode;
   }
 
   const rows: DiscoveryShowRow[] = [];
@@ -1150,6 +1243,7 @@ export async function discoverConcertsFromCatalogMetros(params: {
     // dropping most fetches, which starved the pool and broke "Show different options".
     const genreList = (genreTokens.length > 0 ? genreTokens : ["Music"]).slice(0, 6);
     const jamMode = !artistKeyword && genreTokensRequestJamBand(genreList);
+    const countryMode = !artistKeyword && genreTokensRequestCountry(genreList) && !jamMode;
     type NationwideReq = { classificationName?: string; artist?: string; page: number };
     const reqs: NationwideReq[] = [];
     for (const g of genreList) {
@@ -1158,6 +1252,10 @@ export async function discoverConcertsFromCatalogMetros(params: {
     // Jam Band chip: TM classification is empty/noisy — keyword known headliners.
     if (jamMode) {
       for (const artist of KNOWN_JAM_BAND_ARTISTS.slice(0, 14)) {
+        reqs.push({ artist, page: 0 });
+      }
+    } else if (countryMode) {
+      for (const artist of KNOWN_COUNTRY_ARTISTS.slice(0, 14)) {
         reqs.push({ artist, page: 0 });
       }
     }

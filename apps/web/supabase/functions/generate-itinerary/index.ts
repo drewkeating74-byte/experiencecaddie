@@ -6,8 +6,10 @@ import {
   buildGoogleTicketsSearchUrl,
   catalogRowMatchesGenreTokens,
   discoverConcertsFromCatalogMetros,
+  genreTokensRequestCountry,
   genreTokensRequestJamBand,
   isWeekendGetawayYmd,
+  KNOWN_COUNTRY_ARTISTS,
   KNOWN_JAM_BAND_ARTISTS,
   parseFlexibleDateToYmd,
   resolveConcertFromTicketmaster,
@@ -375,16 +377,33 @@ async function loadHotArtists(
     );
     // Jam acts in hot_artists are often tagged Rock/Americana — also keep
     // known jam headliners even when their genres[] chip mapping missed.
-    if (genreTokensRequestJamBand(genreTokens)) {
+    // Same for mainstream country when TM/hot tags are noisy.
+    if (genreTokensRequestJamBand(genreTokens) || genreTokensRequestCountry(genreTokens)) {
+      const seedNames = genreTokensRequestJamBand(genreTokens)
+        ? KNOWN_JAM_BAND_ARTISTS
+        : KNOWN_COUNTRY_ARTISTS;
       const byKey = new Map(matched.map((r) => [normalizeArtistKey(r.artist_name), r]));
       for (const r of rows) {
         const key = normalizeArtistKey(r.artist_name);
         if (byKey.has(key)) continue;
-        if (KNOWN_JAM_BAND_ARTISTS.some((name) => artistMatchesHotName(r.artist_name, name))) {
+        if (seedNames.some((name) => artistMatchesHotName(r.artist_name, name))) {
           byKey.set(key, r);
         }
       }
-      return [...byKey.values()]
+      // Country-only: drop jam/bluegrass headliners that slipped into matched via Country tags.
+      const values = [...byKey.values()].filter((r) => {
+        if (!genreTokensRequestCountry(genreTokens) || genreTokensRequestJamBand(genreTokens)) {
+          return true;
+        }
+        const isJam = KNOWN_JAM_BAND_ARTISTS.some((name) =>
+          artistMatchesHotName(r.artist_name, name),
+        );
+        const isCountrySeed = KNOWN_COUNTRY_ARTISTS.some((name) =>
+          artistMatchesHotName(r.artist_name, name),
+        );
+        return !isJam || isCountrySeed;
+      });
+      return values
         .sort((a, b) => Number(b.heat_score) - Number(a.heat_score))
         .slice(0, limit);
     }
@@ -770,13 +789,16 @@ serve(async (req) => {
         } else {
           const hotArtists = await loadHotArtists(supabase, genreTokens, 40);
           const jamMode = genreTokensRequestJamBand(genreTokens);
-          // Prefer hot names, then known jam headliners (TM has no reliable Jam Band class).
+          const countryMode = genreTokensRequestCountry(genreTokens) && !jamMode;
+          // Prefer hot names, then known genre headliners (jam/country chips need seeds
+          // because TM classifications are noisy for those audiences).
           const preferredArtists = [
             ...hotArtists.map((h) => h.artist_name),
             ...(jamMode ? KNOWN_JAM_BAND_ARTISTS : []),
+            ...(countryMode ? KNOWN_COUNTRY_ARTISTS : []),
           ].filter((name, i, arr) => arr.findIndex((n) => artistMatchesHotName(n, name)) === i);
           console.log(
-            `[HOT] loaded=${hotArtists.length} jamMode=${jamMode} preferred=${preferredArtists.length} ` +
+            `[HOT] loaded=${hotArtists.length} jamMode=${jamMode} countryMode=${countryMode} preferred=${preferredArtists.length} ` +
               `genres=${genreTokens.join("|") || "any"} ` +
               `top=${hotArtists.slice(0, 5).map((h) => h.artist_name).join(", ") || "(none)"}`,
           );
@@ -811,7 +833,8 @@ serve(async (req) => {
           ).size;
           const needsGenreLiveTopUp =
             hasSpecificGenres &&
-            (opts.length < MAX_RETURN || (jamMode && uniqueArtistCount < Math.min(3, MAX_RETURN)));
+            (opts.length < MAX_RETURN ||
+              ((jamMode || countryMode) && uniqueArtistCount < Math.min(3, MAX_RETURN)));
           if (needsGenreLiveTopUp) {
             const liveOpts = await discoverConcertsFromCatalogMetros({
               metros: targetMetros,
@@ -824,9 +847,13 @@ serve(async (req) => {
                 ...opts.map((o) => String(o.id || "").trim()).filter(Boolean),
               ],
             });
-            // Merge live results; for jam, re-rank so unique artists fill the picker.
-            opts = mergeDiscoverOptions(opts, liveOpts, jamMode ? Math.max(MAX_RETURN, 8) : MAX_RETURN);
-            if (jamMode) {
+            // Merge live results; for jam/country, re-rank so unique artists fill the picker.
+            opts = mergeDiscoverOptions(
+              opts,
+              liveOpts,
+              jamMode || countryMode ? Math.max(MAX_RETURN, 8) : MAX_RETURN,
+            );
+            if (jamMode || countryMode) {
               const diverse: Array<Record<string, unknown>> = [];
               const seenArtists = new Set<string>();
               for (const o of [...opts].sort(
@@ -850,13 +877,14 @@ serve(async (req) => {
             }
           }
 
-          // Bounded TM keyword top-up for hottest / jam-seed artists missing from results.
+          // Bounded TM keyword top-up for hottest / genre-seed artists missing from results.
           // Caps API spend; geography/date still enforced by discoverConcertsFromCatalogMetros.
           if (opts.length < MAX_RETURN) {
-            const HOT_TM_TOPUP = jamMode ? 6 : 4;
+            const HOT_TM_TOPUP = jamMode || countryMode ? 6 : 4;
             const seedNames = [
               ...hotArtists.map((h) => h.artist_name),
               ...(jamMode ? KNOWN_JAM_BAND_ARTISTS : []),
+              ...(countryMode ? KNOWN_COUNTRY_ARTISTS : []),
             ].filter((name, i, arr) => arr.findIndex((n) => artistMatchesHotName(n, name)) === i);
             const unmatchedSeeds = seedNames
               .filter((name) => !opts.some((o) => artistMatchesHotName(String(o.artist || ""), name)))

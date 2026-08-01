@@ -270,12 +270,17 @@ async function seedFromEvents(supabase: any, startDate: string, endDate: string)
 }
 
 const DEFAULT_BACKFILL_ARTISTS = [
-  "Zach Bryan", "Chris Stapleton", "Luke Combs", "Morgan Wallen", "Foo Fighters",
-  "Pearl Jam", "Dave Matthews Band", "Billy Strings", "Eric Church",
-  "Parker McCollum", "The Avett Brothers", "Widespread Panic", "Dead & Company",
-  "Tyler Childers", "Noah Kahan", "Hozier", "Kings of Leon", "The Lumineers",
+  // Mainstream country first so Country chip inventory stays radio-relevant.
+  "Morgan Wallen", "Luke Combs", "Zach Bryan", "Chris Stapleton", "Cody Johnson",
+  "Kane Brown", "Jelly Roll", "Lainey Wilson", "Bailey Zimmerman", "Megan Moroney",
+  "HARDY", "Eric Church", "Parker McCollum", "Koe Wetzel", "Tyler Childers",
+  "Kacey Musgraves", "Riley Green", "Zach Top", "Ella Langley", "Shaboozey",
+  // Broader staples
+  "Foo Fighters", "Pearl Jam", "Dave Matthews Band", "Billy Strings",
+  "The Avett Brothers", "Widespread Panic", "Dead & Company",
+  "Noah Kahan", "Hozier", "Kings of Leon", "The Lumineers",
   "Jason Isbell", "Turnpike Troubadours", "AJR", "String Cheese Incident",
-  "Sombr", "Trey Anastasio", "Gov't Mule", "Kacey Musgraves", "Farm Aid",
+  "Sombr", "Trey Anastasio", "Gov't Mule", "Farm Aid",
   "The Wood Brothers", "Trampled By Turtles", "Indigo Girls",
 ];
 
