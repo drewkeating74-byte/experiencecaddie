@@ -1,13 +1,12 @@
 name: Verify packages (Ticketmaster)
 
-# ~Biweekly: 1st and 15th of each month at 05:15 UTC (~every two weeks on average).
+# Schedule removed 2026-10-04 when the site closed.
+# Previously ran on the 1st and 15th of each month at 05:15 UTC.
 # Calls verify-packages to deactivate catalog rows that no longer match TM on the same date,
 # refresh direct ticket URLs on events, and backfill verified curated rows so 25 stay active.
 #
 # Requires: secrets.SUPABASE_SERVICE_ROLE_KEY (same as packages-maintenance)
 on:
-  schedule:
-    - cron: "15 5 1,15 * *"
   workflow_dispatch:
     inputs:
       suggest:

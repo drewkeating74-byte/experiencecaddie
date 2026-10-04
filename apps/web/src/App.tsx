@@ -1,57 +1,12 @@
-import { Toaster } from "@/components/ui/toaster";
-import { Toaster as Sonner } from "@/components/ui/sonner";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import Layout from "@/components/Layout";
-import Index from "./pages/Index";
-import Packages from "./pages/Packages";
-import PackageDetail from "./pages/PackageDetail";
-import Events from "./pages/Events";
-import Courses from "./pages/Courses";
-import Auth from "./pages/Auth";
-import Bookings from "./pages/Bookings";
-import Admin from "./pages/Admin";
-import ExperienceBuilder from "./pages/ExperienceBuilder";
-import ItineraryResults from "./pages/ItineraryResults";
-import SharedItinerary from "./pages/SharedItinerary";
-import SearchPreview from "./pages/SearchPreview";
-import GolfReview from "./pages/GolfReview";
-import Privacy from "./pages/Privacy";
-import Terms from "./pages/Terms";
-import NotFound from "./pages/NotFound";
-
-const queryClient = new QueryClient();
+import { BrowserRouter, Route, Routes } from "react-router-dom";
+import Closed from "./pages/Closed";
 
 const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <Toaster />
-      <Sonner />
-      <BrowserRouter>
-        <Routes>
-          <Route element={<Layout />}>
-            <Route path="/" element={<Index />} />
-            <Route path="/packages" element={<Packages />} />
-            <Route path="/packages/:id" element={<PackageDetail />} />
-            <Route path="/events" element={<Events />} />
-            <Route path="/courses" element={<Courses />} />
-            <Route path="/auth" element={<Auth />} />
-            <Route path="/bookings" element={<Bookings />} />
-            <Route path="/experience" element={<ExperienceBuilder />} />
-            <Route path="/itinerary/:id" element={<ItineraryResults />} />
-            <Route path="/share/:slug" element={<SharedItinerary />} />
-            <Route path="/search-preview" element={<SearchPreview />} />
-            <Route path="/admin" element={<Admin />} />
-            <Route path="/admin/golf-review" element={<GolfReview />} />
-            <Route path="/privacy" element={<Privacy />} />
-            <Route path="/terms" element={<Terms />} />
-          </Route>
-          <Route path="*" element={<NotFound />} />
-        </Routes>
-      </BrowserRouter>
-    </TooltipProvider>
-  </QueryClientProvider>
+  <BrowserRouter>
+    <Routes>
+      <Route path="*" element={<Closed />} />
+    </Routes>
+  </BrowserRouter>
 );
 
 export default App;

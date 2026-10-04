@@ -1,12 +1,11 @@
 name: Seed Packages from Discovery
 
-# Runs daily after refresh-discovery (which runs at various times).
+# Schedule removed 2026-10-04 when the site closed.
+# Previously ran daily after refresh-discovery.
 # Default: dry-run — reports candidates in the Actions log.
 # Manual dispatch with mode=create writes packages to the DB.
 
 on:
-  schedule:
-    - cron: "30 4 * * *"   # 04:30 UTC daily, after refresh-discovery
   workflow_dispatch:
     inputs:
       mode:

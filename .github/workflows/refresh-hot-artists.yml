@@ -1,13 +1,12 @@
 name: Weekly Hot Artists Refresh
 
-# Runs every Monday at 08:00 UTC.
+# Schedule removed 2026-10-04 when the site closed.
+# Previously ran every Monday at 08:00 UTC.
 # Calls the refresh-hot-artists edge function which scans music media via
 # Perplexity and upserts public.hot_artists. Genre / surprise discovery uses
 # that cache to seed and re-rank Ticketmaster inventory checks.
 on:
-  schedule:
-    - cron: "0 8 * * 1"   # Weekly Monday 08:00 UTC
-  workflow_dispatch:       # Allow manual trigger from GitHub Actions tab
+  workflow_dispatch:       # Manual only. The weekly schedule was removed when the site closed.
 
 jobs:
   refresh:

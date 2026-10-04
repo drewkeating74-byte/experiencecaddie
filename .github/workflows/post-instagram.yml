@@ -1,6 +1,7 @@
 name: Post to Instagram
 
-# Runs Tuesday, Thursday, and Saturday at 2pm UTC (~9am Central).
+# Schedule removed 2026-10-04 when the site closed.
+# Previously ran Tuesday, Thursday, and Saturday at 2pm UTC (~9am Central).
 # Picks pending rows from instagram_queue and adds them to Buffer's channel queue
 # so Buffer uses the posting schedule configured for each channel.
 #
@@ -9,8 +10,6 @@ name: Post to Instagram
 #   post_now=true  → custom schedule 30 minutes from now instead of queueing
 
 on:
-  schedule:
-    - cron: "0 14 * * 2,4,6"   # Tue, Thu, Sat 14:00 UTC ≈ 9:00am Central
   workflow_dispatch:
     inputs:
       dry_run:

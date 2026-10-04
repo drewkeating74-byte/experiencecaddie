@@ -1,14 +1,13 @@
 name: Weekly Refresh — Stale Itineraries
 
-# Runs every Sunday at 3:00 AM UTC.
+# Schedule removed 2026-10-04 when the site closed.
+# Previously ran every Sunday at 3:00 AM UTC.
 # Calls the refresh-stale edge function which finds itineraries older than 7 days
 # and re-runs search + generate-itinerary with future-shifted dates.
 # Capped at 3 itineraries per run to stay within the Supabase 150s timeout.
 # Search calls use _context=background to skip the live Ticketmaster API (ToS compliance).
 on:
-  schedule:
-    - cron: "0 3 * * 0"   # Sunday 03:00 UTC
-  workflow_dispatch:       # allow manual trigger from GitHub Actions tab
+  workflow_dispatch:       # Manual only. The weekly schedule was removed when the site closed.
 
 jobs:
   refresh-stale:

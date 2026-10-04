@@ -1,14 +1,13 @@
 name: Daily Discovery Refresh
 
-# Runs every day at 09:00 UTC.
+# Schedule removed 2026-10-04 when the site closed.
+# Previously ran every day at 09:00 UTC.
 # Calls the refresh-discovery edge function which repopulates the
 # discovery_shows cache (upcoming weekend concerts across catalog metros) from
 # Ticketmaster. The itinerary builder serves genre / "best upcoming shows"
 # discovery from this cache instead of calling Ticketmaster live.
 on:
-  schedule:
-    - cron: "0 9 * * *"    # Daily 09:00 UTC
-  workflow_dispatch:        # Allow manual trigger from GitHub Actions tab
+  workflow_dispatch:        # Manual only. The daily schedule was removed when the site closed.
     inputs:
       mode:
         description: "Refresh mode: 'tm' (TM + audience + hot backfill), 'backfill_artists', 'backfill_hot_artists', or 'seed_from_events'"

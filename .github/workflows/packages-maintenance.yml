@@ -1,13 +1,12 @@
 name: Daily Packages Maintenance
 
-# Runs every day at 04:00 AM UTC.
+# Schedule removed 2026-10-04 when the site closed.
+# Previously ran every day at 04:00 AM UTC.
 # Calls the packages-maintenance edge function which:
 #   1. Sets active = false on packages whose event date has passed
 #   2. Promotes itineraries saved by 2+ distinct users to the packages catalog
 on:
-  schedule:
-    - cron: "0 4 * * *"    # Daily 04:00 UTC
-  workflow_dispatch:        # Allow manual trigger from GitHub Actions tab
+  workflow_dispatch:        # Manual only. The daily schedule was removed when the site closed.
 
 jobs:
   maintenance:

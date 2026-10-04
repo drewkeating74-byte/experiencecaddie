@@ -1,6 +1,7 @@
 name: Golf Course Verification
 
-# Automated two-pass verifier (Google Places + optional Perplexity). Runs monthly
+# Schedule removed 2026-10-04 when the site closed.
+# Automated two-pass verifier (Google Places + optional Perplexity). Previously ran monthly
 # to catch new / unreviewed courses added by catalog refreshes; anything the verifier
 # can't confidently classify lands in `needs_review` for the admin Golf Course Review screen.
 #
@@ -18,11 +19,8 @@ name: Golf Course Verification
 # times in a row (each run clears up to 50 unreviewed + 50 needs_review).
 
 on:
-  # Monthly automated run — 1st of the month, 06:00 UTC.
-  # Processes up to 50 unreviewed (Pass 1) then up to 50 needs_review (Pass 2) per run.
-  schedule:
-    - cron: '0 6 1 * *'
-
+  # Schedule removed 2026-10-04 when the site closed.
+  # Previously ran on the 1st of the month at 06:00 UTC.
   workflow_dispatch:
     inputs:
       skip_llm:
